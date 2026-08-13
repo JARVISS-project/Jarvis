@@ -1,15 +1,11 @@
+from jarvis.harness import Harness
+from jarvis.llm.ollama_client import OllamaLLM
+
+
 def main() -> None:
-    print("Jarvis iniciado.")
-    print("Digite 'sair' para encerrar.")
-
-    while True:
-        mensagem = input("Você: ")
-
-        if mensagem.lower() == "sair":
-            print("Jarvis: Até mais.")
-            break
-
-        print(f"Jarvis: Você disse '{mensagem}'.")
+    llm = OllamaLLM()
+    harness = Harness(llm)
+    harness.run()
 
 
 if __name__ == "__main__":
