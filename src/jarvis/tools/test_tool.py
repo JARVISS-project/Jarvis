@@ -9,6 +9,13 @@ class TestTool(Tool):
     description = "Tool usada apenas para testar a arquitetura."
     risk = RiskLevel.SAFE
 
+    parameters = {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": False,
+    }
+
     def get_target(self, **kwargs: Any) -> str:
         return "nenhum"
 

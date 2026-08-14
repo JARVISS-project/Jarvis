@@ -8,6 +8,7 @@ class Tool(ABC):
     name: str
     description: str
     risk: RiskLevel
+    parameters: dict[str, Any]
 
     @abstractmethod
     def get_target(self, **kwargs: Any) -> str:
