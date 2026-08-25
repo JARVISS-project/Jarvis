@@ -15,3 +15,12 @@ __pycache__/
 # System
 .DS_Store
 Thumbs.db
+
+# Logs
+logs/
+
+# Local application data
+data/
+
+# Python package metadata
+*.egg-info/

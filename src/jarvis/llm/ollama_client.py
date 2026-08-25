@@ -7,9 +7,19 @@ from jarvis.llm.types import LLMResponse, ToolCallRequest
 
 
 class OllamaLLM(LLMClient):
-    def __init__(self, model: str = "qwen3:4b") -> None:
+    def __init__(
+        self,
+        model: str = "qwen3:4b",
+        keep_alive: str = "5m",
+        thinking_enabled: bool = False,
+    ) -> None:
         self.model = model
+        self.keep_alive = keep_alive
+        self.thinking_enabled = thinking_enabled
         self.client = Client(host="http://localhost:11434")
+
+    def set_keep_alive(self, keep_alive: str) -> None:
+        self.keep_alive = keep_alive
 
     def generate(
         self,
@@ -21,6 +31,8 @@ class OllamaLLM(LLMClient):
             model=self.model,
             messages=messages,
             tools=tools or [],
+            keep_alive=self.keep_alive,
+            think=self.thinking_enabled,
         )
 
         tool_calls = []

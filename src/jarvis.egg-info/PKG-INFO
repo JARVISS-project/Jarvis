@@ -4,3 +4,17 @@ Version: 0.1.0
 Summary: Assistente pessoal inteligente desenvolvido em Python.
 Requires-Python: >=3.11
 Description-Content-Type: text/markdown
+Requires-Dist: ollama
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Provides-Extra: voice
+Requires-Dist: faster-whisper; extra == "voice"
+Requires-Dist: openwakeword; extra == "voice"
+Requires-Dist: pvrecorder; extra == "voice"
+Requires-Dist: pyttsx3; extra == "voice"
+
+# Jarvis
+
+Assistente pessoal inteligente desenvolvido em Python utilizando Ollama.
+
+Projeto criado para estudar agentes de IA, automação, segurança e interação com o sistema.

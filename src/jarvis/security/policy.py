@@ -1,9 +1,9 @@
 from jarvis.security.risk import RiskLevel
 
+
 class SecurityPolicy:
     def requires_confirmation(self, risk: RiskLevel) -> bool:
-        return risk >= RiskLevel.HIGH
-    
+        return risk >= RiskLevel.MEDIUM
 
     def is_allowed(self, risk: RiskLevel) -> bool:
         return risk < RiskLevel.CRITICAL

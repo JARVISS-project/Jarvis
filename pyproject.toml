@@ -12,6 +12,17 @@ dependencies = [
     "ollama",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+voice = [
+    "faster-whisper",
+    "openwakeword",
+    "pvrecorder",
+    "pyttsx3",
+]
+
 [project.scripts]
 jarvis = "jarvis.__main__:main"
 
