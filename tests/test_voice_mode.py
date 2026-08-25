@@ -107,6 +107,11 @@ def test_starting_voice_mode_does_not_load_stt_model(
     )
     monkeypatch.setattr(
         main_module,
+        "VoiceAudioSession",
+        lambda _listener: object(),
+    )
+    monkeypatch.setattr(
+        main_module,
         "UtteranceRecorder",
         lambda **_kwargs: object(),
     )

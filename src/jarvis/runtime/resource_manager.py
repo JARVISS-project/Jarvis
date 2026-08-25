@@ -13,6 +13,14 @@ class ResourceManager:
         self.state = RuntimeState.ACTIVE
         self._touch()
 
+    def confirmation(self) -> None:
+        self.state = RuntimeState.CONFIRMATION
+        self._touch()
+
+    def conversation(self) -> None:
+        self.state = RuntimeState.ACTIVE_CONVERSATION
+        self._touch()
+
     def idle(self) -> None:
         self.state = (
             RuntimeState.GAME_MODE

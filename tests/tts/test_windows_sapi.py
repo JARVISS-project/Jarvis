@@ -208,6 +208,86 @@ def test_close_releases_initialized_engine() -> None:
     assert tts.is_worker_running is False
 
 
+def test_stop_preserves_worker_and_later_speak_still_works() -> None:
+    engine = FakePyttsxLifecycleEngine()
+    tts = WindowsSapiTTS(engine_factory=lambda: engine)
+    tts.speak("Primeira")
+    tts.stop()
+    assert engine.stop_calls == 1
+    assert tts.is_worker_running is True
+    tts.speak("Segunda")
+    assert engine.spoken == ["Primeira", "Segunda"]
+    assert engine.audible == ["Primeira", "Segunda"]
+    tts.close()
+
+
+def test_stop_interrupts_iterative_engine_on_worker_and_allows_reuse() -> None:
+    started = Event()
+
+    class InterruptibleEngine(FakeEngine):
+        def __init__(self) -> None:
+            super().__init__()
+            self.busy = False
+            self.end_calls = 0
+
+        def say(self, text: str) -> None:
+            super().say(text)
+            self.busy = True
+
+        def startLoop(self, use_driver_loop: bool) -> None:
+            assert use_driver_loop is False
+            started.set()
+
+        def iterate(self) -> None:
+            pass
+
+        def isBusy(self) -> bool:
+            return self.busy
+
+        def stop(self) -> None:
+            super().stop()
+            self.busy = False
+
+        def endLoop(self) -> None:
+            self.end_calls += 1
+
+    engine = InterruptibleEngine()
+    tts = WindowsSapiTTS(engine_factory=lambda: engine)
+    caller = Thread(target=lambda: tts.speak("fala longa"))
+    caller.start()
+    assert started.wait(timeout=1)
+    tts.stop()
+    caller.join(timeout=1)
+    assert not caller.is_alive()
+    assert engine.stop_threads == [tts.worker_ident]
+    engine.busy = False
+    started.clear()
+    second = Thread(target=lambda: tts.speak("nova fala"))
+    second.start()
+    assert started.wait(timeout=1)
+    tts.stop()
+    second.join(timeout=1)
+    assert not second.is_alive()
+    assert engine.spoken == ["fala longa", "nova fala"]
+    tts.close()
+
+
+def test_speak_async_returns_playing_handle() -> None:
+    release = Event()
+
+    class BlockingEngine(FakeEngine):
+        def runAndWait(self) -> None:
+            release.wait()
+
+    tts = WindowsSapiTTS(engine_factory=lambda: BlockingEngine())
+    playback = tts.speak_async("assíncrono")
+    assert playback.is_playing
+    release.set()
+    assert playback.wait(timeout=1)
+    assert not playback.is_playing
+    tts.close()
+
+
 def test_basic_markdown_is_prepared_without_changing_content() -> None:
     text = "**Arquivos:**\n- README.md\n- [Projeto](https://example.test)"
 

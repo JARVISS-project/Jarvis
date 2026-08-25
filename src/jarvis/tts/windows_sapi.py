@@ -4,7 +4,7 @@ from queue import Queue
 from threading import Event, Lock, Thread, get_ident
 from typing import Any, Literal, Protocol
 
-from jarvis.tts.base import TextToSpeech
+from jarvis.tts.base import SpeechPlaybackHandle, TextToSpeech
 
 
 class _SpeechEngine(Protocol):
@@ -53,6 +53,8 @@ class WindowsSapiTTS(TextToSpeech):
         self._worker_ident: int | None = None
         self._lifecycle_lock = Lock()
         self._closed = False
+        self._speaking = Event()
+        self._stop_requested = Event()
 
     @property
     def is_engine_initialized(self) -> bool:
@@ -69,10 +71,25 @@ class WindowsSapiTTS(TextToSpeech):
     def speak(self, text: str) -> None:
         if not text.strip():
             return
-        self._submit(_TTSRequest(action="speak", text=text))
+        self.speak_async(text).wait()
+
+    def speak_async(self, text: str) -> SpeechPlaybackHandle:
+        request = _TTSRequest(action="speak", text=text)
+        if not text.strip():
+            request.completed.set()
+            return SpeechPlaybackHandle(request.completed, self.stop)
+        self._ensure_worker()
+        self._requests.put(request)
+        return SpeechPlaybackHandle(
+            request.completed,
+            self.stop,
+            lambda: request.error,
+        )
 
     def stop(self) -> None:
-        if self.is_worker_running:
+        if self._speaking.is_set():
+            self._stop_requested.set()
+        elif self.is_worker_running:
             self._submit(_TTSRequest(action="stop"))
 
     def close(self) -> None:
@@ -136,12 +153,37 @@ class WindowsSapiTTS(TextToSpeech):
             engine = self._ensure_engine()
             self._prepare_engine_queue(engine)
             engine.say(request.text)
-            engine.runAndWait()
+            self._speaking.set()
+            self._stop_requested.clear()
+            self._run_speech(engine)
         except Exception as error:
             request.error = error
             self._discard_engine()
         finally:
+            self._speaking.clear()
+            self._stop_requested.clear()
             request.completed.set()
+
+    def _run_speech(self, engine: _SpeechEngine) -> None:
+        start_loop = getattr(engine, "startLoop", None)
+        iterate = getattr(engine, "iterate", None)
+        end_loop = getattr(engine, "endLoop", None)
+        is_busy = getattr(engine, "isBusy", None)
+        if not all(callable(method) for method in (
+            start_loop, iterate, end_loop, is_busy
+        )):
+            engine.runAndWait()
+            return
+        start_loop(False)
+        try:
+            while is_busy():
+                if self._stop_requested.is_set():
+                    engine.stop()
+                    break
+                iterate()
+                self._stop_requested.wait(0.01)
+        finally:
+            end_loop()
 
     def _ensure_engine(self) -> _SpeechEngine:
         if self._engine is None:

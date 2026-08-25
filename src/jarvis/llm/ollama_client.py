@@ -1,4 +1,5 @@
 from typing import Any
+import json
 
 from ollama import Client
 
@@ -32,7 +33,7 @@ class OllamaLLM(LLMClient):
             messages=messages,
             tools=tools or [],
             keep_alive=self.keep_alive,
-            think=self.thinking_enabled,
+            think=False,
         )
 
         tool_calls = []
@@ -49,3 +50,36 @@ class OllamaLLM(LLMClient):
             content=response.message.content or "",
             tool_calls=tool_calls,
         )
+
+    def generate_final(
+        self,
+        messages: list[dict[str, Any]],
+    ) -> LLMResponse:
+        retry_messages = list(messages)
+        retry_messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Formule somente a resposta final ao usuário. "
+                    "Não exponha raciocínio, protocolo ou chamadas de tools."
+                ),
+            }
+        )
+        response = self.client.chat(
+            model=self.model,
+            messages=retry_messages,
+            tools=[],
+            keep_alive=self.keep_alive,
+            think=False,
+            format={
+                "type": "object",
+                "properties": {"answer": {"type": "string"}},
+                "required": ["answer"],
+            },
+        )
+        try:
+            payload = json.loads(response.message.content or "")
+            answer = payload.get("answer", "")
+        except (TypeError, ValueError, AttributeError):
+            answer = ""
+        return LLMResponse(content=answer if isinstance(answer, str) else "")

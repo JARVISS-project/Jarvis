@@ -98,6 +98,69 @@ def test_raw_tool_results_are_only_used_during_agent_loop() -> None:
     ]
 
 
+def test_firewall_retry_does_not_execute_tool_again() -> None:
+    class CountingExecutor(FakeToolExecutor):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def execute(self, tool: TestTool, **kwargs: Any) -> str:
+            self.calls += 1
+            return super().execute(tool, **kwargs)
+
+    llm = ScriptedLLM(
+        [
+            LLMResponse(
+                content="internal",
+                tool_calls=[ToolCallRequest(name="test_tool", arguments={})],
+            ),
+            LLMResponse(content="Okay, the user asked... Wait, no..."),
+            LLMResponse(content="A ferramenta foi executada com sucesso."),
+        ]
+    )
+    executor = CountingExecutor()
+    registry = ToolRegistry()
+    registry.register(TestTool())
+    memory = ConversationMemory()
+    harness = Harness(
+        llm=llm,
+        tool_registry=registry,
+        tool_executor=executor,  # type: ignore[arg-type]
+        memory=memory,
+    )
+
+    response = harness.processar_mensagem("Execute a ferramenta.")
+
+    assert response == "A ferramenta foi executada com sucesso."
+    assert executor.calls == 1
+    history = " ".join(item["content"] for item in memory.get_history())
+    assert "Okay, the user asked" not in history
+    assert "Wait, no" not in history
+
+
+def test_one_hundred_leaks_never_enter_memory() -> None:
+    for marker in (
+        "Okay, the user asked...",
+        "Wait, no...",
+        "Looking at the tools...",
+        "The assistant should call a tool.",
+    ):
+        for _ in range(25):
+            memory = ConversationMemory()
+            harness = make_harness(
+                ScriptedLLM(
+                    [
+                        LLMResponse(content=marker),
+                        LLMResponse(content="Resposta final segura."),
+                    ]
+                ),
+                memory,
+            )
+            assert harness.processar_mensagem("Pergunta") == (
+                "Resposta final segura."
+            )
+            assert marker not in str(memory.get_history())
+
+
 def make_harness(
     llm: ScriptedLLM, memory: ConversationMemory
 ) -> Harness:

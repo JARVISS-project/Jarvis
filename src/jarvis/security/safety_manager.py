@@ -1,12 +1,75 @@
-from jarvis.security.confirmation import HumanConfirmation
+from jarvis.security.confirmation import ConfirmationProvider, HumanConfirmation
 from jarvis.security.policy import SecurityPolicy
 from jarvis.security.risk import RiskLevel
+from jarvis.security.confirmation_request import ConfirmationRequest
+from jarvis.security.confirmation import security_prompt
+from jarvis.security.authorization import (
+    AuthorizationGrant,
+    AuthorizationGrantStore,
+)
 
 
 class SafetyManager:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        confirmation: ConfirmationProvider | None = None,
+        grants: AuthorizationGrantStore | None = None,
+    ) -> None:
         self.policy = SecurityPolicy()
-        self.confirmation = HumanConfirmation()
+        self.confirmation = confirmation or HumanConfirmation()
+        self.grants = grants or AuthorizationGrantStore()
+
+    def authorize_invocation(
+        self,
+        action: str,
+        target: str,
+        risk: RiskLevel,
+    ) -> AuthorizationGrant | None:
+        if not self.policy.is_allowed(risk):
+            self.invalidate_authorizations()
+            return None
+        if not self.policy.requires_confirmation(risk):
+            return self.grants.issue(action, target)
+        confirmed = self.confirmation.confirm_request(
+            ConfirmationRequest(
+                action=action,
+                target=target,
+                risk=risk,
+                prompt_text=security_prompt(action, target, risk=risk),
+            )
+        )
+        if not confirmed:
+            self.invalidate_authorizations()
+            return None
+        return self.grants.issue(action, target)
+
+    def consume_grant(
+        self,
+        grant: AuthorizationGrant,
+        action: str,
+        target: str,
+        interaction_id: str | None = None,
+    ) -> bool:
+        return self.grants.consume(grant, action, target, interaction_id)
+
+    def grant_explicit_authorization(
+        self,
+        action: str,
+        target: str,
+        risk: RiskLevel,
+        interaction_id: str,
+    ) -> AuthorizationGrant | None:
+        if (
+            not interaction_id
+            or not self.policy.is_allowed(risk)
+            or not self.policy.requires_confirmation(risk)
+        ):
+            return None
+        return self.grants.issue(action, target, interaction_id)
+
+    def invalidate_authorizations(self) -> None:
+        self.grants.invalidate_all()
+        self.confirmation.clear_pending_confirmation()
 
     def authorize(
         self,
@@ -23,10 +86,9 @@ class SafetyManager:
             return False
 
         if self.policy.requires_confirmation(risk):
-            return self.confirmation.confirm(
-                action=action,
-                target=target,
-                risk=risk,
-            )
+            grant = self.authorize_invocation(action, target, risk)
+            if grant is None:
+                return False
+            return self.consume_grant(grant, action, target)
 
         return True

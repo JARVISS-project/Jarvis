@@ -67,3 +67,29 @@ def test_thinking_configuration_is_forwarded_and_separate_field_is_ignored(
 
     assert fake_client.arguments["think"] is False
     assert response.content == "Resposta"
+
+
+def test_structured_final_retry_also_disables_thinking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = FakeOllamaClient()
+
+    def structured_chat(**kwargs: Any) -> SimpleNamespace:
+        fake_client.arguments = kwargs
+        return SimpleNamespace(
+            message=SimpleNamespace(
+                content='{"answer":"Resposta final segura."}',
+                thinking="segredo",
+                tool_calls=[],
+            )
+        )
+
+    fake_client.chat = structured_chat  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "jarvis.llm.ollama_client.Client", lambda **_kwargs: fake_client
+    )
+    response = OllamaLLM(thinking_enabled=True).generate_final([])
+    assert fake_client.arguments["think"] is False
+    assert fake_client.arguments["tools"] == []
+    assert fake_client.arguments["format"]["required"] == ["answer"]
+    assert response.content == "Resposta final segura."

@@ -6,43 +6,68 @@ from jarvis.activation.openwakeword import OpenWakeWordDetector
 from jarvis.audio.input import PvRecorderAudioInput
 from jarvis.audio.utterance import UtteranceRecorder
 from jarvis.config import JarvisConfig
+from jarvis.context.file_reference_resolver import FileReferenceResolver
+from jarvis.context.recent import RecentContext
+from jarvis.context.note_reference_resolver import NoteReferenceResolver
 from jarvis.harness import Harness
+from jarvis.integrations.obsidian.vault import ObsidianVault
 from jarvis.llm.ollama_client import OllamaLLM
 from jarvis.memory.conversation import ConversationMemory
 from jarvis.memory.sqlite_store import SQLiteMemoryStore
 from jarvis.runtime.resource_manager import ResourceManager
+from jarvis.runtime.cancellation import CancellationController
 from jarvis.security.audit import AuditLogger
+from jarvis.security.confirmation import ConfirmationProvider, VoiceConfirmation
+from jarvis.security.capabilities import Capability, CapabilityPolicy
 from jarvis.security.filesystem import FileSystemGuard
 from jarvis.security.safety_manager import SafetyManager
 from jarvis.speech.faster_whisper import FasterWhisperSTT
+from jarvis.speech.normalizer import TranscriptNormalizer
+from jarvis.speech.validator import TranscriptionValidator
+from jarvis.speech.context import SpeechContextBuilder
 from jarvis.tools.create_file import CreateFileTool
 from jarvis.tools.delete_file import DeleteFileTool
 from jarvis.tools.edit_file import EditFileTool
 from jarvis.tools.executor import ToolExecutor
 from jarvis.tools.get_datetime import GetDateTimeTool
+from jarvis.tools.get_runtime_info import GetRuntimeInfoTool
 from jarvis.tools.list_files import ListFilesTool
 from jarvis.tools.move_file import MoveFileTool
+from jarvis.tools.obsidian import obsidian_tools
 from jarvis.tools.read_file import ReadFileTool
 from jarvis.tools.registry import ToolRegistry
 from jarvis.tools.test_tool import TestTool
 from jarvis.tts.windows_sapi import WindowsSapiTTS
 from jarvis.voice.pipeline import VoicePipeline
+from jarvis.voice.barge_in import BargeInController
+from jarvis.voice.audio_session import VoiceAudioSession
 
 
 def build_harness(
     config: JarvisConfig,
     resource_manager: ResourceManager,
+    confirmation: ConfirmationProvider | None = None,
+    recent_context: RecentContext | None = None,
 ) -> Harness:
     llm = OllamaLLM(
         model=config.model_name,
         keep_alive=config.ollama_keep_alive_normal,
         thinking_enabled=config.llm_thinking_enabled,
     )
-    safety_manager = SafetyManager()
+    safety_manager = SafetyManager(confirmation=confirmation)
+    capability_policy = CapabilityPolicy(
+        {
+            Capability.FILESYSTEM_READ: config.filesystem_read_enabled,
+            Capability.FILESYSTEM_WRITE: config.filesystem_write_enabled,
+            Capability.OBSIDIAN_READ: config.obsidian_read_enabled,
+            Capability.OBSIDIAN_WRITE: config.obsidian_write_enabled,
+        }
+    )
     audit_logger = AuditLogger(config.audit_log_path)
     tool_executor = ToolExecutor(
         safety_manager=safety_manager,
         audit_logger=audit_logger,
+        capability_policy=capability_policy,
     )
     filesystem = FileSystemGuard(
         base_directory=config.filesystem_base_directory
@@ -51,16 +76,54 @@ def build_harness(
         max_messages=config.conversation_max_messages
     )
     memory_store = SQLiteMemoryStore(config.database_path)
+    recent_context = recent_context or RecentContext()
+    file_reference_resolver = FileReferenceResolver(
+        filesystem,
+        recent_context,
+    )
 
     tool_registry = ToolRegistry()
     tool_registry.register(TestTool())
     tool_registry.register(GetDateTimeTool())
-    tool_registry.register(ListFilesTool(filesystem))
-    tool_registry.register(ReadFileTool(filesystem))
-    tool_registry.register(CreateFileTool(filesystem))
-    tool_registry.register(EditFileTool(filesystem))
-    tool_registry.register(MoveFileTool(filesystem))
-    tool_registry.register(DeleteFileTool(filesystem))
+    tool_registry.register(GetRuntimeInfoTool(config, resource_manager))
+    if capability_policy.is_enabled(Capability.FILESYSTEM_READ):
+        tool_registry.register(ListFilesTool(filesystem))
+        tool_registry.register(ReadFileTool(filesystem))
+    if capability_policy.is_enabled(Capability.FILESYSTEM_WRITE):
+        tool_registry.register(CreateFileTool(filesystem))
+        tool_registry.register(EditFileTool(filesystem))
+        tool_registry.register(MoveFileTool(filesystem))
+        tool_registry.register(DeleteFileTool(filesystem))
+
+    note_reference_resolver = None
+    if (
+        config.obsidian_enabled
+        and config.obsidian_vault_path is not None
+        and config.obsidian_vault_path.is_dir()
+    ):
+        obsidian_filesystem = FileSystemGuard(
+            base_directory=config.obsidian_vault_path
+        )
+        obsidian_vault = ObsidianVault(
+            vault_path=config.obsidian_vault_path,
+            filesystem=obsidian_filesystem,
+            max_note_size_bytes=config.obsidian_max_note_size_bytes,
+            search_max_results=config.obsidian_search_max_results,
+        )
+        note_reference_resolver = NoteReferenceResolver(
+            obsidian_vault, recent_context
+        )
+        for tool in obsidian_tools(obsidian_vault):
+            capability = (
+                Capability.OBSIDIAN_WRITE
+                if tool.name in {
+                    "obsidian_create_note", "obsidian_append_note",
+                    "obsidian_delete_note",
+                }
+                else Capability.OBSIDIAN_READ
+            )
+            if capability_policy.is_enabled(capability):
+                tool_registry.register(tool)
 
     return Harness(
         llm=llm,
@@ -70,6 +133,10 @@ def build_harness(
         memory_store=memory_store,
         config=config,
         resource_manager=resource_manager,
+        recent_context=recent_context,
+        file_reference_resolver=file_reference_resolver,
+        target_confirmation=safety_manager.confirmation,
+        note_reference_resolver=note_reference_resolver,
     )
 
 
@@ -80,12 +147,17 @@ def run_voice_mode(
 ) -> None:
     resource_manager = ResourceManager()
     resource_manager.idle()
-    harness = build_harness(config, resource_manager)
+    cancellation = CancellationController()
+    recent_context = RecentContext()
+    speech_context = SpeechContextBuilder(recent_context)
 
     detector = OpenWakeWordDetector(
         model_name=config.wake_word_model,
         model_path=model_path or config.wake_word_model_path,
         threshold=config.wake_word_threshold,
+        minimum_consecutive_detections=(
+            config.wake_min_consecutive_detections
+        ),
     )
     try:
         audio_input = PvRecorderAudioInput(
@@ -105,6 +177,7 @@ def run_voice_mode(
         detector,
         config.wake_word_cooldown_seconds,
     )
+    audio_session = VoiceAudioSession(listener)
     recorder = UtteranceRecorder(
         audio_input=audio_input,
         sample_rate=detector.sample_rate,
@@ -116,15 +189,22 @@ def run_voice_mode(
             config.voice_minimum_speech_duration_seconds
         ),
         minimum_audio_energy=config.voice_minimum_audio_energy,
+        noise_calibration_seconds=config.voice_noise_calibration_seconds,
+        noise_margin=config.voice_noise_margin,
+        maximum_speech_threshold=config.voice_maximum_speech_threshold,
+        pre_roll_seconds=config.voice_pre_roll_seconds,
+        end_silence_seconds=config.voice_end_silence_seconds,
     )
 
-    def stt_runtime_options() -> tuple[str, str]:
+    def stt_runtime_options() -> tuple[str, str, str]:
         if resource_manager.is_game_mode_active():
             return (
+                config.stt_model_game_mode,
                 config.stt_device_game_mode,
                 config.stt_compute_type_game_mode,
             )
         return (
+            config.stt_model_normal,
             config.stt_device_normal,
             config.stt_compute_type_normal,
         )
@@ -133,6 +213,15 @@ def run_voice_mode(
         model_name=config.stt_model,
         language=config.stt_language,
         runtime_options=stt_runtime_options,
+        initial_prompt=config.stt_initial_prompt,
+        hotwords_provider=speech_context.build_hotwords,
+        hotwords_enabled=config.stt_hotwords_enabled,
+        vad_enabled=config.stt_vad_enabled,
+        vad_min_silence_duration_ms=(
+            config.stt_vad_min_silence_duration_ms
+        ),
+        vad_speech_pad_ms=config.stt_vad_speech_pad_ms,
+        vad_threshold=config.stt_vad_threshold,
     )
     text_to_speech = (
         WindowsSapiTTS(
@@ -142,6 +231,64 @@ def run_voice_mode(
         )
         if config.tts_enabled
         else None
+    )
+    confirmation_recorder = UtteranceRecorder(
+        audio_input=audio_input,
+        sample_rate=detector.sample_rate,
+        silence_threshold=config.voice_silence_threshold,
+        silence_duration_seconds=min(
+            config.voice_silence_duration_seconds, 0.6
+        ),
+        max_recording_seconds=config.voice_confirmation_timeout_seconds,
+        pre_speech_timeout_seconds=config.voice_confirmation_timeout_seconds,
+        minimum_speech_duration_seconds=(
+            config.voice_confirmation_min_speech_duration_seconds
+        ),
+        minimum_audio_energy=config.voice_minimum_audio_energy,
+        noise_calibration_seconds=config.voice_noise_calibration_seconds,
+        noise_margin=config.voice_noise_margin,
+        maximum_speech_threshold=config.voice_maximum_speech_threshold,
+        pre_roll_seconds=config.voice_pre_roll_seconds,
+        end_silence_seconds=min(config.voice_end_silence_seconds, 0.6),
+    )
+    confirmation = (
+        VoiceConfirmation(
+            listener=listener,
+            recorder=confirmation_recorder,
+            speech_to_text=speech_to_text,
+            text_to_speech=text_to_speech,
+            resource_manager=resource_manager,
+            sample_rate=detector.sample_rate,
+            keyboard_fallback=(
+                config.voice_confirmation_keyboard_fallback
+            ),
+            cancellation=cancellation,
+            audio_session=audio_session,
+        )
+        if config.voice_confirmation_enabled
+        else None
+    )
+    def followup_recorder(timeout_seconds: float) -> UtteranceRecorder:
+        return UtteranceRecorder(
+            audio_input=audio_input,
+            sample_rate=detector.sample_rate,
+            silence_threshold=config.voice_silence_threshold,
+            silence_duration_seconds=config.voice_silence_duration_seconds,
+            max_recording_seconds=timeout_seconds,
+            pre_speech_timeout_seconds=timeout_seconds,
+            minimum_speech_duration_seconds=(
+                config.voice_minimum_speech_duration_seconds
+            ),
+            minimum_audio_energy=config.voice_minimum_audio_energy,
+            noise_calibration_seconds=config.voice_noise_calibration_seconds,
+            noise_margin=config.voice_noise_margin,
+            maximum_speech_threshold=config.voice_maximum_speech_threshold,
+            pre_roll_seconds=config.voice_pre_roll_seconds,
+            end_silence_seconds=config.voice_end_silence_seconds,
+        )
+
+    harness = build_harness(
+        config, resource_manager, confirmation, recent_context
     )
     pipeline = VoicePipeline(
         listener=listener,
@@ -156,6 +303,50 @@ def run_voice_mode(
             config.tts_post_speech_cooldown_seconds
         ),
         sample_rate=detector.sample_rate,
+        transcription_validator=TranscriptionValidator(),
+        transcript_normalizer=TranscriptNormalizer(),
+        conversation_followup_enabled=config.conversation_followup_enabled,
+        followup_recorder=followup_recorder(
+            config.conversation_followup_timeout_seconds
+        ),
+        game_mode_followup_recorder=followup_recorder(
+            config.conversation_followup_timeout_game_mode_seconds
+        ),
+        question_followup_recorder=followup_recorder(
+            config.conversation_question_timeout_seconds
+        ),
+        repair_recorder=followup_recorder(
+            config.voice_repair_timeout_seconds
+        ),
+        incomplete_turn_recorder=followup_recorder(
+            config.voice_incomplete_turn_extension_seconds
+        ),
+        cancellation=cancellation,
+        audio_session=audio_session,
+        acknowledgement_enabled=config.voice_acknowledgement_enabled,
+        debug_enabled=config.voice_debug_enabled,
+        cancel_max_no_speech_probability=(
+            config.voice_cancel_max_no_speech_probability
+        ),
+        cancel_min_average_log_probability=(
+            config.voice_cancel_min_average_log_probability
+        ),
+        cancel_min_speech_duration_seconds=(
+            config.voice_cancel_min_speech_duration_seconds
+        ),
+        barge_in_controller=(
+            BargeInController(
+                audio_input=audio_input,
+                sample_rate=detector.sample_rate,
+                energy_margin=config.barge_in_energy_margin,
+                minimum_speech_duration_seconds=(
+                    config.barge_in_min_speech_duration_seconds
+                ),
+                grace_period_seconds=config.barge_in_grace_period_seconds,
+            )
+            if config.barge_in_enabled and text_to_speech is not None
+            else None
+        ),
     )
     pipeline.run()
 

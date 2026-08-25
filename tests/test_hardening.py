@@ -8,6 +8,7 @@ from jarvis.llm.base import LLMClient
 from jarvis.llm.types import LLMResponse, ToolCallRequest
 from jarvis.memory.conversation import ConversationMemory
 from jarvis.security.filesystem import FileSystemGuard
+from jarvis.security.authorization import AuthorizationGrantStore
 from jarvis.tools.delete_file import DeleteFileTool
 from jarvis.tools.execution_result import ToolExecutionResult
 from jarvis.tools.executor import ToolExecutor
@@ -46,10 +47,18 @@ class RecordingSafetyManager:
     def __init__(self, authorized: bool) -> None:
         self.authorized = authorized
         self.calls: list[tuple[str, str, Any]] = []
+        self.grants = AuthorizationGrantStore()
 
     def authorize(self, action: str, target: str, risk: Any) -> bool:
         self.calls.append((action, target, risk))
         return self.authorized
+
+    def authorize_invocation(self, action: str, target: str, risk: Any):
+        self.calls.append((action, target, risk))
+        return self.grants.issue(action, target) if self.authorized else None
+
+    def consume_grant(self, grant, action: str, target: str) -> bool:
+        return self.grants.consume(grant, action, target)
 
 
 class RecordingAuditLogger:

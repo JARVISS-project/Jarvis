@@ -1,31 +1,13 @@
-"""Defensive cleanup for assistant responses."""
+"""Compatibilidade com a antiga API de sanitização."""
 
-import re
-
-
-_THINK_BLOCK = re.compile(
-    r"<think>.*?</think>",
-    flags=re.IGNORECASE | re.DOTALL,
-)
-_THINK_CLOSING_TAG = re.compile(r"</think>", flags=re.IGNORECASE)
-_RESPONSE_WRAPPER = re.compile(
-    r"\s*<response>\s*(.*?)\s*</response>\s*",
-    flags=re.IGNORECASE | re.DOTALL,
-)
-
+from jarvis.llm.firewall import FinalResponseFirewall
 
 def sanitize_assistant_response(text: str) -> str:
-    """Discard tagged reasoning and unwrap one external response tag."""
-    closing_tags = list(_THINK_CLOSING_TAG.finditer(text))
-    if closing_tags:
-        text = text[closing_tags[-1].end():]
-    else:
-        text = _THINK_BLOCK.sub("", text)
-
-    wrapper = _RESPONSE_WRAPPER.fullmatch(text)
-    if wrapper is not None:
-        text = wrapper.group(1)
-    return text.strip()
+    """Compatibilidade: retorna somente texto aprovado pela firewall."""
+    validated = FinalResponseFirewall().validate(text)
+    if not validated.accepted:
+        return ""
+    return validated.text
 
 
 sanitize_final_response = sanitize_assistant_response

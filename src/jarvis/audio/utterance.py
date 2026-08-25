@@ -1,4 +1,5 @@
 import math
+from collections import deque
 
 from jarvis.audio.input import AudioInput
 
@@ -14,12 +15,22 @@ class UtteranceRecorder:
         pre_speech_timeout_seconds: float = 5.0,
         minimum_speech_duration_seconds: float = 0.35,
         minimum_audio_energy: float = 700.0,
+        noise_calibration_seconds: float = 0.0,
+        noise_margin: float = 300.0,
+        maximum_speech_threshold: float = 5000.0,
+        pre_roll_seconds: float = 0.2,
+        end_silence_seconds: float | None = None,
     ) -> None:
         if sample_rate <= 0:
             raise ValueError("sample_rate deve ser positivo.")
         if silence_threshold < 0:
             raise ValueError("silence_threshold não pode ser negativo.")
-        if silence_duration_seconds <= 0:
+        effective_end_silence = (
+            silence_duration_seconds
+            if end_silence_seconds is None
+            else end_silence_seconds
+        )
+        if effective_end_silence <= 0:
             raise ValueError("silence_duration_seconds deve ser positivo.")
         if max_recording_seconds <= 0:
             raise ValueError("max_recording_seconds deve ser positivo.")
@@ -31,17 +42,30 @@ class UtteranceRecorder:
             )
         if minimum_audio_energy < 0:
             raise ValueError("minimum_audio_energy não pode ser negativo.")
+        if noise_calibration_seconds < 0 or noise_margin < 0:
+            raise ValueError("Calibração e margem de ruído não podem ser negativas.")
+        if maximum_speech_threshold < silence_threshold:
+            raise ValueError("O threshold máximo deve ser maior que o mínimo.")
+        if pre_roll_seconds < 0:
+            raise ValueError("pre_roll_seconds não pode ser negativo.")
 
         self.audio_input = audio_input
         self.sample_rate = sample_rate
         self.silence_threshold = silence_threshold
-        self.silence_duration_seconds = silence_duration_seconds
+        self.silence_duration_seconds = effective_end_silence
+        self.end_silence_seconds = effective_end_silence
         self.max_recording_seconds = max_recording_seconds
         self.pre_speech_timeout_seconds = pre_speech_timeout_seconds
         self.minimum_speech_duration_seconds = (
             minimum_speech_duration_seconds
         )
         self.minimum_audio_energy = minimum_audio_energy
+        self.noise_calibration_seconds = noise_calibration_seconds
+        self.noise_margin = noise_margin
+        self.maximum_speech_threshold = maximum_speech_threshold
+        self.pre_roll_seconds = pre_roll_seconds
+        self.last_noise_floor = 0.0
+        self.last_speech_threshold = silence_threshold
 
     def record(self) -> list[int]:
         captured: list[int] = []
@@ -57,6 +81,31 @@ class UtteranceRecorder:
         required_silence_samples = int(
             self.silence_duration_seconds * self.sample_rate
         )
+        calibration_samples = int(
+            self.noise_calibration_seconds * self.sample_rate
+        )
+        calibration_energy = 0.0
+        calibrated_samples = 0
+        while calibrated_samples < calibration_samples:
+            frame = self.audio_input.read_frame()
+            if not frame:
+                raise RuntimeError("A entrada de áudio retornou um frame vazio.")
+            current = frame[: calibration_samples - calibrated_samples]
+            calibration_energy += self._rms(current) * len(current)
+            calibrated_samples += len(current)
+            elapsed_samples += len(current)
+        self.last_noise_floor = (
+            calibration_energy / calibrated_samples
+            if calibrated_samples else 0.0
+        )
+        self.last_speech_threshold = min(
+            self.maximum_speech_threshold,
+            max(self.silence_threshold, self.last_noise_floor + self.noise_margin),
+        )
+        elapsed_samples = 0
+        pre_roll: deque[int] = deque(
+            maxlen=int(self.pre_roll_seconds * self.sample_rate)
+        )
 
         while elapsed_samples < max_samples:
             frame = self.audio_input.read_frame()
@@ -67,11 +116,12 @@ class UtteranceRecorder:
             current_frame = frame[:remaining_samples]
             elapsed_samples += len(current_frame)
             frame_energy = self._rms(current_frame)
-            has_speech = frame_energy >= self.silence_threshold
+            has_speech = frame_energy >= self.last_speech_threshold
 
             if not speech_started:
                 if has_speech:
                     speech_started = True
+                    captured.extend(pre_roll)
                     captured.extend(current_frame)
                     speech_samples += len(current_frame)
                     weighted_speech_energy += (
@@ -79,6 +129,8 @@ class UtteranceRecorder:
                     )
                 elif elapsed_samples >= pre_speech_samples:
                     return []
+                else:
+                    pre_roll.extend(current_frame)
                 continue
 
             captured.extend(current_frame)

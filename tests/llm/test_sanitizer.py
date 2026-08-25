@@ -16,6 +16,12 @@ from jarvis.llm.sanitizer import sanitize_assistant_response
             "Eu acho que pensar (think) é útil.",
             "Eu acho que pensar (think) é útil.",
         ),
+        (
+            "Wait, no...\nThe assistant should call a tool.\n"
+            "tool_call internal\n</think>\nResposta correta.",
+            "Resposta correta.",
+        ),
+        ("<tool_call>{\"name\": \"delete_file\"}</tool_call>", ""),
     ],
 )
 def test_sanitize_assistant_response(raw: str, expected: str) -> None:

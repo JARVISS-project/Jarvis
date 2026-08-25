@@ -51,12 +51,15 @@ def test_normal_frame_does_not_activate() -> None:
 
 
 def test_score_above_threshold_activates() -> None:
-    model = FakeOpenWakeWordModel([{"hey_jarvis": 0.8}])
+    model = FakeOpenWakeWordModel(
+        [{"hey_jarvis": 0.8}, {"hey_jarvis": 0.82}]
+    )
     detector = OpenWakeWordDetector(
         threshold=0.5,
         model_factory=lambda **_kwargs: model,
     )
 
+    assert detector.process([0] * 1280) is False
     assert detector.process([0] * 1280) is True
 
 
@@ -66,10 +69,12 @@ def test_threshold_is_configurable() -> None:
     )
     strict_detector = OpenWakeWordDetector(
         threshold=0.8,
+        minimum_consecutive_detections=1,
         model_factory=lambda **_kwargs: model,
     )
     permissive_detector = OpenWakeWordDetector(
         threshold=0.6,
+        minimum_consecutive_detections=1,
         model_factory=lambda **_kwargs: model,
     )
 
@@ -106,15 +111,17 @@ def test_detector_releases_model_resources() -> None:
 
 def test_detector_does_not_reuse_continuous_positive_score() -> None:
     model = FakeOpenWakeWordModel(
-        [{"hey_jarvis": 0.8}, {"hey_jarvis": 0.9}, {"hey_jarvis": 0.1},
-         {"hey_jarvis": 0.8}]
+        [{"hey_jarvis": 0.8}, {"hey_jarvis": 0.9}, {"hey_jarvis": 0.95},
+         {"hey_jarvis": 0.1}, {"hey_jarvis": 0.8}, {"hey_jarvis": 0.9}]
     )
     detector = OpenWakeWordDetector(
         threshold=0.5,
         model_factory=lambda **_kwargs: model,
     )
 
+    assert detector.process([0] * 1280) is False
     assert detector.process([0] * 1280) is True
+    assert detector.process([0] * 1280) is False
     assert detector.process([0] * 1280) is False
     assert detector.process([0] * 1280) is False
     assert detector.process([0] * 1280) is True

@@ -30,6 +30,30 @@ def test_idle_returns_to_idle() -> None:
     assert manager.state is RuntimeState.IDLE
 
 
+def test_confirmation_state_returns_to_active_then_idle() -> None:
+    manager = ResourceManager()
+    manager.activate()
+    manager.confirmation()
+    assert manager.state is RuntimeState.CONFIRMATION
+    manager.activate()
+    assert manager.state is RuntimeState.ACTIVE
+    manager.idle()
+    assert manager.state is RuntimeState.IDLE
+
+
+def test_active_conversation_returns_to_previous_idle_profile() -> None:
+    manager = ResourceManager()
+    manager.conversation()
+    assert manager.state is RuntimeState.ACTIVE_CONVERSATION
+    manager.idle()
+    assert manager.state is RuntimeState.IDLE
+    manager.enable_game_mode()
+    manager.conversation()
+    assert manager.state is RuntimeState.ACTIVE_CONVERSATION
+    manager.idle()
+    assert manager.state is RuntimeState.GAME_MODE
+
+
 def test_game_mode_remains_active_after_activity() -> None:
     manager = ResourceManager()
 

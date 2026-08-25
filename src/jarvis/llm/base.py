@@ -15,3 +15,10 @@ class LLMClient(ABC):
         tools: list[dict[str, Any]] | None = None,
     ) -> LLMResponse:
         raise NotImplementedError
+
+    def generate_final(
+        self,
+        messages: list[dict[str, Any]],
+    ) -> LLMResponse:
+        """Formula texto final sem disponibilizar Tools."""
+        return self.generate(messages, tools=[])

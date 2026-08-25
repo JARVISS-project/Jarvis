@@ -8,9 +8,11 @@ from jarvis.memory.conversation import ConversationMemory
 from jarvis.runtime.resource_manager import ResourceManager
 from jarvis.runtime.state import RuntimeState
 from jarvis.speech.base import SpeechToText, TranscriptionResult
+from jarvis.speech.validator import TranscriptionValidator
 from jarvis.tts.base import TextToSpeech
 from jarvis.tools.registry import ToolRegistry
 from jarvis.voice.pipeline import VoicePipeline
+from jarvis.voice.state import VoicePipelineState
 
 
 class FakeListener:
@@ -102,6 +104,7 @@ class FakeTextToSpeech(TextToSpeech):
         self.spoken: list[str] = []
         self.closed = False
         self.close_calls = 0
+        self.stop_calls = 0
         self.on_speak: object | None = None
 
     def speak(self, text: str) -> None:
@@ -114,6 +117,9 @@ class FakeTextToSpeech(TextToSpeech):
     def close(self) -> None:
         self.closed = True
         self.close_calls += 1
+
+    def stop(self) -> None:
+        self.stop_calls += 1
 
 
 def activation() -> ActivationEvent:
@@ -255,6 +261,330 @@ def test_stt_exception_is_controlled_and_runtime_returns_to_idle() -> None:
 
     assert output[-1] == "Erro ao transcrever áudio: falha STT"
     assert manager.state is RuntimeState.IDLE
+
+
+def test_false_wake_with_silence_is_inoffensive() -> None:
+    output: list[str] = []
+    stt = FakeSpeechToText()
+    harness = FakeHarness()
+    pipeline = make_pipeline(
+        ResourceManager(),
+        FakeListener([activation()]),
+        FakeRecorder([]),
+        stt,
+        harness,
+        output,
+    )
+
+    assert pipeline.process_once() is True
+    assert "Ação cancelada." not in output
+    assert stt.calls == []
+    assert harness.calls == []
+    assert pipeline.state is VoicePipelineState.WAITING_WAKE
+
+
+def test_rejected_transcription_never_runs_cancellation_interpreter() -> None:
+    output: list[str] = []
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder([1] * 4000),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(
+            TranscriptionResult(
+                "cancela", "pt", 0.25, no_speech_probability=0.95
+            )
+        ),
+        harness=FakeHarness(),
+        resource_manager=ResourceManager(),
+        transcription_validator=TranscriptionValidator(),
+        output=output.append,
+    )
+
+    class FailIfCalled:
+        def is_cancellation(self, _text: str) -> bool:
+            raise AssertionError("rejeição não deve ser interpretada")
+
+    pipeline.cancellation_interpreter = FailIfCalled()  # type: ignore[assignment]
+    pipeline.process_once()
+    assert "Ação cancelada." not in output
+
+
+def test_low_confidence_cancel_like_transcript_does_not_cancel() -> None:
+    harness = FakeHarness()
+    output: list[str] = []
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder([1] * 4000),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(
+            TranscriptionResult(
+                "para",
+                "pt",
+                0.25,
+                average_log_probability=-0.8,
+                no_speech_probability=0.2,
+                duration_after_vad_seconds=0.25,
+            )
+        ),
+        harness=harness,
+        resource_manager=ResourceManager(),
+        transcription_validator=TranscriptionValidator(),
+        output=output.append,
+    )
+
+    pipeline.process_once()
+    assert "Ação cancelada." not in output
+    assert harness.calls == []
+
+
+def test_voice_debug_reports_safe_no_speech_metadata() -> None:
+    output: list[str] = []
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder([]),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(),
+        harness=FakeHarness(),
+        resource_manager=ResourceManager(),
+        output=output.append,
+        debug_enabled=True,
+    )
+    pipeline.process_once()
+    assert "[voice] wake detected" in output
+    assert "[voice] recorder result=NO_SPEECH" in output
+    assert any("WAITING_WAKE" in line for line in output if "transition=" in line)
+
+
+def test_general_command_retries_once_using_same_audio() -> None:
+    class RetrySTT(FakeSpeechToText):
+        def __init__(self) -> None:
+            super().__init__()
+            self.retry_audio: list[list[int]] = []
+
+        def transcribe(self, audio, sample_rate):  # type: ignore[no-untyped-def]
+            self.calls.append((audio, sample_rate))
+            return TranscriptionResult(
+                "Sela", "pt", 0.5, average_log_probability=-0.8,
+                no_speech_probability=0.2, duration_after_vad_seconds=0.5,
+            )
+
+        def transcribe_retry(self, audio, sample_rate):  # type: ignore[no-untyped-def]
+            self.retry_audio.append(audio)
+            return TranscriptionResult(
+                "selecione a nota", "pt", 0.5,
+                average_log_probability=-0.3,
+                no_speech_probability=0.1,
+                duration_after_vad_seconds=0.5,
+            )
+
+    audio = [1] * 8000
+    stt = RetrySTT()
+    harness = FakeHarness()
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder(audio),  # type: ignore[arg-type]
+        speech_to_text=stt,
+        harness=harness,
+        resource_manager=ResourceManager(),
+        transcription_validator=TranscriptionValidator(),
+    )
+    pipeline.process_once()
+    assert len(stt.calls) == 1
+    assert stt.retry_audio == [audio]
+    assert harness.calls == [("selecione a nota", False)]
+
+
+class QualitySequenceSTT(SpeechToText):
+    def __init__(self, results: list[TranscriptionResult]) -> None:
+        self.results = results
+        self.audios: list[list[int]] = []
+
+    def transcribe(self, audio, sample_rate):  # type: ignore[no-untyped-def]
+        self.audios.append(audio)
+        return self.results.pop(0)
+
+    def transcribe_retry(self, audio, sample_rate):  # type: ignore[no-untyped-def]
+        self.audios.append(audio)
+        return self.results.pop(0)
+
+
+def quality_result(text: str, logprob: float) -> TranscriptionResult:
+    return TranscriptionResult(
+        text, "pt", 1.0, average_log_probability=logprob,
+        no_speech_probability=0.01, duration_after_vad_seconds=0.8,
+    )
+
+
+def test_divergent_general_command_enters_repair_without_new_wake() -> None:
+    audio = [1] * 16000
+    stt = QualitySequenceSTT(
+        [
+            quality_result("que adesão", -0.61),
+            quality_result("que horas são", -0.60),
+            quality_result("que horas são", -0.30),
+        ]
+    )
+    harness = FakeHarness()
+    repair = SequenceRecorder([audio])
+    output: list[str] = []
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder(audio),  # type: ignore[arg-type]
+        repair_recorder=repair,  # type: ignore[arg-type]
+        speech_to_text=stt,
+        harness=harness,
+        resource_manager=ResourceManager(),
+        transcription_validator=TranscriptionValidator(),
+        output=output.append,
+        debug_enabled=True,
+    )
+    pipeline.process_once()
+    assert repair.calls == 1
+    assert harness.calls == [("que horas são", False)]
+    assert "Jarvis: Não entendi direito. Repete pra mim." in output
+    assert any("WAITING_REPAIR" in line for line in output)
+
+
+def test_second_failed_repair_returns_to_wake_without_loop() -> None:
+    audio = [1] * 16000
+    stt = QualitySequenceSTT(
+        [
+            quality_result("que adesão", -0.61),
+            quality_result("que horas são", -0.60),
+            quality_result("sela", -0.80),
+            quality_result("sei lá", -0.79),
+        ]
+    )
+    harness = FakeHarness()
+    repair = SequenceRecorder([audio])
+    output: list[str] = []
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder(audio),  # type: ignore[arg-type]
+        repair_recorder=repair,  # type: ignore[arg-type]
+        speech_to_text=stt,
+        harness=harness,
+        resource_manager=ResourceManager(),
+        transcription_validator=TranscriptionValidator(),
+        output=output.append,
+    )
+    pipeline.process_once()
+    assert repair.calls == 1
+    assert len(stt.audios) == 4
+    assert harness.calls == []
+    assert "Jarvis: Não consegui entender." in output
+    assert pipeline.state is VoicePipelineState.WAITING_WAKE
+
+
+def test_rejected_followup_uses_one_repair_and_continues_conversation() -> None:
+    audio = [1] * 16000
+    stt = QualitySequenceSTT(
+        [
+            quality_result("primeira pergunta", -0.30),
+            quality_result("sela", -0.90),
+            quality_result("a segunda", -0.88),
+            quality_result("a segunda", -0.30),
+        ]
+    )
+    harness = FakeHarness()
+    repair = SequenceRecorder([audio])
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder(audio),  # type: ignore[arg-type]
+        followup_recorder=SequenceRecorder([audio, []]),  # type: ignore[arg-type]
+        repair_recorder=repair,  # type: ignore[arg-type]
+        speech_to_text=stt,
+        harness=harness,
+        resource_manager=ResourceManager(),
+        transcription_validator=TranscriptionValidator(),
+        conversation_followup_enabled=True,
+    )
+    pipeline.process_once()
+    assert repair.calls == 1
+    assert [call[0] for call in harness.calls] == [
+        "primeira pergunta", "a segunda"
+    ]
+
+
+def test_approved_cancellation_prints_the_understood_transcript() -> None:
+    output: list[str] = []
+    pipeline = make_pipeline(
+        ResourceManager(),
+        FakeListener([activation()]),
+        FakeRecorder([1]),
+        FakeSpeechToText(TranscriptionResult("Cancela.", "pt", 0.5)),
+        FakeHarness(),
+        output,
+    )
+    pipeline.process_once()
+    assert "Você [cancelamento]: Cancela." in output
+    assert "Ação cancelada." in output
+
+
+def test_one_hundred_false_wakes_never_reach_stt_or_harness() -> None:
+    stt = FakeSpeechToText()
+    harness = FakeHarness()
+    output: list[str] = []
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()] * 100),  # type: ignore[arg-type]
+        recorder=FakeRecorder([]),  # type: ignore[arg-type]
+        speech_to_text=stt,
+        harness=harness,
+        resource_manager=ResourceManager(),
+        output=output.append,
+    )
+    for _ in range(100):
+        pipeline.process_once()
+    assert stt.calls == []
+    assert harness.calls == []
+    assert "Ação cancelada." not in output
+    assert not any(line.startswith("Você:") for line in output)
+
+
+def test_one_hundred_reasoning_leaks_never_reach_output_tts_or_memory() -> None:
+    class LeakRetryLLM(LLMClient):
+        def __init__(self) -> None:
+            self.generate_calls = 0
+            self.retry_calls = 0
+
+        def generate(self, messages, tools=None):  # type: ignore[no-untyped-def]
+            self.generate_calls += 1
+            return LLMResponse(content="Okay, the user asked... Wait, no...")
+
+        def generate_final(self, messages):  # type: ignore[no-untyped-def]
+            self.retry_calls += 1
+            return LLMResponse(content="Resposta segura.")
+
+    class UnusedExecutor:
+        pass
+
+    llm = LeakRetryLLM()
+    memory = ConversationMemory(max_messages=300)
+    harness = Harness(
+        llm=llm,
+        tool_registry=ToolRegistry(),
+        tool_executor=UnusedExecutor(),  # type: ignore[arg-type]
+        memory=memory,
+    )
+    tts = FakeTextToSpeech()
+    output: list[str] = []
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()] * 100),  # type: ignore[arg-type]
+        recorder=FakeRecorder([1]),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(
+            TranscriptionResult("pergunta válida", "pt", 0.5)
+        ),
+        harness=harness,
+        resource_manager=ResourceManager(),
+        text_to_speech=tts,
+        output=output.append,
+        cooldown_waiter=lambda _seconds: None,
+    )
+    for _ in range(100):
+        pipeline.process_once()
+    exposed = " ".join(output + tts.spoken) + str(memory.get_history())
+    assert "Okay, the user asked" not in exposed
+    assert "Wait, no" not in exposed
+    assert tts.spoken == ["Resposta segura."] * 100
+    assert llm.generate_calls == 100
+    assert llm.retry_calls == 100
 
 
 def test_game_mode_is_restored_after_voice_interaction() -> None:
@@ -467,6 +797,7 @@ def test_thinking_is_removed_before_memory_terminal_and_tts() -> None:
     class ThinkingLLM(LLMClient):
         def generate(self, messages, tools=None):  # type: ignore[no-untyped-def]
             return LLMResponse(
+                "Wait, no... The assistant should use tool_call.\n"
                 "raciocínio vazado\n</think>\nResposta limpa."
             )
 
@@ -493,6 +824,8 @@ def test_thinking_is_removed_before_memory_terminal_and_tts() -> None:
 
     assert "Jarvis: Resposta limpa." in output
     assert tts.spoken == ["Resposta limpa."]
+    assert "Wait, no" not in " ".join(output)
+    assert "tool_call" not in " ".join(output)
     assert memory.get_history()[-1] == {
         "role": "assistant",
         "content": "Resposta limpa.",
@@ -526,3 +859,318 @@ def test_pipeline_reuses_tts_until_final_shutdown() -> None:
 
     assert tts.close_calls == 1
     assert tts.closed is True
+
+
+class SequenceRecorder:
+    def __init__(self, recordings: list[list[int]]) -> None:
+        self.recordings = recordings
+        self.calls = 0
+
+    def record(self) -> list[int]:
+        self.calls += 1
+        return self.recordings.pop(0)
+
+
+def test_followup_processes_second_message_without_new_wake_word() -> None:
+    manager = ResourceManager()
+    listener = FakeListener([activation()])
+    initial = SequenceRecorder([[1]])
+    followup = SequenceRecorder([[2], []])
+    harness = FakeHarness("resposta")
+    pipeline = VoicePipeline(
+        listener=listener,  # type: ignore[arg-type]
+        recorder=initial,  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(),
+        harness=harness,
+        resource_manager=manager,
+        conversation_followup_enabled=True,
+        followup_recorder=followup,  # type: ignore[arg-type]
+    )
+
+    assert pipeline.process_once() is True
+    assert len(harness.calls) == 2
+    assert listener.events == []
+    assert initial.calls == 1
+    assert followup.calls == 2
+    assert manager.state is RuntimeState.IDLE
+
+
+def test_followup_timeout_ends_conversation_without_running_stt() -> None:
+    stt = FakeSpeechToText()
+    followup = SequenceRecorder([[]])
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=SequenceRecorder([[1]]),  # type: ignore[arg-type]
+        speech_to_text=stt,
+        harness=FakeHarness(),
+        resource_manager=ResourceManager(),
+        conversation_followup_enabled=True,
+        followup_recorder=followup,  # type: ignore[arg-type]
+    )
+
+    pipeline.process_once()
+    assert len(stt.calls) == 1
+    assert followup.calls == 1
+
+
+def test_game_mode_uses_shorter_followup_recorder() -> None:
+    manager = ResourceManager()
+    manager.enable_game_mode()
+    normal = SequenceRecorder([[2]])
+    game = SequenceRecorder([[]])
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=SequenceRecorder([[1]]),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(),
+        harness=FakeHarness(),
+        resource_manager=manager,
+        conversation_followup_enabled=True,
+        followup_recorder=normal,  # type: ignore[arg-type]
+        game_mode_followup_recorder=game,  # type: ignore[arg-type]
+    )
+
+    pipeline.process_once()
+    assert normal.calls == 0
+    assert game.calls == 1
+    assert manager.state is RuntimeState.GAME_MODE
+
+
+def test_cancellation_during_followup_never_reaches_harness() -> None:
+    manager = ResourceManager()
+    harness = FakeHarness()
+    stt = FakeSpeechToText(TranscriptionResult("cancela", "pt", 0.5))
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=SequenceRecorder([[1]]),  # type: ignore[arg-type]
+        speech_to_text=stt,
+        harness=harness,
+        resource_manager=manager,
+        conversation_followup_enabled=True,
+        followup_recorder=SequenceRecorder([[2]]),  # type: ignore[arg-type]
+    )
+    pipeline.process_once()
+    assert harness.calls == []
+    assert manager.state is RuntimeState.IDLE
+
+
+class SequenceSTT(SpeechToText):
+    def __init__(self, texts: list[str]) -> None:
+        self.texts = texts
+        self.calls = 0
+
+    def transcribe(self, audio, sample_rate):  # type: ignore[no-untyped-def]
+        self.calls += 1
+        return TranscriptionResult(self.texts.pop(0), "pt", 0.5)
+
+
+class FakeBargeIn:
+    def __init__(self, recordings: list[list[int] | None]) -> None:
+        self.recordings = recordings
+        self.calls = 0
+
+    def listen(self, playback):  # type: ignore[no-untyped-def]
+        self.calls += 1
+        recording = self.recordings.pop(0)
+        if recording:
+            playback.stop()
+        return recording
+
+
+def test_barge_in_cancellation_is_not_sent_to_harness() -> None:
+    harness = FakeHarness("resposta longa")
+    stt = SequenceSTT(["comando original", "deixa pra lá"])
+    tts = FakeTextToSpeech()
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder([1]),  # type: ignore[arg-type]
+        speech_to_text=stt,
+        harness=harness,
+        resource_manager=ResourceManager(),
+        text_to_speech=tts,
+        barge_in_controller=FakeBargeIn([[2]]),  # type: ignore[arg-type]
+        cooldown_waiter=lambda _seconds: None,
+    )
+    pipeline.process_once()
+    assert harness.calls == [("comando original", False)]
+    assert tts.stop_calls == 1
+    assert stt.calls == 2
+    assert pipeline.resource_manager.state is RuntimeState.IDLE
+
+
+def test_barge_in_new_question_becomes_followup_after_stop() -> None:
+    harness = FakeHarness("resposta")
+    stt = SequenceSTT(["primeira pergunta", "que horas são"])
+    barge = FakeBargeIn([[2], None])
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder([1]),  # type: ignore[arg-type]
+        speech_to_text=stt,
+        harness=harness,
+        resource_manager=ResourceManager(),
+        text_to_speech=FakeTextToSpeech(),
+        barge_in_controller=barge,  # type: ignore[arg-type]
+        cooldown_waiter=lambda _seconds: None,
+    )
+    pipeline.process_once()
+    assert harness.calls == [
+        ("primeira pergunta", False),
+        ("que horas são", False),
+    ]
+    assert stt.calls == 2
+    assert barge.calls == 2
+
+
+def test_safe_command_speaks_short_acknowledgement() -> None:
+    tts = FakeTextToSpeech()
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder([1]),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(
+            TranscriptionResult("liste os arquivos", "pt", 0.5)
+        ),
+        harness=FakeHarness("resultado"),
+        resource_manager=ResourceManager(),
+        text_to_speech=tts,
+        acknowledgement_enabled=True,
+        cooldown_waiter=lambda _seconds: None,
+    )
+    pipeline.process_once()
+    assert tts.spoken == ["Entendi.", "resultado"]
+
+
+def test_destructive_command_defers_acknowledgement_to_confirmation() -> None:
+    tts = FakeTextToSpeech()
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder([1]),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(
+            TranscriptionResult("apague teste.txt", "pt", 0.5)
+        ),
+        harness=FakeHarness("cancelado"),
+        resource_manager=ResourceManager(),
+        text_to_speech=tts,
+        acknowledgement_enabled=True,
+        cooldown_waiter=lambda _seconds: None,
+    )
+    pipeline.process_once()
+    assert "Entendi." not in tts.spoken
+
+
+class InspectingRecorder(SequenceRecorder):
+    def __init__(self, recordings, callback):  # type: ignore[no-untyped-def]
+        super().__init__(recordings)
+        self.callback = callback
+
+    def record(self) -> list[int]:
+        self.callback()
+        return super().record()
+
+
+def test_followup_window_starts_only_after_tts_and_cooldown() -> None:
+    operations: list[str] = []
+    tts = FakeTextToSpeech()
+    tts.on_speak = lambda: operations.append("tts_finished")
+    pipeline: VoicePipeline
+    followup = InspectingRecorder(
+        [[]],
+        lambda: operations.append(f"followup:{pipeline.state.value}"),
+    )
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=SequenceRecorder([[1]]),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(),
+        harness=FakeHarness("resposta longa"),
+        resource_manager=ResourceManager(),
+        text_to_speech=tts,
+        conversation_followup_enabled=True,
+        followup_recorder=followup,  # type: ignore[arg-type]
+        cooldown_waiter=lambda _seconds: operations.append("cooldown_finished"),
+    )
+    pipeline.process_once()
+    assert operations == [
+        "tts_finished",
+        "cooldown_finished",
+        "followup:waiting_followup",
+    ]
+
+
+def test_three_conversation_turns_need_only_one_wake_word() -> None:
+    harness = FakeHarness("resposta")
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=SequenceRecorder([[1]]),  # type: ignore[arg-type]
+        speech_to_text=SequenceSTT(["primeira", "segunda", "terceira"]),
+        harness=harness,
+        resource_manager=ResourceManager(),
+        conversation_followup_enabled=True,
+        followup_recorder=SequenceRecorder([[2], [3], []]),  # type: ignore[arg-type]
+    )
+    pipeline.process_once()
+    assert [call[0] for call in harness.calls] == [
+        "primeira", "segunda", "terceira"
+    ]
+
+
+def test_question_and_pending_action_use_longer_recorder() -> None:
+    class PendingHarness(FakeHarness):
+        def has_pending_action(self) -> bool:
+            return True
+
+    normal = SequenceRecorder([[2]])
+    question = SequenceRecorder([[]])
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=SequenceRecorder([[1]]),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(),
+        harness=PendingHarness("Qual nota você deseja abrir?"),
+        resource_manager=ResourceManager(),
+        conversation_followup_enabled=True,
+        followup_recorder=normal,  # type: ignore[arg-type]
+        question_followup_recorder=question,  # type: ignore[arg-type]
+    )
+    pipeline.process_once()
+    assert question.calls == 1
+    assert normal.calls == 0
+
+
+def test_natural_conversation_end_skips_llm_and_followup() -> None:
+    harness = FakeHarness("resposta")
+    stt = SequenceSTT(["pergunta", "beleza valeu"])
+    followup = SequenceRecorder([[2], [3]])
+    tts = FakeTextToSpeech()
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=SequenceRecorder([[1]]),  # type: ignore[arg-type]
+        speech_to_text=stt,
+        harness=harness,
+        resource_manager=ResourceManager(),
+        text_to_speech=tts,
+        conversation_followup_enabled=True,
+        followup_recorder=followup,  # type: ignore[arg-type]
+        cooldown_waiter=lambda _seconds: None,
+    )
+    pipeline.process_once()
+    assert harness.calls == [("pergunta", False)]
+    assert followup.calls == 1
+    assert tts.spoken[-1] == "Até mais."
+
+
+def test_waiting_wake_is_not_printed_during_speech() -> None:
+    output: list[str] = []
+    tts = FakeTextToSpeech()
+    observed_counts: list[int] = []
+    tts.on_speak = lambda: observed_counts.append(
+        output.count('Aguardando "Hey Jarvis"...')
+    )
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation(), KeyboardInterrupt()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder([1]),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(),
+        harness=FakeHarness(),
+        resource_manager=ResourceManager(),
+        text_to_speech=tts,
+        output=output.append,
+        cooldown_waiter=lambda _seconds: None,
+    )
+    pipeline.run()
+    assert observed_counts == [1]
