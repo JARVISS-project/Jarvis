@@ -3,6 +3,7 @@ from uuid import uuid4
 from difflib import SequenceMatcher
 from pathlib import Path
 import re
+import time
 
 from jarvis.security.authorization import AuthorizationGrant
 
@@ -29,6 +30,7 @@ from jarvis.llm.tool_schema import tool_to_ollama_schema
 from jarvis.memory.conversation import ConversationMemory
 from jarvis.memory.in_memory_store import InMemoryMemoryStore
 from jarvis.memory.store import MemoryStore
+from jarvis.persona import PersonaProfile
 from jarvis.runtime.resource_manager import ResourceManager
 from jarvis.runtime.cancellation import CancellationInterpreter
 from jarvis.security.risk import RiskLevel
@@ -53,10 +55,7 @@ class Harness:
         "Não consegui concluir essa resposta. Tente novamente."
     )
     BASE_SYSTEM_PROMPT = (
-        "Você é Jarvis, um assistente pessoal local. Responda em português "
-        "quando o usuário falar português e responda diretamente. Não "
-        "exponha raciocínio interno nem use tags <think> ou <response> na "
-        "resposta final."
+        "Você é Jarvis, um assistente pessoal local."
     )
 
     def __init__(
@@ -107,7 +106,16 @@ class Harness:
             self.config,
             self.resource_manager,
             self.memory_store,
+            self.tool_registry,
         )
+        self.last_latency: dict[str, float | int] = {
+            "harness_seconds": 0.0,
+            "llm_seconds": 0.0,
+            "llm_calls": 0,
+            "tool_seconds": 0.0,
+            "tool_calls": 0,
+        }
+        self._latency_turn_started_at: float | None = None
 
     def run(self) -> None:
         print("Jarvis iniciado.")
@@ -133,6 +141,12 @@ class Harness:
 
         if command == "/doctor":
             return self.doctor.report()
+
+        if command == "/config" or command.startswith("/config "):
+            return self._process_config_command(stripped_message)
+
+        if command == "/latency":
+            return self._format_latency_report()
 
         if command == "/memory":
             count = self.memory.count()
@@ -198,26 +212,85 @@ class Harness:
                 f"Memórias: {len(self.memory_store.get_all())}"
             )
 
+        self._start_latency_turn()
         if not manage_runtime:
-            return self._process_active_message(mensagem)
+            try:
+                return self._process_active_message(mensagem)
+            finally:
+                self._finish_latency_turn()
 
         self.resource_manager.activate()
         try:
             return self._process_active_message(mensagem)
         finally:
+            self._finish_latency_turn()
             self.resource_manager.idle()
+
+    def get_last_latency(self) -> dict[str, float | int]:
+        return dict(self.last_latency)
+
+    def _start_latency_turn(self) -> None:
+        self.last_latency = {
+            "harness_seconds": 0.0,
+            "llm_seconds": 0.0,
+            "llm_calls": 0,
+            "tool_seconds": 0.0,
+            "tool_calls": 0,
+        }
+        self._latency_turn_started_at = time.perf_counter()
+
+    def _finish_latency_turn(self) -> None:
+        started = self._latency_turn_started_at
+        if started is not None:
+            self.last_latency["harness_seconds"] = (
+                time.perf_counter() - started
+            )
+        self._latency_turn_started_at = None
+
+    def _format_latency_report(self) -> str:
+        latency = self.last_latency
+        if not latency or float(latency.get("harness_seconds", 0.0)) <= 0:
+            return "Ainda não há uma interação medida."
+        return (
+            "Última interação: "
+            f"Harness {float(latency['harness_seconds']):.2f}s | "
+            f"LLM {float(latency['llm_seconds']):.2f}s "
+            f"({int(latency['llm_calls'])} chamada(s)) | "
+            f"Tools {float(latency['tool_seconds']):.2f}s "
+            f"({int(latency['tool_calls'])} chamada(s))."
+        )
 
     def has_pending_action(self) -> bool:
         return self.pending_actions.has_pending()
 
     def _process_active_message(self, mensagem: str) -> str:
-        self.context_router.update(mensagem)
         if self._is_ambiguous_note_cleanup(mensagem):
             self._cancel_pending_action()
             return (
                 "Posso listar as notas que parecem ser de teste e você "
                 "escolhe quais deseja revisar ou remover. Qual escopo devo usar?"
             )
+        previous_context = self.context_router.state.active
+        routed_context = self.context_router.update(mensagem)
+        if (
+            routed_context is ActiveContext.OBSIDIAN
+            and not self._obsidian_available()
+        ):
+            self.context_router.state.active = (
+                ActiveContext.NONE
+                if previous_context is ActiveContext.OBSIDIAN
+                else previous_context
+            )
+            return (
+                "O Obsidian não está configurado nesta execução. "
+                "Verifique /doctor ou use /config obsidian."
+            )
+        if (
+            routed_context is ActiveContext.OBSIDIAN
+            and self._requests_obsidian_write(mensagem)
+            and not self._obsidian_write_available()
+        ):
+            return "A escrita no Obsidian está desabilitada ou indisponível."
         runtime_response = self._runtime_info_response(mensagem)
         if runtime_response is not None:
             return runtime_response
@@ -231,6 +304,168 @@ class Harness:
         )
         self.llm.set_keep_alive(keep_alive)
         return self._process_normal_message(mensagem)
+
+    def _obsidian_available(self) -> bool:
+        vault = self.config.obsidian_vault_path
+        return bool(
+            self.config.obsidian_enabled
+            and vault is not None
+            and vault.is_dir()
+            and self.config.obsidian_read_enabled
+            and self.tool_registry.get("obsidian_search_notes") is not None
+            and self.tool_registry.get("obsidian_read_note") is not None
+        )
+
+    def _obsidian_write_available(self) -> bool:
+        return bool(
+            self.config.obsidian_write_enabled
+            and self.tool_registry.get("obsidian_append_note") is not None
+        )
+
+    def _requests_obsidian_write(self, message: str) -> bool:
+        normalized = self.context_router.normalize(message)
+        return re.search(
+            r"\b(?:adicione|adiciona|adicionar|edite|edita|editar|"
+            r"coloque|coloca|colocar|inserir|insira|acrescente|"
+            r"anote|anota|anotar|escreva|escrever|registre|registrar)\b",
+            normalized,
+        ) is not None
+
+    def _process_config_command(self, command: str) -> str:
+        normalized = command.strip()
+        if normalized in {"/config", "/config obsidian"}:
+            vault = self.config.obsidian_vault_path
+            status = "OK" if self._obsidian_available() else "NOT CONFIGURED"
+            vault_name = vault.name if vault is not None else "NOT CONFIGURED"
+            write = "ENABLED" if self.config.obsidian_write_enabled else "DISABLED"
+            error = (
+                f"\nLocal settings: INVALID ({self.config.settings_error})"
+                if self.config.settings_error else ""
+            )
+            return (
+                f"Obsidian: {status}\nVault: {vault_name}\nWrite: {write}"
+                f"{error}"
+            )
+
+        vault_match = re.fullmatch(
+            r'/config\s+obsidian\s+vault\s+"?(.+?)"?',
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if vault_match is not None:
+            vault = Path(vault_match.group(1)).expanduser()
+            if not vault.is_dir():
+                return "Diretório do Vault não encontrado. Configuração mantida."
+            try:
+                self.config.save_obsidian_settings(vault=vault)
+            except OSError as error:
+                return f"Não foi possível salvar a configuração: {error}."
+            return (
+                f"Vault '{vault.name}' salvo. Reinicie o Jarvis para "
+                "registrar as Tools do Obsidian."
+            )
+
+        write_match = re.fullmatch(
+            r"/config\s+obsidian\s+write\s+(on|off)",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if write_match is not None:
+            enabled = write_match.group(1).casefold() == "on"
+            try:
+                self.config.save_obsidian_settings(write=enabled)
+            except OSError as error:
+                return f"Não foi possível salvar a configuração: {error}."
+            state = "habilitada" if enabled else "desabilitada"
+            return f"Escrita no Obsidian {state} na configuração local."
+
+        if normalized.casefold() == "/config voice":
+            reference = self.config.tts_reference_audio_path
+            reference_label = str(reference) if reference is not None else "nenhuma"
+            piper_ready = (
+                self.config.tts_piper_model_path.is_file()
+                and self.config.tts_piper_config_path.is_file()
+            )
+            return (
+                f"TTS: {self.config.tts_provider}\n"
+                f"Dispositivo neural: {self.config.tts_device}\n"
+                f"Idioma: {self.config.tts_language_id}\n"
+                f"Voz rápida Piper: {'pronta' if piper_ready else 'não preparada'}\n"
+                f"Voz de referência: {reference_label}"
+            )
+
+        provider_match = re.fullmatch(
+            r"/config\s+voice\s+provider\s+(auto|sapi|piper|chatterbox)",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if provider_match is not None:
+            provider = provider_match.group(1).casefold()
+            try:
+                self.config.save_voice_settings(provider=provider)
+            except (OSError, ValueError) as error:
+                return f"Não foi possível salvar a configuração: {error}."
+            return (
+                f"TTS '{provider}' salvo. Reinicie o Jarvis para aplicar."
+            )
+
+        reference_off = re.fullmatch(
+            r"/config\s+voice\s+reference\s+off",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if reference_off is not None:
+            try:
+                self.config.save_voice_settings(clear_reference=True)
+            except OSError as error:
+                return f"Não foi possível salvar a configuração: {error}."
+            return "Voz de referência removida. Reinicie o Jarvis para aplicar."
+
+        reference_match = re.fullmatch(
+            r'/config\s+voice\s+reference\s+"?(.+?)"?',
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if reference_match is not None:
+            reference = Path(reference_match.group(1)).expanduser()
+            if not reference.is_file():
+                return "Áudio de referência não encontrado. Configuração mantida."
+            try:
+                self.config.save_voice_settings(reference_audio=reference)
+            except OSError as error:
+                return f"Não foi possível salvar a configuração: {error}."
+            return (
+                f"Voz de referência '{reference.name}' salva. Reinicie o Jarvis "
+                "para aplicar."
+            )
+
+        if normalized.casefold() == "/config persona":
+            return (
+                "Tratamento: " + self.config.assistant_address_mode + "\n"
+                "Estilo: " + self.config.assistant_response_style
+            )
+
+        treatment_match = re.fullmatch(
+            r"/config\s+persona\s+treatment\s+(senhor|natural|direto)",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if treatment_match is not None:
+            treatment = treatment_match.group(1).casefold()
+            try:
+                self.config.save_persona_settings(address_mode=treatment)
+            except (OSError, ValueError) as error:
+                return f"Não foi possível salvar a configuração: {error}."
+            return f"Modo de tratamento alterado para '{treatment}'."
+
+        return (
+            "Uso: /config | /config obsidian | /config voice | /config persona | "
+            '/config obsidian vault "C:\\caminho" | '
+            "/config obsidian write on|off | "
+            "/config voice provider auto|sapi|piper|chatterbox | "
+            '/config voice reference "C:\\voz.wav"|off | '
+            "/config persona treatment senhor|natural|direto"
+        )
 
     def _process_normal_message(self, mensagem: str) -> str:
 
@@ -248,10 +483,17 @@ class Harness:
         messages.extend(self.memory.get_history())
 
         for _ in range(self.config.max_tool_iterations):
-            response = self.llm.generate(
-                messages=messages,
-                tools=tools,
-            )
+            llm_started = time.perf_counter()
+            try:
+                response = self.llm.generate(
+                    messages=messages,
+                    tools=tools,
+                )
+            finally:
+                self.last_latency["llm_seconds"] += (
+                    time.perf_counter() - llm_started
+                )
+                self.last_latency["llm_calls"] += 1
             for tool_call in response.tool_calls:
                 self._route_tool_call(mensagem, tool_call)
             if response.tool_calls:
@@ -431,27 +673,34 @@ class Harness:
         grant: AuthorizationGrant | None = None,
         interaction_id: str | None = None,
     ) -> ToolExecutionResult:
-        execute_with_grant = getattr(
-            self.tool_executor, "execute_with_grant", None
-        )
-        if (
-            grant is not None
-            and interaction_id is not None
-            and callable(execute_with_grant)
-        ):
-            return execute_with_grant(
-                tool, grant, interaction_id, **arguments
+        tool_started = time.perf_counter()
+        try:
+            execute_with_grant = getattr(
+                self.tool_executor, "execute_with_grant", None
             )
-        execute_with_result = getattr(
-            self.tool_executor,
-            "execute_with_result",
-            None,
-        )
-        if callable(execute_with_result):
-            return execute_with_result(tool, **arguments)
+            if (
+                grant is not None
+                and interaction_id is not None
+                and callable(execute_with_grant)
+            ):
+                return execute_with_grant(
+                    tool, grant, interaction_id, **arguments
+                )
+            execute_with_result = getattr(
+                self.tool_executor,
+                "execute_with_result",
+                None,
+            )
+            if callable(execute_with_result):
+                return execute_with_result(tool, **arguments)
 
-        content = self.tool_executor.execute(tool, **arguments)
-        return ToolExecutionResult(str(content), "success", True)
+            content = self.tool_executor.execute(tool, **arguments)
+            return ToolExecutionResult(str(content), "success", True)
+        finally:
+            self.last_latency["tool_seconds"] += (
+                time.perf_counter() - tool_started
+            )
+            self.last_latency["tool_calls"] += 1
 
     def _resolve_file_reference(
         self,
@@ -487,7 +736,7 @@ class Harness:
 
         requires_identity_confirmation = (
             tool.risk >= RiskLevel.MEDIUM
-            or match.kind in {FileMatchKind.FUZZY, FileMatchKind.CONTEXT}
+            or match.kind is FileMatchKind.FUZZY
         )
         if requires_identity_confirmation:
             confirmation = self.target_confirmation
@@ -803,7 +1052,11 @@ class Harness:
 
     def _system_context(self) -> list[dict[str, Any]]:
         memories = self.memory_store.get_all()
-        lines = [self.BASE_SYSTEM_PROMPT]
+        persona = PersonaProfile(
+            address_mode=self.config.assistant_address_mode,
+            response_style=self.config.assistant_response_style,
+        )
+        lines = [persona.system_prompt()]
         active = self.context_router.state.active
         lines.extend(
             [
@@ -852,6 +1105,16 @@ class Harness:
             )
         if isinstance(last, str):
             lines.append(f"{active_label}: {Path(last).name}")
+        if active is ActiveContext.OBSIDIAN:
+            lines.append("Chame a entidade ativa de nota, não de arquivo.")
+            if self._obsidian_write_available():
+                lines.append(
+                    "A escrita no Obsidian está habilitada. Para pedidos "
+                    "explícitos de adicionar, anotar, escrever ou acrescentar "
+                    "conteúdo em uma nota, use obsidian_append_note; para uma "
+                    "nota nova, use obsidian_create_note. Não diga que não pode "
+                    "escrever no Obsidian quando essas Tools estiverem disponíveis."
+                )
 
     @staticmethod
     def _tool_matches_context(name: str, active: ActiveContext) -> bool:
@@ -881,6 +1144,16 @@ class Harness:
                 and self.tool_registry.get("obsidian_read_note")
             ):
                 tool_call.name = "obsidian_read_note"
+            elif (
+                tool_call.name == "edit_file"
+                and self.tool_registry.get("obsidian_append_note")
+            ):
+                tool_call.name = "obsidian_append_note"
+            elif (
+                tool_call.name == "create_file"
+                and self.tool_registry.get("obsidian_create_note")
+            ):
+                tool_call.name = "obsidian_create_note"
             elif (
                 tool_call.name == "delete_file"
                 and self.tool_registry.get("obsidian_delete_note")
@@ -924,7 +1197,14 @@ class Harness:
         # O retry recebe apenas o histórico e resultados já produzidos.
         # Não há schema de Tool, executor ou grant neste caminho.
         retry_messages = messages[:-1] if messages else messages
-        retry = self.llm.generate_final(retry_messages)
+        llm_started = time.perf_counter()
+        try:
+            retry = self.llm.generate_final(retry_messages)
+        finally:
+            self.last_latency["llm_seconds"] += (
+                time.perf_counter() - llm_started
+            )
+            self.last_latency["llm_calls"] += 1
         if retry.tool_calls:
             return self.SAFE_FALLBACK_RESPONSE
         retried = self.final_response_firewall.validate(retry.content)
@@ -984,12 +1264,12 @@ class Harness:
 
     def _is_ambiguous_note_cleanup(self, message: str) -> bool:
         normalized = self.confirmation_interpreter.normalize(message)
-        mentions_notes = re.search(r"\bnotas?\b", normalized) is not None
+        mentions_notes = re.search(r"\bnotas\b", normalized) is not None
         note_cleanup = mentions_notes and any(
             phrase in normalized
             for phrase in (
-                "limpa", "limpe", "limpar", "limpada", "apaga", "remove",
-                "exclui",
+                "limpa", "limpe", "limpar", "limpada", "apaga", "apague",
+                "apagar", "remove", "remova", "remover", "exclui",
             )
         )
         vague_removal = any(

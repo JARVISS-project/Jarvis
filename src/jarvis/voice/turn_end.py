@@ -20,6 +20,11 @@ class IncompleteUtteranceDetector:
         "e sobre",
         "e aquela",
         "e aquele",
+        "agora eu volto pras minhas",
+        "agora eu volto para as minhas",
+        "nesse caso e",
+        "olha eu queria",
+        "agora deixa eu",
     )
 
     def is_possibly_incomplete(self, text: str) -> bool:

@@ -50,6 +50,7 @@ class VoicePipeline:
         sample_rate: int = 16000,
         output: Callable[[str], None] = print,
         cooldown_waiter: Callable[[float], None] = time.sleep,
+        monotonic_clock: Callable[[], float] = time.monotonic,
         transcription_validator: TranscriptionValidator | None = None,
         transcript_normalizer: TranscriptNormalizer | None = None,
         conversation_followup_enabled: bool = False,
@@ -63,9 +64,13 @@ class VoicePipeline:
         audio_session: VoiceAudioSession | None = None,
         acknowledgement_enabled: bool = False,
         debug_enabled: bool = False,
+        latency_debug_enabled: bool = False,
         cancel_max_no_speech_probability: float = 0.35,
         cancel_min_average_log_probability: float = -0.6,
         cancel_min_speech_duration_seconds: float = 0.2,
+        followup_timeout_seconds: float = 8.0,
+        question_followup_timeout_seconds: float = 15.0,
+        game_mode_followup_timeout_seconds: float = 4.0,
     ) -> None:
         if post_speech_cooldown_seconds < 0:
             raise ValueError(
@@ -85,6 +90,7 @@ class VoicePipeline:
         self.sample_rate = sample_rate
         self.output = output
         self.cooldown_waiter = cooldown_waiter
+        self.monotonic_clock = monotonic_clock
         self.transcription_validator = transcription_validator
         self.transcript_normalizer = transcript_normalizer or TranscriptNormalizer()
         self.conversation_followup_enabled = conversation_followup_enabled
@@ -101,6 +107,7 @@ class VoicePipeline:
         self.audio_session = audio_session
         self.acknowledgement_enabled = acknowledgement_enabled
         self.debug_enabled = debug_enabled
+        self.latency_debug_enabled = latency_debug_enabled
         self.cancel_max_no_speech_probability = (
             cancel_max_no_speech_probability
         )
@@ -110,11 +117,22 @@ class VoicePipeline:
         self.cancel_min_speech_duration_seconds = (
             cancel_min_speech_duration_seconds
         )
+        self.followup_timeout_seconds = followup_timeout_seconds
+        self.question_followup_timeout_seconds = (
+            question_followup_timeout_seconds
+        )
+        self.game_mode_followup_timeout_seconds = (
+            game_mode_followup_timeout_seconds
+        )
         self.conversation_end_interpreter = ConversationEndInterpreter()
         self.state = VoicePipelineState.WAITING_WAKE
         self._last_response = ""
         self._end_conversation = False
         self._closed = False
+        self._current_turn_started_at: float | None = None
+        self._current_stt_seconds = 0.0
+        self._last_tts_total_seconds = 0.0
+        self._last_harness_seconds = 0.0
 
     def run(self) -> None:
         try:
@@ -165,13 +183,17 @@ class VoicePipeline:
             while self.conversation_followup_enabled:
                 if self.cancellation.is_cancelled:
                     break
-                followup = self._followup_recorder(
-                    question=self._response_expects_answer()
-                )
+                question = self._response_expects_answer()
+                followup = self._followup_recorder(question=question)
                 if followup is None:
                     break
+                timeout, reason = self._followup_timing(question=question)
                 self.resource_manager.conversation()
-                self.state = VoicePipelineState.WAITING_FOLLOWUP
+                self._set_state(VoicePipelineState.WAITING_FOLLOWUP)
+                self._debug(
+                    f"followup window started timeout={timeout:.1f} "
+                    f"reason={reason}"
+                )
                 self.output("Ouvindo continuação...")
                 capture = self._process_recording(
                     followup,
@@ -185,6 +207,8 @@ class VoicePipeline:
                     )
                     wake_state_reset = wake_state_reset or capture.spoke
                 if not capture.succeeded or self._end_conversation:
+                    if capture.status is VoiceCaptureStatus.TIMEOUT:
+                        self._debug("followup timeout expired")
                     break
                 wake_state_reset = self._process_pending_barge_in(
                     wake_state_reset
@@ -213,14 +237,24 @@ class VoicePipeline:
             else recorder.record()
         )
         if not audio:
+            stop_reason = getattr(recorder, "last_stop_reason", None)
+            if stop_reason:
+                self._debug(f"recorder stop_reason={stop_reason}")
             self._debug(f"recorder result={empty_status.name}")
             return VoiceCaptureResult(empty_status)
+        self._current_turn_started_at = self.monotonic_clock()
+        self._current_stt_seconds = 0.0
+        self._last_tts_total_seconds = 0.0
+        self._last_harness_seconds = 0.0
         self._set_state(VoicePipelineState.LISTENING)
         profile = profile or (
             TranscriptionProfile.GENERAL_COMMAND if announce
             else TranscriptionProfile.FOLLOWUP
         )
         self._debug(f"speech gate=STARTED samples={len(audio)}")
+        stop_reason = getattr(recorder, "last_stop_reason", None)
+        if stop_reason:
+            self._debug(f"recorder stop_reason={stop_reason}")
         try:
             result, validation = self._transcribe_and_validate(
                 audio, profile
@@ -315,13 +349,19 @@ class VoicePipeline:
         self._set_state(VoicePipelineState.PROCESSING)
         self.output(f"Você: {text}")
         self._acknowledge(text)
+        harness_started = self.monotonic_clock()
         response = self.harness.processar_mensagem(
             text,
             manage_runtime=False,
         )
+        self._last_harness_seconds = (
+            self.monotonic_clock() - harness_started
+        )
         self._last_response = response
         self.output(f"Jarvis: {response}")
-        return True, self._speak_response(response)
+        spoke = self._speak_response(response)
+        self._emit_latency_report(spoke=spoke)
+        return True, spoke
 
     def _acknowledge(self, text: str) -> None:
         if (
@@ -332,6 +372,8 @@ class VoicePipeline:
             return
         text_to_speech = self.text_to_speech
         if text_to_speech is None:
+            return
+        if not getattr(text_to_speech, "fast_acknowledgement", True):
             return
         if self.audio_session is not None:
             self.audio_session.stop_stream()
@@ -378,6 +420,13 @@ class VoicePipeline:
             return self.question_followup_recorder
         return self.followup_recorder
 
+    def _followup_timing(self, *, question: bool) -> tuple[float, str]:
+        if self.resource_manager.is_game_mode_active():
+            return self.game_mode_followup_timeout_seconds, "game_mode"
+        if question and self.question_followup_recorder is not None:
+            return self.question_followup_timeout_seconds, "assistant_question"
+        return self.followup_timeout_seconds, "normal"
+
     def _response_expects_answer(self) -> bool:
         pending = getattr(self.harness, "has_pending_action", None)
         if callable(pending) and pending():
@@ -404,6 +453,13 @@ class VoicePipeline:
                     self.text_to_speech.close()
                 self._closed = True
 
+    def set_confirmation_state(self, state: VoicePipelineState) -> None:
+        if state in {
+            VoicePipelineState.SPEAKING,
+            VoicePipelineState.CONFIRMATION,
+        }:
+            self._set_state(state)
+
     def _speak_response(self, response: str) -> bool:
         if not self._tts_is_allowed():
             return False
@@ -421,10 +477,10 @@ class VoicePipeline:
             try:
                 text_to_speech = self.text_to_speech
                 if text_to_speech is not None:
-                    if self.barge_in_controller is None:
-                        text_to_speech.speak(spoken_text)
-                    else:
-                        playback = text_to_speech.speak_async(spoken_text)
+                    self._debug("tts started")
+                    tts_started = self.monotonic_clock()
+                    playback = text_to_speech.speak_async(spoken_text)
+                    if self.barge_in_controller is not None:
                         if self.audio_session is not None:
                             self.audio_session.start_stream()
                         else:
@@ -433,6 +489,15 @@ class VoicePipeline:
                         playback.wait()
                         if audio:
                             self._handle_barge_in_audio(audio)
+                    else:
+                        playback.wait()
+                    self._last_tts_total_seconds = (
+                        self.monotonic_clock() - tts_started
+                    )
+                    status = (
+                        " interrupted=true" if playback.interrupted else ""
+                    )
+                    self._debug(f"tts finished{status}")
             except Exception as error:
                 self.output(
                     "Aviso: não foi possível reproduzir a resposta por voz."
@@ -529,33 +594,39 @@ class VoicePipeline:
         audio: list[int],
         profile: TranscriptionProfile,
     ) -> tuple[object, TranscriptionValidation]:
-        result = self.speech_to_text.transcribe(
-            audio, sample_rate=self.sample_rate
-        )
-        validation = self._validate_transcription(result, audio, profile)
-        if (
-            validation.quality is TranscriptionQuality.BORDERLINE
-        ):
-            self._debug("quality result=BORDERLINE")
-            self._debug("stt consensus retry=1 same_audio=true")
-            first = result
-            second = self.speech_to_text.transcribe_retry(
+        stt_started = self.monotonic_clock()
+        try:
+            result = self.speech_to_text.transcribe(
                 audio, sample_rate=self.sample_rate
             )
-            second_validation = self._validate_transcription(
-                second, audio, profile
-            )
-            validator = self.transcription_validator
-            if validator is not None:
-                result, validation = validator.consensus(
-                    first, second, second_validation
+            validation = self._validate_transcription(result, audio, profile)
+            if (
+                validation.quality is TranscriptionQuality.BORDERLINE
+            ):
+                self._debug("quality result=BORDERLINE")
+                self._debug("stt consensus retry=1 same_audio=true")
+                first = result
+                second = self.speech_to_text.transcribe_retry(
+                    audio, sample_rate=self.sample_rate
                 )
-                if validation.stability is not None:
-                    self._debug(
-                        "transcript stability="
-                        f"{validation.stability:.3f}"
+                second_validation = self._validate_transcription(
+                    second, audio, profile
+                )
+                validator = self.transcription_validator
+                if validator is not None:
+                    result, validation = validator.consensus(
+                        first, second, second_validation
                     )
-        return result, validation
+                    if validation.stability is not None:
+                        self._debug(
+                            "transcript stability="
+                            f"{validation.stability:.3f}"
+                        )
+            return result, validation
+        finally:
+            self._current_stt_seconds += (
+                self.monotonic_clock() - stt_started
+            )
 
     def _attempt_repair(
         self,
@@ -659,9 +730,51 @@ class VoicePipeline:
             f"quality profile={profile.name} result=ACCEPTED{suffix}"
         )
 
+    def _emit_latency_report(self, *, spoke: bool) -> None:
+        if not self.latency_debug_enabled:
+            return
+        get_latency = getattr(self.harness, "get_last_latency", None)
+        harness_latency = get_latency() if callable(get_latency) else {}
+        llm_seconds = float(harness_latency.get("llm_seconds", 0.0))
+        llm_calls = int(harness_latency.get("llm_calls", 0))
+        tool_seconds = float(harness_latency.get("tool_seconds", 0.0))
+        tool_calls = int(harness_latency.get("tool_calls", 0))
+        harness_seconds = float(
+            harness_latency.get("harness_seconds", self._last_harness_seconds)
+        )
+        tts_synthesis = None
+        if spoke and self.text_to_speech is not None:
+            value = getattr(
+                self.text_to_speech, "last_synthesis_seconds", None
+            )
+            if isinstance(value, (int, float)):
+                tts_synthesis = float(value)
+        to_voice = self._current_stt_seconds + harness_seconds
+        if tts_synthesis is not None:
+            to_voice += tts_synthesis
+        parts = [
+            f"STT={self._current_stt_seconds:.2f}s",
+            f"Harness={harness_seconds:.2f}s",
+            f"LLM={llm_seconds:.2f}s/{llm_calls}",
+            f"Tools={tool_seconds:.2f}s/{tool_calls}",
+        ]
+        if tts_synthesis is not None:
+            parts.append(f"TTS-synth={tts_synthesis:.2f}s")
+            parts.append(f"até-voz≈{to_voice:.2f}s")
+        elif spoke:
+            parts.append(f"TTS-total={self._last_tts_total_seconds:.2f}s")
+        turn_started = self._current_turn_started_at
+        if turn_started is not None:
+            parts.append(
+                f"turno-total={self.monotonic_clock() - turn_started:.2f}s"
+            )
+        self.output("[latency] " + " | ".join(parts))
+
     def _debug(self, message: str) -> None:
         if self.debug_enabled:
-            self.output(f"[voice] {message}")
+            self.output(
+                f"[voice] t={self.monotonic_clock():.3f} {message}"
+            )
 
     def _set_state(self, state: VoicePipelineState) -> None:
         previous = self.state

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from jarvis.context.note_reference_resolver import (
     NoteMatchKind,
     NoteReferenceResolver,
@@ -52,3 +54,38 @@ def test_pronoun_prefers_last_active_note(tmp_path: Path) -> None:
 
     assert match.kind is NoteMatchKind.CONTEXT
     assert match.canonical_path == "Faculdade/VLSM.md"
+
+
+def test_note_just_opened_reference_prefers_last_active_note(
+    tmp_path: Path,
+) -> None:
+    note_resolver, recent = resolver(tmp_path)
+    recent.set("last_active_note", "Projetos/Projeto Jarvis.md")
+
+    match = note_resolver.resolve("a que você abriu")
+
+    assert match.kind is NoteMatchKind.CONTEXT
+    assert match.canonical_path == "Projetos/Projeto Jarvis.md"
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "edite ele",
+        "edita ela",
+        "adicione nessa nota",
+        "coloque isso nela",
+        "nesse arquivo que você acabou de ler",
+        "na nota que você acabou de abrir",
+    ],
+)
+def test_write_followup_reference_uses_last_active_note(
+    tmp_path: Path, reference: str
+) -> None:
+    note_resolver, recent = resolver(tmp_path)
+    recent.set("last_active_note", "Projetos/Projeto Jarvis.md")
+
+    match = note_resolver.resolve(reference)
+
+    assert match.kind is NoteMatchKind.CONTEXT
+    assert match.canonical_path == "Projetos/Projeto Jarvis.md"

@@ -2,6 +2,8 @@
 
 from collections.abc import Callable
 from pathlib import Path
+import re
+import unicodedata
 import webbrowser
 from typing import NamedTuple
 
@@ -76,22 +78,38 @@ class ObsidianVault:
         return target.read_text(encoding="utf-8")
 
     def search_notes(self, query: str) -> list[NoteSearchResult]:
-        normalized_query = query.strip().casefold()
+        normalized_query = self._normalize_search_text(query)
         if not normalized_query:
             raise ValueError("A busca não pode ser vazia.")
+        variants = self._search_variants(normalized_query)
         results: list[NoteSearchResult] = []
         for path in self.list_notes():
             target = self.resolve_note(path)
             if target.stat().st_size > self.max_note_size_bytes:
                 continue
             content = target.read_text(encoding="utf-8")
-            index = content.casefold().find(normalized_query)
-            path_match = normalized_query in path.casefold()
-            if path_match or index >= 0:
-                score = (2 if path_match else 0) + (1 if index >= 0 else 0)
-                results.append(
-                    NoteSearchResult(path, self._snippet(content, index), score)
-                )
+            normalized_path = self._normalize_search_text(path)
+            normalized_content = self._normalize_search_text(content)
+            matched_variant = next(
+                (
+                    variant
+                    for variant in variants
+                    if variant in normalized_path or variant in normalized_content
+                ),
+                None,
+            )
+            if matched_variant is None:
+                continue
+            path_match = matched_variant in normalized_path
+            content_match = matched_variant in normalized_content
+            # ``_snippet`` espera um índice do texto original. Para matches
+            # normalizados (acentos/plural) pode não existir um índice exato;
+            # nesse caso ele usa com segurança o início da nota.
+            index = content.casefold().find(matched_variant)
+            score = (2 if path_match else 0) + (1 if content_match else 0)
+            results.append(
+                NoteSearchResult(path, self._snippet(content, index), score)
+            )
         results.sort(key=lambda item: (-item.score, item.path.casefold()))
         return results[: self.search_max_results]
 
@@ -105,16 +123,21 @@ class ObsidianVault:
 
     def append_note(self, path: str, content: str) -> None:
         target = self._existing_note(path, for_write=True)
+        separator = ""
+        if target.stat().st_size > 0 and content and not content.startswith("\n"):
+            with target.open("rb") as existing:
+                existing.seek(-1, 2)
+                if existing.read(1) not in {b"\n", b"\r"}:
+                    separator = "\n"
         with target.open("a", encoding="utf-8") as note:
-            note.write(content)
+            note.write(separator + content)
 
     def delete_note(self, path: str) -> None:
         self._existing_note(path, for_write=True).unlink()
 
     def open_note(self, path: str) -> str:
         target = self._existing_note(path)
-        relative = target.relative_to(self.vault_path).as_posix()
-        uri = build_obsidian_open_uri(self.vault_path.name, relative)
+        uri = build_obsidian_open_uri(target)
         self._uri_opener(uri)
         return uri
 
@@ -125,6 +148,29 @@ class ObsidianVault:
         if not target.is_file():
             raise IsADirectoryError(path)
         return target
+
+
+    @staticmethod
+    def _normalize_search_text(value: str) -> str:
+        decomposed = unicodedata.normalize("NFKD", value.casefold())
+        plain = "".join(
+            char for char in decomposed if not unicodedata.combining(char)
+        )
+        return " ".join(re.sub(r"[^a-z0-9]+", " ", plain).split())
+
+    @staticmethod
+    def _search_variants(normalized_query: str) -> tuple[str, ...]:
+        variants = [normalized_query]
+        # STT/linguagem natural frequentemente alternam singular/plural
+        # ("teste"/"testes"). O fallback é propositalmente conservador:
+        # apenas uma palavra final com mais de quatro caracteres perde o "s".
+        words = normalized_query.split()
+        if words and len(words[-1]) > 4 and words[-1].endswith("s"):
+            singular_words = [*words[:-1], words[-1][:-1]]
+            singular = " ".join(singular_words)
+            if singular and singular != normalized_query:
+                variants.append(singular)
+        return tuple(variants)
 
     def _snippet(self, content: str, index: int) -> str:
         compact = " ".join(content.split())

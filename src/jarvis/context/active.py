@@ -22,6 +22,8 @@ class ContextRouter:
 
     OBSIDIAN_CORRECTIONS = (
         "nao no diretorio no obsidian",
+        "nao quero ver no diretorio eu quero ver no obsidian",
+        "nao quero ver no diretorio quero ver no obsidian",
         "nao e arquivo e nota",
         "eu quis dizer minhas notas",
         "quero no obsidian",
@@ -29,6 +31,7 @@ class ContextRouter:
     )
     FILESYSTEM_CORRECTIONS = (
         "nao no obsidian no projeto",
+        "nao quero no obsidian quero no projeto",
         "quero o arquivo",
         "quero no projeto",
     )
@@ -42,17 +45,28 @@ class ContextRouter:
             "projeto",
         }
     )
+    OBSIDIAN_CONTEXT_REFERENCES = (
+        "arquivo que voce acabou de ler",
+        "arquivo que voce acabou de abrir",
+    )
 
     def __init__(self, state: ConversationContext | None = None) -> None:
         self.state = state or ConversationContext()
 
     def update(self, message: str) -> ActiveContext:
         normalized = self.normalize(message)
+        if self._contains_any(normalized, self.FILESYSTEM_CORRECTIONS):
+            self.state.active = ActiveContext.FILESYSTEM
+            return self.state.active
         if self._contains_any(normalized, self.OBSIDIAN_CORRECTIONS):
             self.state.active = ActiveContext.OBSIDIAN
             return self.state.active
-        if self._contains_any(normalized, self.FILESYSTEM_CORRECTIONS):
-            self.state.active = ActiveContext.FILESYSTEM
+        if (
+            self.state.active is ActiveContext.OBSIDIAN
+            and self._contains_any(
+                normalized, self.OBSIDIAN_CONTEXT_REFERENCES
+            )
+        ):
             return self.state.active
 
         words = set(re.findall(r"[a-z0-9]+", normalized))

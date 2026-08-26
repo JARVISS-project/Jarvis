@@ -36,8 +36,10 @@ from jarvis.tools.move_file import MoveFileTool
 from jarvis.tools.obsidian import obsidian_tools
 from jarvis.tools.read_file import ReadFileTool
 from jarvis.tools.registry import ToolRegistry
-from jarvis.tools.test_tool import TestTool
-from jarvis.tts.windows_sapi import WindowsSapiTTS
+from jarvis.tts.chatterbox import ChatterboxTTS
+from jarvis.tts.piper import PiperTTS
+from jarvis.tts.piper_setup import setup_piper_voice
+from jarvis.tts.factory import build_text_to_speech
 from jarvis.voice.pipeline import VoicePipeline
 from jarvis.voice.barge_in import BargeInController
 from jarvis.voice.audio_session import VoiceAudioSession
@@ -83,7 +85,6 @@ def build_harness(
     )
 
     tool_registry = ToolRegistry()
-    tool_registry.register(TestTool())
     tool_registry.register(GetDateTimeTool())
     tool_registry.register(GetRuntimeInfoTool(config, resource_manager))
     if capability_policy.is_enabled(Capability.FILESYSTEM_READ):
@@ -223,38 +224,36 @@ def run_voice_mode(
         vad_speech_pad_ms=config.stt_vad_speech_pad_ms,
         vad_threshold=config.stt_vad_threshold,
     )
-    text_to_speech = (
-        WindowsSapiTTS(
-            rate=config.tts_rate,
-            volume=config.tts_volume,
-            voice_id=config.tts_voice_id,
+    text_to_speech = build_text_to_speech(config)
+    def confirmation_recorder(timeout_seconds: float) -> UtteranceRecorder:
+        return UtteranceRecorder(
+            audio_input=audio_input,
+            sample_rate=detector.sample_rate,
+            silence_threshold=config.voice_silence_threshold,
+            silence_duration_seconds=min(
+                config.voice_silence_duration_seconds, 0.6
+            ),
+            max_recording_seconds=timeout_seconds,
+            pre_speech_timeout_seconds=timeout_seconds,
+            minimum_speech_duration_seconds=(
+                config.voice_confirmation_min_speech_duration_seconds
+            ),
+            minimum_audio_energy=config.voice_minimum_audio_energy,
+            noise_calibration_seconds=config.voice_noise_calibration_seconds,
+            noise_margin=config.voice_noise_margin,
+            maximum_speech_threshold=config.voice_maximum_speech_threshold,
+            pre_roll_seconds=config.voice_pre_roll_seconds,
+            end_silence_seconds=min(config.voice_end_silence_seconds, 0.6),
         )
-        if config.tts_enabled
-        else None
-    )
-    confirmation_recorder = UtteranceRecorder(
-        audio_input=audio_input,
-        sample_rate=detector.sample_rate,
-        silence_threshold=config.voice_silence_threshold,
-        silence_duration_seconds=min(
-            config.voice_silence_duration_seconds, 0.6
-        ),
-        max_recording_seconds=config.voice_confirmation_timeout_seconds,
-        pre_speech_timeout_seconds=config.voice_confirmation_timeout_seconds,
-        minimum_speech_duration_seconds=(
-            config.voice_confirmation_min_speech_duration_seconds
-        ),
-        minimum_audio_energy=config.voice_minimum_audio_energy,
-        noise_calibration_seconds=config.voice_noise_calibration_seconds,
-        noise_margin=config.voice_noise_margin,
-        maximum_speech_threshold=config.voice_maximum_speech_threshold,
-        pre_roll_seconds=config.voice_pre_roll_seconds,
-        end_silence_seconds=min(config.voice_end_silence_seconds, 0.6),
-    )
     confirmation = (
         VoiceConfirmation(
             listener=listener,
-            recorder=confirmation_recorder,
+            recorder=confirmation_recorder(
+                config.voice_confirmation_timeout_seconds
+            ),
+            retry_recorder=confirmation_recorder(
+                config.voice_confirmation_retry_timeout_seconds
+            ),
             speech_to_text=speech_to_text,
             text_to_speech=text_to_speech,
             resource_manager=resource_manager,
@@ -264,6 +263,10 @@ def run_voice_mode(
             ),
             cancellation=cancellation,
             audio_session=audio_session,
+            post_speech_cooldown_seconds=(
+                config.voice_post_tts_grace_seconds
+            ),
+            debug_enabled=config.voice_debug_enabled,
         )
         if config.voice_confirmation_enabled
         else None
@@ -276,6 +279,30 @@ def run_voice_mode(
             silence_duration_seconds=config.voice_silence_duration_seconds,
             max_recording_seconds=timeout_seconds,
             pre_speech_timeout_seconds=timeout_seconds,
+            minimum_speech_duration_seconds=(
+                config.voice_minimum_speech_duration_seconds
+            ),
+            minimum_audio_energy=config.voice_minimum_audio_energy,
+            noise_calibration_seconds=config.voice_noise_calibration_seconds,
+            noise_margin=config.voice_noise_margin,
+            maximum_speech_threshold=config.voice_maximum_speech_threshold,
+            pre_roll_seconds=config.voice_pre_roll_seconds,
+            end_silence_seconds=config.voice_end_silence_seconds,
+        )
+
+    def incomplete_turn_recorder() -> UtteranceRecorder:
+        # ``voice_incomplete_turn_extension_seconds`` e a janela para o usuario
+        # voltar a falar. Depois que a continuacao comeca, ela pode durar ate
+        # o limite normal; antes, o mesmo valor tambem limitava a gravacao.
+        return UtteranceRecorder(
+            audio_input=audio_input,
+            sample_rate=detector.sample_rate,
+            silence_threshold=config.voice_silence_threshold,
+            silence_duration_seconds=config.voice_silence_duration_seconds,
+            max_recording_seconds=config.voice_max_recording_seconds,
+            pre_speech_timeout_seconds=(
+                config.voice_incomplete_turn_extension_seconds
+            ),
             minimum_speech_duration_seconds=(
                 config.voice_minimum_speech_duration_seconds
             ),
@@ -300,7 +327,7 @@ def run_voice_mode(
         tts_enabled=config.tts_enabled,
         tts_enabled_game_mode=config.tts_enabled_game_mode,
         post_speech_cooldown_seconds=(
-            config.tts_post_speech_cooldown_seconds
+            config.voice_post_tts_grace_seconds
         ),
         sample_rate=detector.sample_rate,
         transcription_validator=TranscriptionValidator(),
@@ -318,13 +345,12 @@ def run_voice_mode(
         repair_recorder=followup_recorder(
             config.voice_repair_timeout_seconds
         ),
-        incomplete_turn_recorder=followup_recorder(
-            config.voice_incomplete_turn_extension_seconds
-        ),
+        incomplete_turn_recorder=incomplete_turn_recorder(),
         cancellation=cancellation,
         audio_session=audio_session,
         acknowledgement_enabled=config.voice_acknowledgement_enabled,
         debug_enabled=config.voice_debug_enabled,
+        latency_debug_enabled=config.latency_debug_enabled,
         cancel_max_no_speech_probability=(
             config.voice_cancel_max_no_speech_probability
         ),
@@ -333,6 +359,15 @@ def run_voice_mode(
         ),
         cancel_min_speech_duration_seconds=(
             config.voice_cancel_min_speech_duration_seconds
+        ),
+        followup_timeout_seconds=(
+            config.conversation_followup_timeout_seconds
+        ),
+        question_followup_timeout_seconds=(
+            config.conversation_question_timeout_seconds
+        ),
+        game_mode_followup_timeout_seconds=(
+            config.conversation_followup_timeout_game_mode_seconds
         ),
         barge_in_controller=(
             BargeInController(
@@ -348,6 +383,10 @@ def run_voice_mode(
             else None
         ),
     )
+    if confirmation is not None:
+        state_callback = getattr(pipeline, "set_confirmation_state", None)
+        if callable(state_callback):
+            confirmation.bind_state_callback(state_callback)
     pipeline.run()
 
 
@@ -360,6 +399,45 @@ def setup_voice_model(model_name: str) -> None:
         ) from error
 
     openwakeword.utils.download_models(model_names=[model_name])
+
+
+def setup_neural_voice(config: JarvisConfig) -> None:
+    tts = ChatterboxTTS(
+        device=config.tts_device,
+        language_id=config.tts_language_id,
+        reference_audio_path=config.tts_reference_audio_path,
+        t3_model=config.tts_chatterbox_t3_model,
+        exaggeration=config.tts_chatterbox_exaggeration,
+        cfg_weight=config.tts_chatterbox_cfg_weight,
+    )
+    try:
+        tts.warm_up()
+    finally:
+        tts.close()
+
+
+def setup_fast_voice(config: JarvisConfig) -> None:
+    try:
+        import piper  # noqa: F401
+    except ImportError as error:
+        raise RuntimeError(
+            "Piper não instalado. Instale com: "
+            "python -m pip install -e \".[fast-voice]\""
+        ) from error
+
+    model_path, config_path = setup_piper_voice(
+        config.tts_piper_model_path,
+        config.tts_piper_config_path,
+    )
+    tts = PiperTTS(
+        model_path=model_path,
+        config_path=config_path,
+        tail_silence_seconds=config.tts_piper_tail_silence_seconds,
+    )
+    try:
+        tts.warm_up()
+    finally:
+        tts.close()
 
 
 def _argument_parser() -> argparse.ArgumentParser:
@@ -380,6 +458,16 @@ def _argument_parser() -> argparse.ArgumentParser:
         help="Baixa uma vez o modelo pré-treinado de wake word.",
     )
     parser.add_argument(
+        "--setup-neural-voice",
+        action="store_true",
+        help="Baixa e prepara o Chatterbox local para o TTS neural.",
+    )
+    parser.add_argument(
+        "--setup-fast-voice",
+        action="store_true",
+        help="Baixa e prepara a voz rápida pt-BR do Piper.",
+    )
+    parser.add_argument(
         "--microphone-device-index",
         type=int,
         help="Índice opcional do dispositivo de entrada.",
@@ -397,6 +485,26 @@ def main(argv: list[str] | None = None) -> None:
         except RuntimeError as error:
             raise SystemExit(f"Erro ao preparar modo voice: {error}") from error
         print("Modelo de wake word preparado.")
+        return
+
+    if args.setup_neural_voice:
+        try:
+            setup_neural_voice(config)
+        except RuntimeError as error:
+            raise SystemExit(
+                f"Erro ao preparar TTS neural: {error}"
+            ) from error
+        print("TTS neural preparado.")
+        return
+
+    if args.setup_fast_voice:
+        try:
+            setup_fast_voice(config)
+        except RuntimeError as error:
+            raise SystemExit(
+                f"Erro ao preparar TTS rápido: {error}"
+            ) from error
+        print("TTS rápido preparado.")
         return
 
     if args.voice or config.wake_word_enabled:

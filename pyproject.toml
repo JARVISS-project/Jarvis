@@ -22,6 +22,14 @@ voice = [
     "pvrecorder",
     "pyttsx3",
 ]
+neural-voice = [
+    "chatterbox-tts>=0.1.7",
+    "sounddevice>=0.5",
+]
+fast-voice = [
+    "piper-tts>=1.6,<2",
+    "sounddevice>=0.5",
+]
 
 [project.scripts]
 jarvis = "jarvis.__main__:main"

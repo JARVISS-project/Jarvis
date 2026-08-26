@@ -175,3 +175,23 @@ def test_active_voice_pipeline_can_delegate_runtime_ownership() -> None:
 
     assert llm.states_during_generate == [RuntimeState.ACTIVE]
     assert manager.state is RuntimeState.ACTIVE
+
+
+def test_harness_records_last_latency_and_reports_it() -> None:
+    manager = ResourceManager()
+    llm = RuntimeAwareLLM(manager)
+    harness = make_harness(manager, llm)
+
+    harness.processar_mensagem("Olá")
+
+    latency = harness.get_last_latency()
+    assert latency["harness_seconds"] >= 0.0
+    assert latency["llm_seconds"] >= 0.0
+    assert latency["llm_calls"] == 1
+    assert latency["tool_calls"] == 0
+
+    report = harness.processar_mensagem("/latency")
+    assert "Última interação:" in report
+    assert "LLM" in report
+    assert "Tools" in report
+    assert llm.calls == 1

@@ -9,6 +9,7 @@ from jarvis.integrations.obsidian.vault import ObsidianVault
 from jarvis.runtime.resource_manager import ResourceManager
 from jarvis.security.audit import AuditLogger
 from jarvis.security.filesystem import FileSystemGuard
+from jarvis.security.risk import RiskLevel
 from jarvis.security.safety_manager import SafetyManager
 from jarvis.tools.executor import ToolExecutor
 from jarvis.tools.obsidian import (
@@ -80,6 +81,28 @@ def test_search_by_name_and_content_with_limited_snippet(vault: ObsidianVault) -
     assert len(result[1]) <= vault.MAX_SNIPPET_LENGTH
 
 
+def test_search_tolerates_simple_plural_from_natural_speech(
+    vault: ObsidianVault,
+) -> None:
+    (vault.vault_path / "Teste para Jarvis.md").write_text(
+        "Jarvis", encoding="utf-8"
+    )
+
+    results = vault.search_notes("testes")
+
+    assert [item.path for item in results] == ["Teste para Jarvis.md"]
+
+
+def test_search_is_accent_insensitive(vault: ObsidianVault) -> None:
+    (vault.vault_path / "Notas.md").write_text(
+        "automação diária", encoding="utf-8"
+    )
+
+    results = vault.search_notes("automacao")
+
+    assert [item.path for item in results] == ["Notas.md"]
+
+
 def test_create_no_overwrite_and_append_preserves_content(vault: ObsidianVault) -> None:
     vault.create_note("Curso/Nova.md", "início")
     with pytest.raises(FileExistsError):
@@ -88,36 +111,57 @@ def test_create_no_overwrite_and_append_preserves_content(vault: ObsidianVault) 
     assert vault.read_note("Curso/Nova.md") == "início\nfim"
 
 
+def test_append_inserts_one_separator_for_quick_note_text(
+    vault: ObsidianVault,
+) -> None:
+    vault.create_note("Rapida.md", "primeira linha")
+    vault.append_note("Rapida.md", "segunda linha")
+    assert vault.read_note("Rapida.md") == "primeira linha\nsegunda linha"
+
+
 @pytest.mark.parametrize(
     "tool_factory,path",
     [(ObsidianCreateNoteTool, "nova.md"), (ObsidianAppendNoteTool, "existente.md")],
 )
-def test_writes_require_confirmation(
+def test_quick_writes_are_low_risk_and_do_not_prompt(
     tool_factory: type, path: str, vault: ObsidianVault,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     (vault.vault_path / "existente.md").write_text("original", encoding="utf-8")
+    tool = tool_factory(vault)
+    assert tool.risk is RiskLevel.LOW
+
+    def unexpected_prompt(_prompt: str) -> str:
+        raise AssertionError("Obsidian quick write não deve pedir confirmação")
+
+    monkeypatch.setattr("builtins.input", unexpected_prompt)
     executor = ToolExecutor(SafetyManager(), AuditLogger(tmp_path / "audit.log"))
-    monkeypatch.setattr("builtins.input", lambda _prompt: "n")
-    result = executor.execute(tool_factory(vault), path=path, content="SEGREDO")
-    assert "não autorizada" in result
-    assert not (vault.vault_path / "nova.md").exists()
-    assert (vault.vault_path / "existente.md").read_text(encoding="utf-8") == "original"
-    assert "SEGREDO" not in (tmp_path / "audit.log").read_text(encoding="utf-8")
+    result = executor.execute(tool, path=path, content="anotação rápida")
+
+    assert "sucesso" in result.casefold() or "adicionado" in result.casefold()
+    if path == "nova.md":
+        assert (vault.vault_path / path).read_text(encoding="utf-8") == "anotação rápida"
+    else:
+        assert (vault.vault_path / path).read_text(encoding="utf-8") == "original\nanotação rápida"
+    assert "anotação rápida" not in (tmp_path / "audit.log").read_text(encoding="utf-8")
 
 
 def test_open_note_validates_and_escapes_uri(vault: ObsidianVault) -> None:
     opened: list[str] = []
     vault._uri_opener = opened.append
     (vault.vault_path / "Pasta").mkdir()
-    (vault.vault_path / "Pasta" / "Ação & teste.md").write_text("x", encoding="utf-8")
+    target = vault.vault_path / "Pasta" / "Ação & teste #1.md"
+    target.write_text("x", encoding="utf-8")
     tool = ObsidianOpenNoteTool(vault)
-    tool.execute(path="Pasta/Ação & teste.md")
+    tool.execute(path="Pasta/Ação & teste #1.md")
     parsed = urlparse(opened[0])
     assert parsed.scheme == "obsidian"
-    assert parse_qs(parsed.query) == {
-        "vault": ["Meu Vault"], "file": ["Pasta/Ação & teste.md"]
-    }
+    assert parse_qs(parsed.query) == {"path": [target.as_posix()]}
+    assert "%20" in opened[0]
+    assert "+" not in opened[0]
+    assert "%23" in opened[0]
+    assert "%26" in opened[0]
+    assert "vault=" not in opened[0]
     with pytest.raises(FileNotFoundError):
         tool.preflight(path="ausente.md")
     with pytest.raises(PermissionError):

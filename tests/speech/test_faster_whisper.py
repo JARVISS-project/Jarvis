@@ -85,6 +85,7 @@ def test_transcribe_loads_cpu_int8_model_and_returns_result() -> None:
     assert result.language_probability == 0.98
     assert result.duration_after_vad_seconds == 0.9
     assert model.arguments["condition_on_previous_text"] is False
+    assert "initial_prompt" not in model.arguments
     assert model.arguments["vad_filter"] is True
     assert model.arguments["vad_parameters"] == {
         "min_silence_duration_ms": 500,

@@ -75,3 +75,43 @@ def test_file_ordinal_uses_file_results_without_mixing_notes(
 
     assert match.kind is FileMatchKind.CONTEXT
     assert match.path == "segundo.txt"
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "ele",
+        "esse arquivo",
+        "aquele arquivo",
+        "a que você abriu",
+        "o arquivo que você acabou de abrir",
+        "a anterior",
+    ],
+)
+def test_natural_file_reference_uses_last_active_file(
+    tmp_path: Path, reference: str
+) -> None:
+    (tmp_path / "pyproject.toml").write_text("x", encoding="utf-8")
+    recent = RecentContext()
+    recent.set("last_active_file", "pyproject.toml")
+    resolver = FileReferenceResolver(FileSystemGuard(tmp_path), recent)
+
+    match = resolver.resolve(reference)
+
+    assert match.kind is FileMatchKind.CONTEXT
+    assert match.path == "pyproject.toml"
+
+
+def test_pronoun_uses_only_unambiguous_single_file_result(
+    tmp_path: Path,
+) -> None:
+    for name in ("pyproject.toml", "README.md"):
+        (tmp_path / name).write_text("x", encoding="utf-8")
+    recent = RecentContext()
+    recent.set("last_file_results", ["pyproject.toml"])
+    resolver = FileReferenceResolver(FileSystemGuard(tmp_path), recent)
+
+    assert resolver.resolve("ele").path == "pyproject.toml"
+
+    recent.set("last_file_results", ["pyproject.toml", "README.md"])
+    assert resolver.resolve("ele").kind is FileMatchKind.NOT_FOUND

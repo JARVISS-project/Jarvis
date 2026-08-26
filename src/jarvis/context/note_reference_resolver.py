@@ -41,10 +41,22 @@ class NoteReferenceResolver:
     }
     CONTEXT_WORDS = frozenset(
         {
-            "ela", "ele", "essa", "essa nota", "aquela nota", "a nota",
-            "o assunto dela", "aquela que voce abriu",
-            "a nota que voce acabou de ler", "a nota anterior", "anterior",
+            "ela", "ele", "nela", "nele", "essa", "essa nota",
+            "nessa nota", "aquela nota", "a nota",
+            "o assunto dela", "a que voce abriu", "aquela que voce abriu",
+            "a nota que voce acabou de abrir",
+            "a nota que voce acabou de ler", "na nota que voce acabou de abrir",
+            "na nota que voce acabou de ler",
+            "nesse arquivo que voce acabou de ler",
+            "nesse arquivo que voce acabou de abrir",
+            "a nota anterior", "anterior",
         }
+    )
+    CONTEXT_PATTERNS = (
+        r"\b(?:ele|ela|nele|nela)\b",
+        r"\b(?:nessa|essa|aquela) nota\b",
+        r"\bna nota que voce acabou de (?:abrir|ler)\b",
+        r"\bnesse arquivo que voce acabou de (?:abrir|ler)\b",
     )
 
     def __init__(
@@ -76,7 +88,7 @@ class NoteReferenceResolver:
                 (recent[ordinal],),
                 1.0,
             )
-        if normalized_words in self.CONTEXT_WORDS:
+        if self._is_context_reference(normalized_words):
             last_note = self.recent_context.get("last_active_note")
             if not isinstance(last_note, str):
                 last_note = self.recent_context.get("last_note")
@@ -139,6 +151,13 @@ class NoteReferenceResolver:
             if re.search(rf"\b{word}\b", value):
                 return index
         return None
+
+    @classmethod
+    def _is_context_reference(cls, value: str) -> bool:
+        return value in cls.CONTEXT_WORDS or any(
+            re.search(pattern, value) is not None
+            for pattern in cls.CONTEXT_PATTERNS
+        )
 
     @classmethod
     def _score(cls, query: str, path: str) -> float:

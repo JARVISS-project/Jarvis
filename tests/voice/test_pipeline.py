@@ -88,6 +88,16 @@ class FakeHarness:
     def __init__(self, response: str = "resposta") -> None:
         self.response = response
         self.calls: list[tuple[str, bool]] = []
+        self.latency = {
+            "harness_seconds": 0.20,
+            "llm_seconds": 0.15,
+            "llm_calls": 1,
+            "tool_seconds": 0.01,
+            "tool_calls": 1,
+        }
+
+    def get_last_latency(self) -> dict[str, float | int]:
+        return dict(self.latency)
 
     def processar_mensagem(
         self,
@@ -347,8 +357,8 @@ def test_voice_debug_reports_safe_no_speech_metadata() -> None:
         debug_enabled=True,
     )
     pipeline.process_once()
-    assert "[voice] wake detected" in output
-    assert "[voice] recorder result=NO_SPEECH" in output
+    assert any(line.endswith("wake detected") for line in output)
+    assert any(line.endswith("recorder result=NO_SPEECH") for line in output)
     assert any("WAITING_WAKE" in line for line in output if "transition=" in line)
 
 
@@ -516,6 +526,25 @@ def test_approved_cancellation_prints_the_understood_transcript() -> None:
     pipeline.process_once()
     assert "Você [cancelamento]: Cancela." in output
     assert "Ação cancelada." in output
+
+
+def test_context_switch_with_deixa_reaches_harness_instead_of_cancelling() -> None:
+    text = "Agora deixa o Obsidian e procura por PyProject no projeto."
+    harness = FakeHarness()
+    output: list[str] = []
+    pipeline = make_pipeline(
+        ResourceManager(),
+        FakeListener([activation()]),
+        FakeRecorder([1]),
+        FakeSpeechToText(TranscriptionResult(text, "pt", 0.5)),
+        harness,
+        output,
+    )
+
+    pipeline.process_once()
+
+    assert harness.calls == [(text, False)]
+    assert not any("cancelada" in line.casefold() for line in output)
 
 
 def test_one_hundred_false_wakes_never_reach_stt_or_harness() -> None:
@@ -1038,6 +1067,27 @@ def test_safe_command_speaks_short_acknowledgement() -> None:
     assert tts.spoken == ["Entendi.", "resultado"]
 
 
+def test_expensive_tts_skips_short_acknowledgement() -> None:
+    class ExpensiveTTS(FakeTextToSpeech):
+        fast_acknowledgement = False
+
+    tts = ExpensiveTTS()
+    pipeline = make_pipeline(
+        ResourceManager(),
+        FakeListener([activation()]),
+        FakeRecorder([1]),
+        FakeSpeechToText(),
+        FakeHarness("resultado"),
+        [],
+        tts=tts,
+    )
+    pipeline.acknowledgement_enabled = True
+
+    pipeline.process_once()
+
+    assert tts.spoken == ["resultado"]
+
+
 def test_destructive_command_defers_acknowledgement_to_confirmation() -> None:
     tts = FakeTextToSpeech()
     pipeline = VoicePipeline(
@@ -1094,6 +1144,73 @@ def test_followup_window_starts_only_after_tts_and_cooldown() -> None:
     ]
 
 
+def test_long_tts_does_not_consume_followup_window_with_fake_clock() -> None:
+    class FakeClock:
+        def __init__(self) -> None:
+            self.now = 0.0
+
+        def __call__(self) -> float:
+            return self.now
+
+        def advance(self, seconds: float) -> None:
+            self.now += seconds
+
+    class TimedPlayback:
+        interrupted = False
+
+        def __init__(self, clock: FakeClock) -> None:
+            self.clock = clock
+
+        def wait(self) -> bool:
+            self.clock.advance(25.0)
+            return True
+
+    class TimedTTS(FakeTextToSpeech):
+        def __init__(self, clock: FakeClock) -> None:
+            super().__init__()
+            self.clock = clock
+
+        def speak_async(self, text: str) -> TimedPlayback:
+            self.spoken.append(text)
+            return TimedPlayback(self.clock)
+
+    class TimedRecorder(SequenceRecorder):
+        def __init__(self, clock: FakeClock) -> None:
+            super().__init__([[]])
+            self.clock = clock
+
+        def record(self) -> list[int]:
+            self.clock.advance(8.0)
+            return super().record()
+
+    clock = FakeClock()
+    output: list[str] = []
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=SequenceRecorder([[1]]),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(),
+        harness=FakeHarness("resposta longa"),
+        resource_manager=ResourceManager(),
+        text_to_speech=TimedTTS(clock),
+        conversation_followup_enabled=True,
+        followup_recorder=TimedRecorder(clock),  # type: ignore[arg-type]
+        cooldown_waiter=clock.advance,
+        monotonic_clock=clock,
+        debug_enabled=True,
+        output=output.append,
+    )
+
+    pipeline.process_once()
+
+    assert "[voice] t=0.000 tts started" in output
+    assert "[voice] t=25.000 tts finished" in output
+    assert (
+        "[voice] t=25.750 followup window started "
+        "timeout=8.0 reason=normal"
+    ) in output
+    assert "[voice] t=33.750 followup timeout expired" in output
+
+
 def test_three_conversation_turns_need_only_one_wake_word() -> None:
     harness = FakeHarness("resposta")
     pipeline = VoicePipeline(
@@ -1131,6 +1248,30 @@ def test_question_and_pending_action_use_longer_recorder() -> None:
     pipeline.process_once()
     assert question.calls == 1
     assert normal.calls == 0
+
+
+def test_debug_identifies_question_followup_timeout() -> None:
+    output: list[str] = []
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=SequenceRecorder([[1]]),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(),
+        harness=FakeHarness("Deseja continuar?"),
+        resource_manager=ResourceManager(),
+        conversation_followup_enabled=True,
+        followup_recorder=SequenceRecorder([[2]]),  # type: ignore[arg-type]
+        question_followup_recorder=SequenceRecorder([[]]),  # type: ignore[arg-type]
+        output=output.append,
+        monotonic_clock=lambda: 10.0,
+        debug_enabled=True,
+    )
+
+    pipeline.process_once()
+
+    assert (
+        "[voice] t=10.000 followup window started "
+        "timeout=15.0 reason=assistant_question"
+    ) in output
 
 
 def test_natural_conversation_end_skips_llm_and_followup() -> None:
@@ -1174,3 +1315,29 @@ def test_waiting_wake_is_not_printed_during_speech() -> None:
     )
     pipeline.run()
     assert observed_counts == [1]
+
+
+def test_latency_debug_outputs_compact_turn_breakdown() -> None:
+    output: list[str] = []
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder([1, 2, 3]),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(),
+        harness=FakeHarness(),
+        resource_manager=ResourceManager(),
+        text_to_speech=FakeTextToSpeech(),
+        output=output.append,
+        cooldown_waiter=lambda _seconds: None,
+        latency_debug_enabled=True,
+    )
+
+    assert pipeline.process_once() is True
+
+    latency_lines = [line for line in output if line.startswith("[latency]")]
+    assert len(latency_lines) == 1
+    line = latency_lines[0]
+    assert "STT=" in line
+    assert "Harness=0.20s" in line
+    assert "LLM=0.15s/1" in line
+    assert "Tools=0.01s/1" in line
+    assert "TTS-total=" in line

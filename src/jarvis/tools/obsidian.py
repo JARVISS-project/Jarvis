@@ -104,7 +104,9 @@ class ObsidianOpenNoteTool(_ObsidianTool):
 class ObsidianCreateNoteTool(_ObsidianTool):
     name = "obsidian_create_note"
     description = "Cria uma nova nota Markdown no Vault Obsidian."
-    risk = RiskLevel.MEDIUM
+    # Escrita aditiva/reversível e confinada ao Vault: não interrompe anotações rápidas.
+    # CapabilityPolicy(OBSIDIAN_WRITE) continua sendo a barreira de habilitação.
+    risk = RiskLevel.LOW
     parameters = {
         "type": "object",
         "properties": {
@@ -131,7 +133,9 @@ class ObsidianCreateNoteTool(_ObsidianTool):
 class ObsidianAppendNoteTool(_ObsidianTool):
     name = "obsidian_append_note"
     description = "Adiciona conteúdo ao final de uma nota Markdown existente."
-    risk = RiskLevel.MEDIUM
+    # Append não apaga nem sobrescreve conteúdo e continua restrito ao Vault.
+    # É LOW para permitir anotações rápidas sem confirmação a cada pedido.
+    risk = RiskLevel.LOW
     parameters = ObsidianCreateNoteTool.parameters
 
     def get_target(self, **kwargs: Any) -> str:

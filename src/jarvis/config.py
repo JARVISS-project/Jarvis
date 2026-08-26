@@ -1,11 +1,8 @@
 from dataclasses import dataclass, field
+import json
 import os
 from pathlib import Path
-
-
-def _obsidian_vault_from_environment() -> Path | None:
-    value = os.getenv("JARVIS_OBSIDIAN_VAULT")
-    return Path(value).expanduser() if value else None
+from typing import Any
 
 
 def _environment_flag(name: str, default: bool = False) -> bool:
@@ -15,27 +12,49 @@ def _environment_flag(name: str, default: bool = False) -> bool:
     return value.strip().casefold() in {"1", "true", "yes", "on", "sim"}
 
 
+def _load_local_settings(path: Path) -> tuple[dict[str, Any], str | None]:
+    if not path.exists():
+        return {}, None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        return {}, f"Configuração local inválida: {type(error).__name__}."
+    if not isinstance(value, dict):
+        return {}, "Configuração local inválida: objeto JSON esperado."
+    validators: dict[str, type] = {
+        "obsidian_vault": str,
+        "obsidian_write": bool,
+        "tts_provider": str,
+        "tts_reference_audio": str,
+        "assistant_address_mode": str,
+    }
+    for key, expected_type in validators.items():
+        current = value.get(key)
+        if current is not None and not isinstance(current, expected_type):
+            return {}, f"Configuração local inválida: {key}."
+    return {
+        key: value[key]
+        for key in validators
+        if key in value
+    }, None
+
+
 @dataclass
 class JarvisConfig:
-    model_name: str = "qwen3:4b"
+    model_name: str = "qwen3:4b-instruct-2507-q4_K_M"
     conversation_max_messages: int = 20
+    assistant_address_mode: str = "senhor"
+    assistant_response_style: str = "natural"
     database_path: Path = Path("data/jarvis.db")
     audit_log_path: Path = Path("logs/audit.log")
     filesystem_base_directory: Path = field(default_factory=Path.cwd)
-    obsidian_enabled: bool = field(
-        default_factory=lambda: bool(os.getenv("JARVIS_OBSIDIAN_VAULT"))
-    )
-    obsidian_vault_path: Path | None = field(
-        default_factory=_obsidian_vault_from_environment
-    )
+    settings_path: Path = Path("data/settings.json")
+    obsidian_enabled: bool | None = None
+    obsidian_vault_path: Path | None = None
     filesystem_read_enabled: bool = True
     filesystem_write_enabled: bool = True
     obsidian_read_enabled: bool = True
-    obsidian_write_enabled: bool = field(
-        default_factory=lambda: _environment_flag(
-            "JARVIS_OBSIDIAN_WRITE", False
-        )
-    )
+    obsidian_write_enabled: bool | None = None
     obsidian_search_max_results: int = 10
     obsidian_max_note_size_bytes: int = 1_000_000
     max_tool_iterations: int = 5
@@ -56,9 +75,9 @@ class JarvisConfig:
     stt_model_normal: str = "medium"
     stt_model_game_mode: str = "small"
     stt_language: str | None = "pt"
-    stt_initial_prompt: str | None = (
-        "Comandos curtos em português brasileiro."
-    )
+    # Um prompt textual fixo pode ser ecoado pelo Whisper em áudio curto/ambíguo.
+    # O idioma já é fixado em pt e os termos úteis entram via hotwords dinâmicas.
+    stt_initial_prompt: str | None = None
     stt_hotwords_enabled: bool = True
     stt_vad_enabled: bool = True
     stt_vad_min_silence_duration_ms: int = 500
@@ -70,8 +89,8 @@ class JarvisConfig:
     stt_compute_type_game_mode: str = "int8"
     voice_silence_threshold: float = 500.0
     voice_silence_duration_seconds: float = 0.8
-    voice_end_silence_seconds: float = 1.0
-    voice_incomplete_turn_extension_seconds: float = 1.5
+    voice_end_silence_seconds: float = 1.2
+    voice_incomplete_turn_extension_seconds: float = 2.0
     voice_max_recording_seconds: float = 15.0
     voice_pre_speech_timeout_seconds: float = 5.0
     voice_minimum_speech_duration_seconds: float = 0.35
@@ -81,20 +100,25 @@ class JarvisConfig:
     voice_maximum_speech_threshold: float = 5000.0
     voice_pre_roll_seconds: float = 0.25
     voice_confirmation_enabled: bool = True
-    voice_confirmation_timeout_seconds: float = 4.0
+    voice_confirmation_timeout_seconds: float = 15.0
+    voice_confirmation_retry_timeout_seconds: float = 10.0
     voice_confirmation_min_speech_duration_seconds: float = 0.15
     voice_confirmation_keyboard_fallback: bool = False
     voice_repair_timeout_seconds: float = 8.0
+    voice_post_tts_grace_seconds: float = 0.75
     voice_acknowledgement_enabled: bool = True
     voice_debug_enabled: bool = field(
         default_factory=lambda: _environment_flag("JARVIS_VOICE_DEBUG", False)
+    )
+    latency_debug_enabled: bool = field(
+        default_factory=lambda: _environment_flag("JARVIS_LATENCY_DEBUG", False)
     )
     voice_cancel_max_no_speech_probability: float = 0.35
     voice_cancel_min_average_log_probability: float = -0.6
     voice_cancel_min_speech_duration_seconds: float = 0.2
     conversation_followup_enabled: bool = True
-    conversation_followup_timeout_seconds: float = 8.0
-    conversation_question_timeout_seconds: float = 15.0
+    conversation_followup_timeout_seconds: float = 15.0
+    conversation_question_timeout_seconds: float = 20.0
     conversation_followup_timeout_game_mode_seconds: float = 4.0
     pending_action_timeout_seconds: float = 30.0
     barge_in_enabled: bool = True
@@ -103,7 +127,139 @@ class JarvisConfig:
     barge_in_grace_period_seconds: float = 0.2
     tts_enabled: bool = True
     tts_enabled_game_mode: bool = True
+    tts_provider: str = "auto"
+    tts_device: str = "auto"
+    tts_language_id: str = "pt"
+    tts_reference_audio_path: Path | None = None
+    tts_piper_model_path: Path = Path("data/voices/razo/pt-BR-razo-medium.onnx")
+    tts_piper_config_path: Path = Path("data/voices/razo/pt-BR-razo-medium.onnx.json")
+    # Small silence tail keeps the audio device from clipping the last phoneme.
+    tts_piper_tail_silence_seconds: float = 0.30
+    tts_chatterbox_t3_model: str = "v3"
+    tts_chatterbox_exaggeration: float = 0.35
+    tts_chatterbox_cfg_weight: float = 0.35
+    tts_chatterbox_fallback_to_sapi: bool = True
     tts_rate: int = 180
     tts_volume: float = 1.0
     tts_voice_id: str | None = None
     tts_post_speech_cooldown_seconds: float = 0.75
+    settings_error: str | None = field(default=None, init=False)
+
+    def __post_init__(self) -> None:
+        settings, self.settings_error = _load_local_settings(
+            self.settings_path
+        )
+        environment_vault = os.getenv("JARVIS_OBSIDIAN_VAULT")
+        if environment_vault:
+            self.obsidian_vault_path = Path(environment_vault).expanduser()
+        elif self.obsidian_vault_path is None:
+            local_vault = settings.get("obsidian_vault")
+            if isinstance(local_vault, str) and local_vault.strip():
+                self.obsidian_vault_path = Path(local_vault).expanduser()
+
+        if self.obsidian_enabled is None:
+            self.obsidian_enabled = self.obsidian_vault_path is not None
+
+        environment_provider = os.getenv("JARVIS_TTS_PROVIDER")
+        local_provider = settings.get("tts_provider")
+        provider = environment_provider or local_provider or self.tts_provider
+        self.tts_provider = str(provider).casefold().strip()
+        if self.tts_provider not in {"auto", "sapi", "piper", "chatterbox"}:
+            self.settings_error = "Configuração local inválida: tts_provider."
+            self.tts_provider = "auto"
+
+        environment_reference = os.getenv("JARVIS_TTS_REFERENCE_AUDIO")
+        local_reference = settings.get("tts_reference_audio")
+        reference = environment_reference or local_reference
+        if reference and self.tts_reference_audio_path is None:
+            self.tts_reference_audio_path = Path(str(reference)).expanduser()
+
+        environment_treatment = os.getenv("JARVIS_ASSISTANT_ADDRESS_MODE")
+        local_treatment = settings.get("assistant_address_mode")
+        treatment = environment_treatment or local_treatment
+        if treatment:
+            self.assistant_address_mode = str(treatment).casefold().strip()
+        if self.assistant_address_mode not in {"senhor", "natural", "direto"}:
+            self.settings_error = (
+                "Configuração local inválida: assistant_address_mode."
+            )
+            self.assistant_address_mode = "senhor"
+
+        environment_write = os.getenv("JARVIS_OBSIDIAN_WRITE")
+        if environment_write is not None:
+            self.obsidian_write_enabled = _environment_flag(
+                "JARVIS_OBSIDIAN_WRITE"
+            )
+        elif self.obsidian_write_enabled is None:
+            local_write = settings.get("obsidian_write", False)
+            self.obsidian_write_enabled = (
+                local_write if isinstance(local_write, bool) else False
+            )
+
+    def save_obsidian_settings(
+        self,
+        *,
+        vault: Path | None = None,
+        write: bool | None = None,
+    ) -> None:
+        settings, _error = _load_local_settings(self.settings_path)
+        if vault is not None:
+            settings["obsidian_vault"] = str(vault)
+        if write is not None:
+            settings["obsidian_write"] = write
+        self.settings_path.parent.mkdir(parents=True, exist_ok=True)
+        self.settings_path.write_text(
+            json.dumps(settings, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        self.settings_error = None
+        if vault is not None and not os.getenv("JARVIS_OBSIDIAN_VAULT"):
+            self.obsidian_vault_path = vault
+            self.obsidian_enabled = True
+        if write is not None and os.getenv("JARVIS_OBSIDIAN_WRITE") is None:
+            self.obsidian_write_enabled = write
+
+
+    def save_voice_settings(
+        self,
+        *,
+        provider: str | None = None,
+        reference_audio: Path | None = None,
+        clear_reference: bool = False,
+    ) -> None:
+        settings, _error = _load_local_settings(self.settings_path)
+        if provider is not None:
+            normalized = provider.casefold().strip()
+            if normalized not in {"auto", "sapi", "piper", "chatterbox"}:
+                raise ValueError("Provider de TTS inválido.")
+            settings["tts_provider"] = normalized
+        if clear_reference:
+            settings.pop("tts_reference_audio", None)
+        elif reference_audio is not None:
+            settings["tts_reference_audio"] = str(reference_audio)
+        self._write_local_settings(settings)
+        if provider is not None and os.getenv("JARVIS_TTS_PROVIDER") is None:
+            self.tts_provider = provider.casefold().strip()
+        if os.getenv("JARVIS_TTS_REFERENCE_AUDIO") is None:
+            if clear_reference:
+                self.tts_reference_audio_path = None
+            elif reference_audio is not None:
+                self.tts_reference_audio_path = reference_audio
+
+    def save_persona_settings(self, *, address_mode: str) -> None:
+        normalized = address_mode.casefold().strip()
+        if normalized not in {"senhor", "natural", "direto"}:
+            raise ValueError("Modo de tratamento inválido.")
+        settings, _error = _load_local_settings(self.settings_path)
+        settings["assistant_address_mode"] = normalized
+        self._write_local_settings(settings)
+        if os.getenv("JARVIS_ASSISTANT_ADDRESS_MODE") is None:
+            self.assistant_address_mode = normalized
+
+    def _write_local_settings(self, settings: dict[str, Any]) -> None:
+        self.settings_path.parent.mkdir(parents=True, exist_ok=True)
+        self.settings_path.write_text(
+            json.dumps(settings, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        self.settings_error = None

@@ -21,6 +21,8 @@ class ConfirmationResult:
     action_authorized: bool = False
     denied: bool = False
     ambiguous: bool = False
+    timed_out: bool = False
+    transcription_rejected: bool = False
 
     def accepts(self, purpose: ConfirmationPurpose) -> bool:
         if self.denied or self.ambiguous:

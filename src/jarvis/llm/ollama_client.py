@@ -10,7 +10,7 @@ from jarvis.llm.types import LLMResponse, ToolCallRequest
 class OllamaLLM(LLMClient):
     def __init__(
         self,
-        model: str = "qwen3:4b",
+        model: str = "qwen3:4b-instruct-2507-q4_K_M",
         keep_alive: str = "5m",
         thinking_enabled: bool = False,
     ) -> None:

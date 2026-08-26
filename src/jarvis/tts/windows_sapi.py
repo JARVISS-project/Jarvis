@@ -21,7 +21,9 @@ class _SpeechEngine(Protocol):
 class _TTSRequest:
     action: Literal["speak", "stop"]
     text: str = ""
-    completed: Event = field(default_factory=Event)
+    started: Event = field(default_factory=Event)
+    finished: Event = field(default_factory=Event)
+    interrupted: bool = False
     error: Exception | None = None
 
 
@@ -76,15 +78,12 @@ class WindowsSapiTTS(TextToSpeech):
     def speak_async(self, text: str) -> SpeechPlaybackHandle:
         request = _TTSRequest(action="speak", text=text)
         if not text.strip():
-            request.completed.set()
-            return SpeechPlaybackHandle(request.completed, self.stop)
+            request.started.set()
+            request.finished.set()
+            return self._playback_handle(request)
         self._ensure_worker()
         self._requests.put(request)
-        return SpeechPlaybackHandle(
-            request.completed,
-            self.stop,
-            lambda: request.error,
-        )
+        return self._playback_handle(request)
 
     def stop(self) -> None:
         if self._speaking.is_set():
@@ -109,7 +108,7 @@ class WindowsSapiTTS(TextToSpeech):
     def _submit(self, request: _TTSRequest) -> None:
         self._ensure_worker()
         self._requests.put(request)
-        request.completed.wait()
+        request.finished.wait()
         if request.error is not None:
             raise request.error
 
@@ -153,6 +152,7 @@ class WindowsSapiTTS(TextToSpeech):
             engine = self._ensure_engine()
             self._prepare_engine_queue(engine)
             engine.say(request.text)
+            request.started.set()
             self._speaking.set()
             self._stop_requested.clear()
             self._run_speech(engine)
@@ -162,7 +162,20 @@ class WindowsSapiTTS(TextToSpeech):
         finally:
             self._speaking.clear()
             self._stop_requested.clear()
-            request.completed.set()
+            request.finished.set()
+
+    def _playback_handle(self, request: _TTSRequest) -> SpeechPlaybackHandle:
+        def stop_request() -> None:
+            request.interrupted = True
+            self.stop()
+
+        return SpeechPlaybackHandle(
+            request.finished,
+            stop_request,
+            lambda: request.error,
+            started_event=request.started,
+            interrupted_getter=lambda: request.interrupted,
+        )
 
     def _run_speech(self, engine: _SpeechEngine) -> None:
         start_loop = getattr(engine, "startLoop", None)

@@ -288,6 +288,30 @@ def test_speak_async_returns_playing_handle() -> None:
     tts.close()
 
 
+def test_playback_wait_is_bound_to_real_worker_completion() -> None:
+    entered_run = Event()
+    release = Event()
+
+    class BlockingEngine(FakeEngine):
+        def runAndWait(self) -> None:
+            entered_run.set()
+            release.wait()
+
+    tts = WindowsSapiTTS(engine_factory=lambda: BlockingEngine())
+    playback = tts.speak_async("fala longa")
+    try:
+        assert entered_run.wait(timeout=1.0)
+        assert playback.started
+        assert not playback.finished
+        assert playback.wait(timeout=0.01) is False
+    finally:
+        release.set()
+        assert playback.wait(timeout=1.0)
+        tts.close()
+
+    assert playback.finished
+
+
 def test_basic_markdown_is_prepared_without_changing_content() -> None:
     text = "**Arquivos:**\n- README.md\n- [Projeto](https://example.test)"
 
@@ -300,3 +324,10 @@ def test_speech_text_removes_emoji_and_preserves_portuguese_accents() -> None:
     assert prepare_text_for_speech(
         "Olá! 😊 **Tudo bem?** Ação concluída."
     ) == "Olá! Tudo bem? Ação concluída."
+
+
+def test_prepare_text_for_speech_expands_pt_br_clock() -> None:
+    assert prepare_text_for_speech("Agora são 23h35.") == (
+        "Agora são 23 horas e 35 minutos."
+    )
+    assert prepare_text_for_speech("Agora é 1h00.") == "Agora é 1 hora."

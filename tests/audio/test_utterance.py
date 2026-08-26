@@ -72,6 +72,7 @@ def test_max_recording_duration_bounds_audio_buffer() -> None:
 
     assert len(audio) == 5
     assert audio_input.read_count == 3
+    assert recorder.last_stop_reason == "max_duration"
 
 
 def test_audio_shorter_than_minimum_speech_is_rejected() -> None:

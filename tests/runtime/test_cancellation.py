@@ -33,3 +33,26 @@ def test_para_only_cancels_when_it_is_the_stop_order() -> None:
     assert interpreter.is_cancellation("pode parar")
     assert not interpreter.is_cancellation("procure isso para mim")
     assert not interpreter.is_cancellation("isso é para amanhã")
+
+
+@pytest.mark.parametrize(
+    ("phrase", "expected"),
+    [
+        ("deixa pra lá", True),
+        ("deixa o Obsidian", False),
+        ("deixa a nota aberta", False),
+        ("para", True),
+        ("procura isso para mim", False),
+        ("isso é para amanhã", False),
+        ("pode parar", True),
+        (
+            "Agora deixa o Obsidian e procura por PyProject no projeto.",
+            False,
+        ),
+        ("não faça isso agora, faça amanhã", False),
+    ],
+)
+def test_cancellation_requires_the_whole_utterance_intent(
+    phrase: str, expected: bool
+) -> None:
+    assert CancellationInterpreter().is_cancellation(phrase) is expected

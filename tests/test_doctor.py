@@ -54,4 +54,5 @@ def test_doctor_reports_safe_obsidian_status(tmp_path) -> None:
     assert "Vault................. Meu Vault" in report
     assert "Read.................. ENABLED" in report
     assert "Write................. DISABLED" in report
+    assert "Tools registered...... NO" in report
     assert str(tmp_path) not in report

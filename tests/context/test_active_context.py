@@ -28,3 +28,24 @@ def test_explicit_project_switches_back_to_filesystem() -> None:
         router.update("Agora procure o arquivo pyproject no projeto.")
         is ActiveContext.FILESYSTEM
     )
+
+
+def test_verbose_explicit_correction_overrides_previous_source() -> None:
+    router = ContextRouter()
+    router.update("Procure arquivos no diretório tests.")
+
+    assert router.update(
+        "Eu não quero ver no diretório, eu quero ver no Obsidian, minhas notas."
+    ) is ActiveContext.OBSIDIAN
+    assert router.update(
+        "Não quero no Obsidian, quero no projeto."
+    ) is ActiveContext.FILESYSTEM
+
+
+def test_recent_obsidian_entity_is_not_reclassified_as_project_file() -> None:
+    router = ContextRouter()
+    router.update("Leia minha nota no Obsidian.")
+
+    assert router.update(
+        "Edite nesse arquivo que você acabou de ler."
+    ) is ActiveContext.OBSIDIAN

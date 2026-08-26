@@ -52,8 +52,9 @@ class FileReferenceResolver:
     CONTEXT_REFERENCES = frozenset(
         {
             "ele", "ela", "isso", "esse", "esse arquivo", "aquele arquivo",
-            "o arquivo", "o assunto dele", "aquele que voce abriu",
-            "o arquivo que voce acabou de ler", "anterior",
+            "o arquivo", "o assunto dele", "a que voce abriu",
+            "aquele que voce abriu", "o arquivo que voce acabou de abrir",
+            "o arquivo que voce acabou de ler", "a anterior", "anterior",
         }
     )
 
@@ -91,10 +92,12 @@ class FileReferenceResolver:
                             1.0,
                         )
                 break
-        if self._comparison_form(normalized_spoken) in self.CONTEXT_REFERENCES:
+        if self._words(normalized_spoken) in self.CONTEXT_REFERENCES:
             recent = self.recent_context.get("last_active_file")
             if not isinstance(recent, str):
                 recent = self.recent_context.get("last_file")
+            if not isinstance(recent, str) and len(recent_results) == 1:
+                recent = recent_results[0]
             if isinstance(recent, str):
                 target = self.filesystem.resolve(recent)
                 if target.is_file():
@@ -258,6 +261,11 @@ class FileReferenceResolver:
         return "".join(
             char for char in decomposed if not unicodedata.combining(char)
         )
+
+    @classmethod
+    def _words(cls, value: str) -> str:
+        normalized = re.sub(r"[^a-z0-9]+", " ", cls._unaccent(value))
+        return " ".join(normalized.split())
 
     @staticmethod
     def _comparison_form(value: str) -> str:

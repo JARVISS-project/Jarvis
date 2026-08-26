@@ -66,8 +66,10 @@ class UtteranceRecorder:
         self.pre_roll_seconds = pre_roll_seconds
         self.last_noise_floor = 0.0
         self.last_speech_threshold = silence_threshold
+        self.last_stop_reason: str | None = None
 
     def record(self) -> list[int]:
+        self.last_stop_reason = None
         captured: list[int] = []
         speech_started = False
         elapsed_samples = 0
@@ -128,6 +130,7 @@ class UtteranceRecorder:
                         frame_energy * len(current_frame)
                     )
                 elif elapsed_samples >= pre_speech_samples:
+                    self.last_stop_reason = "pre_speech_timeout"
                     return []
                 else:
                     pre_roll.extend(current_frame)
@@ -141,7 +144,11 @@ class UtteranceRecorder:
             else:
                 silence_samples += len(current_frame)
                 if silence_samples >= required_silence_samples:
+                    self.last_stop_reason = "end_silence"
                     break
+
+        if elapsed_samples >= max_samples and self.last_stop_reason is None:
+            self.last_stop_reason = "max_duration"
 
         minimum_speech_samples = int(
             self.minimum_speech_duration_seconds * self.sample_rate
@@ -155,8 +162,10 @@ class UtteranceRecorder:
             speech_samples < minimum_speech_samples
             or average_speech_energy < self.minimum_audio_energy
         ):
+            self.last_stop_reason = self.last_stop_reason or "speech_rejected"
             return []
 
+        self.last_stop_reason = self.last_stop_reason or "completed"
         return captured
 
     @staticmethod

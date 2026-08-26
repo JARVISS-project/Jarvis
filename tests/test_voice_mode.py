@@ -59,8 +59,8 @@ def test_traditional_cli_still_starts_harness(
     monkeypatch.setattr(main_module, "Harness", FakeHarness)
     monkeypatch.setattr(
         main_module,
-        "WindowsSapiTTS",
-        lambda **_kwargs: (_ for _ in ()).throw(
+        "build_text_to_speech",
+        lambda _config: (_ for _ in ()).throw(
             AssertionError("CLI tradicional não deve inicializar TTS")
         ),
     )
@@ -121,3 +121,50 @@ def test_starting_voice_mode_does_not_load_stt_model(
 
     assert len(captured_stt) == 1
     assert captured_stt[0].is_model_loaded is False
+
+
+def test_incomplete_turn_wait_does_not_limit_continuation_length(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeDetector:
+        frame_length = 1280
+        sample_rate = 16000
+
+        def close(self) -> None:
+            pass
+
+    class RecorderProbe:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+    captured_pipeline: dict[str, Any] = {}
+
+    class FakePipeline:
+        def __init__(self, **kwargs: Any) -> None:
+            captured_pipeline.update(kwargs)
+
+        def run(self) -> None:
+            pass
+
+    monkeypatch.setattr(main_module, "build_harness", lambda *_args: object())
+    monkeypatch.setattr(
+        main_module,
+        "OpenWakeWordDetector",
+        lambda **_kwargs: FakeDetector(),
+    )
+    monkeypatch.setattr(main_module, "PvRecorderAudioInput", lambda **_kwargs: object())
+    monkeypatch.setattr(main_module, "WakeWordListener", lambda *_args: object())
+    monkeypatch.setattr(main_module, "VoiceAudioSession", lambda _listener: object())
+    monkeypatch.setattr(main_module, "UtteranceRecorder", RecorderProbe)
+    monkeypatch.setattr(main_module, "VoicePipeline", FakePipeline)
+
+    config = JarvisConfig(
+        voice_incomplete_turn_extension_seconds=2.0,
+        voice_max_recording_seconds=15.0,
+    )
+    main_module.run_voice_mode(config)
+
+    recorder = captured_pipeline["incomplete_turn_recorder"]
+    assert isinstance(recorder, RecorderProbe)
+    assert recorder.kwargs["pre_speech_timeout_seconds"] == 2.0
+    assert recorder.kwargs["max_recording_seconds"] == 15.0

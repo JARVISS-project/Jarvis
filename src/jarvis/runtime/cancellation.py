@@ -1,5 +1,6 @@
 """Cancelamento cooperativo e reconhecimento determinístico."""
 
+import re
 from threading import Event
 
 from jarvis.security.confirmation_intent import ConfirmationInterpreter
@@ -21,17 +22,21 @@ class CancellationController:
 
 
 class CancellationInterpreter:
-    PHRASES = (
-        "deixa pra la", "nao faca", "nao precisa", "pode deixar",
-        "esquece isso",
-        "cancelar", "cancela", "cancele", "parar", "pare",
-        "deixa", "esquece", "aborta",
+    PATTERNS = tuple(
+        re.compile(pattern)
+        for pattern in (
+            r"(?:pode\s+)?cancel(?:a|ar|e)(?:\s+isso)?",
+            r"deixa(?:\s+isso)?\s+pra\s+la",
+            r"(?:nao\s*,?\s*)?pode\s+deixar",
+            r"nao\s+(?:faca|precisa)(?:\s+isso)?",
+            r"esquece(?:\s+isso)?",
+            r"(?:pode\s+)?parar",
+            r"pare(?:\s+agora)?",
+            r"para(?:\s+agora)?",
+            r"aborta(?:\s+isso)?",
+        )
     )
-    EXACT_STOP_PHRASES = frozenset({"para", "para agora", "pode parar"})
 
     def is_cancellation(self, text: str) -> bool:
         normalized = ConfirmationInterpreter.normalize(text)
-        if normalized in self.EXACT_STOP_PHRASES:
-            return True
-        padded = f" {normalized} "
-        return any(f" {phrase} " in padded for phrase in self.PHRASES)
+        return any(pattern.fullmatch(normalized) for pattern in self.PATTERNS)

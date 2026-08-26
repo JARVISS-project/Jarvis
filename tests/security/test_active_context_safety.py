@@ -39,7 +39,7 @@ class NoGrantExecutor:
         raise AssertionError("a resolução de contexto não deve executar")
 
 
-def test_context_resolves_medium_note_target_but_creates_no_authorization(
+def test_context_resolves_low_risk_active_note_without_confirmation(
     tmp_path: Path,
 ) -> None:
     vault_path = tmp_path / "vault"
@@ -68,7 +68,7 @@ def test_context_resolves_medium_note_target_but_creates_no_authorization(
     assert response is None
     assert grant is None
     assert interaction_id is None
-    assert len(confirmation.requests) == 1
+    assert confirmation.requests == []
 
 
 def test_ambiguous_note_cleanup_never_calls_llm_or_creates_grant() -> None:
@@ -83,3 +83,20 @@ def test_ambiguous_note_cleanup_never_calls_llm_or_creates_grant() -> None:
     response = harness.processar_mensagem("limpe minhas notas")
 
     assert "Qual escopo" in response
+
+
+def test_only_ambiguous_note_cleanup_is_intercepted() -> None:
+    harness = Harness(
+        llm=UnusedLLM(),
+        tool_registry=ToolRegistry(),
+        tool_executor=NoGrantExecutor(),  # type: ignore[arg-type]
+        memory=ConversationMemory(),
+    )
+
+    assert harness._is_ambiguous_note_cleanup(
+        "Apague umas notas antigas."
+    )
+    assert harness._is_ambiguous_note_cleanup("Remove o que não presta.")
+    assert not harness._is_ambiguous_note_cleanup(
+        "Apague a nota Projetos/Teste.md."
+    )

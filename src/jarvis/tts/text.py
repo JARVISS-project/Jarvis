@@ -15,6 +15,16 @@ _EMOJI_PATTERN = re.compile(
 )
 
 
+def _expand_pt_br_clock(match: re.Match[str]) -> str:
+    hours = int(match.group(1))
+    minutes = int(match.group(2))
+    hour_word = "hora" if hours == 1 else "horas"
+    if minutes == 0:
+        return f"{hours} {hour_word}"
+    minute_word = "minuto" if minutes == 1 else "minutos"
+    return f"{hours} {hour_word} e {minutes} {minute_word}"
+
+
 def prepare_text_for_speech(text: str) -> str:
     """Remove basic visual Markdown without changing terminal output."""
     prepared = text.strip()
@@ -26,6 +36,11 @@ def prepare_text_for_speech(text: str) -> str:
     prepared = re.sub(r"\[([^]]+)]\([^)]+\)", r"\1", prepared)
     prepared = re.sub(r"[*_`]+", "", prepared)
     prepared = _EMOJI_PATTERN.sub("", prepared)
+    prepared = re.sub(
+        r"\b([01]?\d|2[0-3])h([0-5]\d)\b",
+        _expand_pt_br_clock,
+        prepared,
+    )
     prepared = re.sub(r"[ \t]+", " ", prepared)
     prepared = re.sub(r"\n{2,}", "\n", prepared)
     return prepared.strip()
