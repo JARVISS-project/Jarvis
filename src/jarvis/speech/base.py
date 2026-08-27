@@ -23,6 +23,9 @@ class SpeechToText(ABC):
     ) -> TranscriptionResult:
         raise NotImplementedError
 
+    def warm_up(self) -> None:
+        """Prepara recursos pesados antes da primeira transcrição, se houver."""
+
     def close(self) -> None:
         pass
 

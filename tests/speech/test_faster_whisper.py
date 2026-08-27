@@ -277,3 +277,25 @@ def test_runtime_model_profile_switches_normal_and_game_mode() -> None:
         ("medium", "cuda", "float16"),
         ("small", "cpu", "int8"),
     ]
+
+
+def test_warm_up_loads_model_without_transcribing() -> None:
+    created: list[FakeWhisperModel] = []
+
+    def factory(*_args: object, **_kwargs: object) -> FakeWhisperModel:
+        model = FakeWhisperModel()
+        created.append(model)
+        return model
+
+    stt = FasterWhisperSTT(
+        model_name="medium",
+        device="cpu",
+        compute_type="int8",
+        model_factory=factory,
+    )
+
+    stt.warm_up()
+
+    assert stt.is_model_loaded is True
+    assert len(created) == 1
+    assert created[0].audio is None

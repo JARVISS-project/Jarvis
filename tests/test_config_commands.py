@@ -82,6 +82,7 @@ def test_voice_and_persona_config_are_persistent(
     monkeypatch.delenv("JARVIS_TTS_PROVIDER", raising=False)
     monkeypatch.delenv("JARVIS_TTS_REFERENCE_AUDIO", raising=False)
     monkeypatch.delenv("JARVIS_ASSISTANT_ADDRESS_MODE", raising=False)
+    monkeypatch.delenv("JARVIS_TTS_PIPER_PACE", raising=False)
     settings_path = tmp_path / "data" / "settings.json"
     reference = tmp_path / "voz-original.wav"
     reference.write_bytes(b"RIFFfake")
@@ -93,6 +94,9 @@ def test_voice_and_persona_config_are_persistent(
     voice = harness.processar_mensagem(
         f'/config voice reference "{reference}"'
     )
+    pace = harness.processar_mensagem(
+        "/config voice pace calm"
+    )
     persona = harness.processar_mensagem(
         "/config persona treatment senhor"
     )
@@ -100,9 +104,27 @@ def test_voice_and_persona_config_are_persistent(
     saved = json.loads(settings_path.read_text(encoding="utf-8"))
     assert saved["tts_provider"] == "piper"
     assert saved["tts_reference_audio"] == str(reference)
+    assert saved["tts_piper_pace"] == "calm"
     assert saved["assistant_address_mode"] == "senhor"
     assert "piper" in provider
     assert reference.name in voice
+    assert "calm" in pace
     assert "senhor" in persona
     assert memory.get_history() == []
+    assert llm.calls == 0
+
+
+def test_voice_mode_alias_switches_between_fast_and_quality(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("JARVIS_TTS_PROVIDER", raising=False)
+    settings_path = tmp_path / "data" / "settings.json"
+    harness, _memory, llm = build_config_harness(settings_path)
+
+    fast = harness.processar_mensagem("/config voice mode fast")
+    assert json.loads(settings_path.read_text(encoding="utf-8"))["tts_provider"] == "piper"
+    quality = harness.processar_mensagem("/config voice mode quality")
+    assert json.loads(settings_path.read_text(encoding="utf-8"))["tts_provider"] == "chatterbox"
+    assert "fast" in fast
+    assert "quality" in quality
     assert llm.calls == 0

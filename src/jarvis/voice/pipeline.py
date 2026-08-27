@@ -22,6 +22,7 @@ from jarvis.tts.text import prepare_text_for_speech
 from jarvis.voice.barge_in import BargeInController
 from jarvis.voice.audio_session import VoiceAudioSession
 from jarvis.voice.capture_result import VoiceCaptureResult, VoiceCaptureStatus
+from jarvis.voice.phrases import ResponseVariationManager
 from jarvis.voice.conversation_end import ConversationEndInterpreter
 from jarvis.voice.state import VoicePipelineState
 from jarvis.voice.turn_end import IncompleteUtteranceDetector
@@ -32,7 +33,10 @@ class _Harness(Protocol):
         self,
         mensagem: str,
         manage_runtime: bool = True,
+        response_mode: str = "text",
     ) -> str: ...
+
+    def warm_up_llm(self) -> None: ...
 
 
 class VoicePipeline:
@@ -63,8 +67,14 @@ class VoicePipeline:
         barge_in_controller: BargeInController | None = None,
         audio_session: VoiceAudioSession | None = None,
         acknowledgement_enabled: bool = False,
+        wake_acknowledgement_enabled: bool = False,
+        wake_word_label: str = "Jarvis",
+        phrase_manager: ResponseVariationManager | None = None,
+        state_callback: Callable[[VoicePipelineState], None] | None = None,
         debug_enabled: bool = False,
         latency_debug_enabled: bool = False,
+        warm_up_stt_on_start: bool = False,
+        warm_up_llm_on_start: bool = False,
         cancel_max_no_speech_probability: float = 0.35,
         cancel_min_average_log_probability: float = -0.6,
         cancel_min_speech_duration_seconds: float = 0.2,
@@ -106,8 +116,14 @@ class VoicePipeline:
         self._pending_barge_in_text: str | None = None
         self.audio_session = audio_session
         self.acknowledgement_enabled = acknowledgement_enabled
+        self.wake_acknowledgement_enabled = wake_acknowledgement_enabled
+        self.wake_word_label = wake_word_label.strip() or "Jarvis"
+        self.phrase_manager = phrase_manager or ResponseVariationManager()
+        self.state_callback = state_callback
         self.debug_enabled = debug_enabled
         self.latency_debug_enabled = latency_debug_enabled
+        self.warm_up_stt_on_start = warm_up_stt_on_start
+        self.warm_up_llm_on_start = warm_up_llm_on_start
         self.cancel_max_no_speech_probability = (
             cancel_max_no_speech_probability
         )
@@ -136,6 +152,8 @@ class VoicePipeline:
 
     def run(self) -> None:
         try:
+            self._warm_up_stt()
+            self._warm_up_llm()
             self.listener.start()
             self._enter_waiting_wake(announce=True)
             while True:
@@ -145,6 +163,39 @@ class VoicePipeline:
             self.output("Modo voice encerrado.")
         finally:
             self.close()
+
+    def _warm_up_stt(self) -> None:
+        if not self.warm_up_stt_on_start:
+            return
+        warm_up = getattr(self.speech_to_text, "warm_up", None)
+        if not callable(warm_up):
+            return
+        self.output("Preparando reconhecimento de voz...")
+        started = self.monotonic_clock()
+        warm_up()
+        elapsed = self.monotonic_clock() - started
+        self._debug(f"stt warmup completed seconds={elapsed:.2f}")
+        self.output("Reconhecimento de voz pronto.")
+
+    def _warm_up_llm(self) -> None:
+        if not self.warm_up_llm_on_start:
+            return
+        warm_up = getattr(self.harness, "warm_up_llm", None)
+        if not callable(warm_up):
+            return
+        self.output("Preparando assistente...")
+        started = self.monotonic_clock()
+        try:
+            warm_up()
+        except Exception as error:
+            # Voice remains usable: a failed prewarm only means the first real
+            # request may pay the model load cost.
+            self._debug(f"llm warmup failed error={type(error).__name__}")
+            self.output("Assistente será carregado na primeira solicitação.")
+            return
+        elapsed = self.monotonic_clock() - started
+        self._debug(f"llm warmup completed seconds={elapsed:.2f}")
+        self.output("Assistente pronto.")
 
     def process_once(self) -> bool:
         if self.listener.get_event() is None:
@@ -168,8 +219,9 @@ class VoicePipeline:
             self.resource_manager.activate()
         wake_state_reset = False
         try:
+            wake_state_reset = self._acknowledge_wake()
             capture = self._process_recording(self.recorder)
-            wake_state_reset = capture.spoke
+            wake_state_reset = wake_state_reset or capture.spoke
             if capture.repairable:
                 capture = self._attempt_repair(
                     TranscriptionProfile.GENERAL_COMMAND
@@ -323,7 +375,9 @@ class VoicePipeline:
         if self.conversation_end_interpreter.should_end(text):
             self.output(f"Você: {text}")
             self._end_conversation = True
-            spoke = self._speak_response("Até mais.")
+            farewell = self.conversation_end_interpreter.reply(text)
+            self.output(f"Jarvis: {farewell}")
+            spoke = self._speak_response(farewell)
             return VoiceCaptureResult(
                 VoiceCaptureStatus.INTERRUPTED, spoke=spoke
             )
@@ -353,6 +407,7 @@ class VoicePipeline:
         response = self.harness.processar_mensagem(
             text,
             manage_runtime=False,
+            response_mode="voice",
         )
         self._last_harness_seconds = (
             self.monotonic_clock() - harness_started
@@ -362,6 +417,20 @@ class VoicePipeline:
         spoke = self._speak_response(response)
         self._emit_latency_report(spoke=spoke)
         return True, spoke
+
+    def _acknowledge_wake(self) -> bool:
+        if not self.wake_acknowledgement_enabled or not self._tts_is_allowed():
+            return False
+        text_to_speech = self.text_to_speech
+        if text_to_speech is None or not getattr(
+            text_to_speech, "fast_acknowledgement", True
+        ):
+            return False
+        phrase = self.phrase_manager.wake().strip()
+        if not phrase:
+            return False
+        self.output(f"Jarvis: {phrase}")
+        return self._speak_response(phrase)
 
     def _acknowledge(self, text: str) -> None:
         if (
@@ -375,12 +444,16 @@ class VoicePipeline:
             return
         if not getattr(text_to_speech, "fast_acknowledgement", True):
             return
+        phrase = self.phrase_manager.action_acknowledgement(text)
+        if not phrase:
+            return
         if self.audio_session is not None:
             self.audio_session.stop_stream()
         else:
             self.listener.stop()
         try:
-            text_to_speech.speak("Entendi.")
+            self.output(f"Jarvis: {phrase}")
+            text_to_speech.speak(phrase)
         finally:
             if self.audio_session is not None:
                 self.audio_session.start_stream()
@@ -438,7 +511,7 @@ class VoicePipeline:
             return
         self._set_state(VoicePipelineState.WAITING_WAKE)
         if announce:
-            self.output('Aguardando "Hey Jarvis"...')
+            self.output(f'Aguardando "{self.wake_word_label}"...')
 
     def close(self) -> None:
         if self._closed:
@@ -752,11 +825,12 @@ class VoicePipeline:
         to_voice = self._current_stt_seconds + harness_seconds
         if tts_synthesis is not None:
             to_voice += tts_synthesis
+        tool_time = self._format_short_duration(tool_seconds, tool_calls)
         parts = [
             f"STT={self._current_stt_seconds:.2f}s",
             f"Harness={harness_seconds:.2f}s",
             f"LLM={llm_seconds:.2f}s/{llm_calls}",
-            f"Tools={tool_seconds:.2f}s/{tool_calls}",
+            f"Tools={tool_time}/{tool_calls}",
         ]
         if tts_synthesis is not None:
             parts.append(f"TTS-synth={tts_synthesis:.2f}s")
@@ -770,6 +844,12 @@ class VoicePipeline:
             )
         self.output("[latency] " + " | ".join(parts))
 
+    @staticmethod
+    def _format_short_duration(seconds: float, calls: int) -> str:
+        if calls > 0 and 0.0 <= seconds < 0.01:
+            return f"{seconds * 1000:.1f}ms"
+        return f"{seconds:.2f}s"
+
     def _debug(self, message: str) -> None:
         if self.debug_enabled:
             self.output(
@@ -781,6 +861,15 @@ class VoicePipeline:
         self.state = state
         if previous is not state:
             self._debug(f"transition={previous.name} -> {state.name}")
+            callback = self.state_callback
+            if callback is not None:
+                try:
+                    callback(state)
+                except Exception as error:
+                    self._debug(
+                        "state callback failed error="
+                        f"{type(error).__name__}"
+                    )
 
     def _tts_is_allowed(self) -> bool:
         if self.text_to_speech is None or not self.tts_enabled:

@@ -81,9 +81,12 @@ class ContextRouter:
             file_score += 3
         generic_test_terms = {"test", "teste", "testes", "tests"}
         if (
-            self.state.active is ActiveContext.OBSIDIAN
+            (self.state.active is ActiveContext.OBSIDIAN or note_score > 0)
             and (words & self.FILESYSTEM_TERMS) <= generic_test_terms
         ):
+            # "teste" is often part of a note title (for example
+            # "Teste para Jarvis"). An explicit note word must not be tied
+            # with this generic filesystem token.
             file_score = 0
         if note_score > file_score:
             self.state.active = ActiveContext.OBSIDIAN

@@ -40,13 +40,30 @@ class ObsidianVault:
         self.search_max_results = search_max_results
         self._uri_opener = uri_opener or webbrowser.open
 
+    @staticmethod
+    def normalize_note_path(path: str) -> str:
+        """Normalize a human note title to a safe relative Markdown path.
+
+        Voice users should not need to pronounce ``ponto md`` every time. A
+        missing suffix becomes ``.md``; an explicit non-Markdown suffix still
+        fails closed.
+        """
+        value = path.strip().strip("\"\'")
+        if not value:
+            raise PermissionError("Informe o nome da nota.")
+        candidate = Path(value)
+        if candidate.suffix == "":
+            value = f"{value}.md"
+        elif candidate.suffix.casefold() != ".md":
+            raise PermissionError("Somente notas Markdown (.md) são permitidas.")
+        return value
+
     def resolve_note(self, path: str, *, for_write: bool = False) -> Path:
+        path = self.normalize_note_path(path)
         if "://" in path:
             raise PermissionError("URIs arbitrárias não são permitidas.")
         if Path(path).is_absolute():
             raise PermissionError("O caminho da nota deve ser relativo ao Vault.")
-        if not path or Path(path).suffix.casefold() != ".md":
-            raise PermissionError("Somente notas Markdown (.md) são permitidas.")
         target = self.filesystem.resolve(path, for_write=for_write)
         relative = target.relative_to(self.vault_path)
         if any(part.casefold() == ".obsidian" for part in relative.parts):
@@ -131,6 +148,16 @@ class ObsidianVault:
                     separator = "\n"
         with target.open("a", encoding="utf-8") as note:
             note.write(separator + content)
+
+    def write_note(self, path: str, content: str) -> None:
+        """Write an internal Markdown document inside the guarded Vault.
+
+        This method is intentionally not exposed as an LLM Tool. It is used by
+        trusted integrations such as the human-readable Skill mirror.
+        """
+        target = self.resolve_note(path, for_write=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
 
     def delete_note(self, path: str) -> None:
         self._existing_note(path, for_write=True).unlink()

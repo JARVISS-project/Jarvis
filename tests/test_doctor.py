@@ -56,3 +56,34 @@ def test_doctor_reports_safe_obsidian_status(tmp_path) -> None:
     assert "Write................. DISABLED" in report
     assert "Tools registered...... NO" in report
     assert str(tmp_path) not in report
+
+
+def test_doctor_voice_summary_is_compact_and_treats_default_microphone_as_valid(
+    tmp_path, monkeypatch
+) -> None:
+    vault = tmp_path / "Vault"
+    vault.mkdir()
+    database = tmp_path / "data" / "jarvis.db"
+    database.parent.mkdir()
+    config = JarvisConfig(
+        database_path=database,
+        obsidian_enabled=True,
+        obsidian_vault_path=vault,
+        obsidian_write_enabled=True,
+        microphone_device_index=None,
+        tts_provider="piper",
+        settings_path=tmp_path / "missing-settings.json",
+    )
+    monkeypatch.setattr("jarvis.doctor.find_spec", lambda _name: object())
+    doctor = JarvisDoctor(
+        config,
+        ResourceManager(),
+        InMemoryMemoryStore(),
+    )
+
+    summary = doctor.voice_summary()
+
+    assert summary.startswith("Tudo certo por aqui.")
+    assert "microfone padrão do sistema" in summary
+    assert "NOT CONFIGURED" not in summary
+    assert "........" not in summary

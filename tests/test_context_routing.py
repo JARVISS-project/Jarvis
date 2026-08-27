@@ -453,3 +453,31 @@ def test_successful_filesystem_read_result_updates_active_file(
     assert harness.context_router.state.active is ActiveContext.FILESYSTEM
     assert harness.recent_context.get("last_active_file") == "pyproject.toml"
     assert harness.recent_context.get("last_active_note") is None
+
+
+def test_compound_open_and_read_executes_both_actions_before_final_response(
+    tmp_path: Path,
+) -> None:
+    harness, executor, llm = build_context_harness(
+        tmp_path,
+        [
+            tool_call(
+                "obsidian_open_note",
+                path="Teste para Jarvis.md",
+            ),
+            LLMResponse("Li a nota para você."),
+        ],
+    )
+
+    response = harness.processar_mensagem(
+        "Abra a nota Teste para Jarvis e leia ela."
+    )
+
+    assert response == "conteúdo da nota"
+    assert executor.calls == [
+        ("obsidian_open_note", {"path": "Teste para Jarvis.md"}),
+        ("obsidian_read_note", {"path": "Teste para Jarvis.md"}),
+    ]
+    # Explicit open+read is now a deterministic fast compound path: no LLM
+    # round-trip is required just to narrate a note the user asked to read.
+    assert llm.messages == []

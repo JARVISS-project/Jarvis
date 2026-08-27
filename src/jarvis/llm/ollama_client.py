@@ -22,6 +22,22 @@ class OllamaLLM(LLMClient):
     def set_keep_alive(self, keep_alive: str) -> None:
         self.keep_alive = keep_alive
 
+    def warm_up(self) -> None:
+        """Load the configured model in Ollama without touching memory/tools."""
+        self.client.chat(
+            model=self.model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Responda somente: OK",
+                }
+            ],
+            tools=[],
+            keep_alive=self.keep_alive,
+            think=False,
+            options={"num_predict": 4},
+        )
+
     def generate(
         self,
         messages: list[dict[str, Any]],

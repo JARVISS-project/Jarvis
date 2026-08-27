@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ from jarvis.memory.conversation import ConversationMemory
 from jarvis.memory.in_memory_store import InMemoryMemoryStore
 from jarvis.runtime.resource_manager import ResourceManager
 from jarvis.runtime.state import RuntimeState
+from jarvis.tools.get_datetime import GetDateTimeTool
 from jarvis.tools.registry import ToolRegistry
 
 
@@ -195,3 +197,347 @@ def test_harness_records_last_latency_and_reports_it() -> None:
     assert "LLM" in report
     assert "Tools" in report
     assert llm.calls == 1
+
+
+class DirectToolExecutor:
+    def execute(self, tool: Any, **kwargs: Any) -> str:
+        return tool.execute(**kwargs)
+
+
+def test_time_fast_path_skips_llm_and_uses_datetime_tool() -> None:
+    manager = ResourceManager()
+    llm = RuntimeAwareLLM(manager)
+    registry = ToolRegistry()
+    current = datetime(
+        2026, 8, 26, 10, 36,
+        tzinfo=timezone(timedelta(hours=-3)),
+    )
+    registry.register(GetDateTimeTool(clock=lambda: current))
+    harness = Harness(
+        llm=llm,
+        tool_registry=registry,
+        tool_executor=DirectToolExecutor(),  # type: ignore[arg-type]
+        memory=ConversationMemory(),
+        resource_manager=manager,
+    )
+
+    result = harness.processar_mensagem("Estou perguntando que odas são.")
+
+    assert result == "Agora são 10 horas e 36 minutos."
+    assert llm.calls == 0
+    latency = harness.get_last_latency()
+    assert latency["llm_calls"] == 0
+    assert latency["tool_calls"] == 1
+
+
+def test_harness_can_learn_last_successful_tool_trace_as_skill() -> None:
+    from jarvis.skills.store import InMemorySkillStore
+    from jarvis.tools.execution_result import ToolExecutionResult
+
+    class ResultExecutor:
+        def execute_with_result(self, tool: Any, **kwargs: Any) -> ToolExecutionResult:
+            return ToolExecutionResult(tool.execute(**kwargs), "success", True)
+
+    manager = ResourceManager()
+    llm = RuntimeAwareLLM(manager)
+    registry = ToolRegistry()
+    current = datetime(
+        2026, 8, 26, 10, 36,
+        tzinfo=timezone(timedelta(hours=-3)),
+    )
+    registry.register(GetDateTimeTool(clock=lambda: current))
+    skills = InMemorySkillStore()
+    harness = Harness(
+        llm=llm,
+        tool_registry=registry,
+        tool_executor=ResultExecutor(),  # type: ignore[arg-type]
+        memory=ConversationMemory(),
+        memory_store=InMemoryMemoryStore(),
+        config=JarvisConfig(),
+        resource_manager=manager,
+        skill_store=skills,
+    )
+
+    harness.processar_mensagem("Qual a data de hoje?")
+    learned = harness.processar_mensagem('/skill learn "Consultar data"')
+
+    assert "aprendida com 1 etapa" in learned
+    assert skills.get("Consultar data") is not None
+    assert "Consultar data" in harness.processar_mensagem("/skills")
+
+
+def test_natural_skill_learning_phrase_is_deterministic() -> None:
+    manager = ResourceManager()
+    llm = RuntimeAwareLLM(manager)
+    harness = make_harness(manager, llm)
+    harness.last_tool_trace = []
+
+    response = harness.processar_mensagem(
+        "Agora aprenda esse procedimento de como Minha Rotina"
+    )
+
+    assert response == "Não há um procedimento recente para aprender."
+    assert llm.calls == 0
+
+
+def test_learned_skill_can_be_run_by_natural_explicit_name() -> None:
+    from jarvis.security.risk import RiskLevel
+    from jarvis.skills.models import SkillDefinition, SkillStep
+    from jarvis.skills.store import InMemorySkillStore
+    from jarvis.tools.base import Tool
+    from jarvis.tools.execution_result import ToolExecutionResult
+
+    class PingTool(Tool):
+        name = "ping_tool"
+        description = "ping"
+        risk = RiskLevel.LOW
+        parameters = {"type": "object", "properties": {}, "required": []}
+
+        def get_target(self, **_kwargs: Any) -> str:
+            return "ping"
+
+        def execute(self, **_kwargs: Any) -> str:
+            return "pong"
+
+    class ResultExecutor:
+        def execute_with_result(self, tool: Any, **kwargs: Any) -> ToolExecutionResult:
+            return ToolExecutionResult(tool.execute(**kwargs), "success", True)
+
+    registry = ToolRegistry()
+    registry.register(PingTool())
+    store = InMemorySkillStore()
+    store.save(
+        SkillDefinition(
+            name="Ping",
+            steps=(SkillStep("ping_tool", {}),),
+        )
+    )
+    manager = ResourceManager()
+    llm = RuntimeAwareLLM(manager)
+    harness = Harness(
+        llm=llm,
+        tool_registry=registry,
+        tool_executor=ResultExecutor(),  # type: ignore[arg-type]
+        memory=ConversationMemory(),
+        memory_store=InMemoryMemoryStore(),
+        resource_manager=manager,
+        skill_store=store,
+    )
+
+    response = harness.processar_mensagem("Agora, executa esse esquivo aí. Ping.md")
+
+    assert response == "Pronto."
+    assert llm.calls == 0
+    assert harness.last_tool_trace[0].tool_name == "ping_tool"
+    assert harness.get_last_latency()["tool_calls"] == 1
+
+
+def test_skill_learning_de_como_creates_real_skill_without_llm() -> None:
+    from jarvis.security.risk import RiskLevel
+    from jarvis.skills.models import ToolTraceStep
+    from jarvis.skills.store import InMemorySkillStore
+    from jarvis.tools.base import Tool
+
+    class PingTool(Tool):
+        name = "ping_tool"
+        description = "ping"
+        risk = RiskLevel.LOW
+        parameters = {"type": "object", "properties": {}, "required": []}
+
+        def get_target(self, **_kwargs: Any) -> str:
+            return "ping"
+
+        def execute(self, **_kwargs: Any) -> str:
+            return "pong"
+
+    registry = ToolRegistry()
+    registry.register(PingTool())
+    store = InMemorySkillStore()
+    manager = ResourceManager()
+    llm = RuntimeAwareLLM(manager)
+    harness = Harness(
+        llm=llm,
+        tool_registry=registry,
+        tool_executor=FakeToolExecutor(),  # type: ignore[arg-type]
+        memory=ConversationMemory(),
+        memory_store=InMemoryMemoryStore(),
+        resource_manager=manager,
+        skill_store=store,
+    )
+    harness.last_tool_trace = [ToolTraceStep("ping_tool", {})]
+    harness.last_tool_trace_request = "faça ping"
+
+    response = harness.processar_mensagem(
+        "Agora aprenda esse procedimento de como Ler Jarvis"
+    )
+
+    assert "Skill 'Ler Jarvis' aprendida" in response
+    assert store.get("Ler Jarvis") is not None
+    assert llm.calls == 0
+
+
+def test_skill_run_accepts_esquivo_and_small_name_variation() -> None:
+    from jarvis.security.risk import RiskLevel
+    from jarvis.skills.models import SkillDefinition, SkillStep
+    from jarvis.skills.store import InMemorySkillStore
+    from jarvis.tools.base import Tool
+    from jarvis.tools.execution_result import ToolExecutionResult
+
+    class PingTool(Tool):
+        name = "ping_tool"
+        description = "ping"
+        risk = RiskLevel.LOW
+        parameters = {"type": "object", "properties": {}, "required": []}
+
+        def get_target(self, **_kwargs: Any) -> str:
+            return "ping"
+
+        def execute(self, **_kwargs: Any) -> str:
+            return "pong"
+
+    class ResultExecutor:
+        def execute_with_result(self, tool: Any, **kwargs: Any) -> ToolExecutionResult:
+            return ToolExecutionResult(tool.execute(**kwargs), "success", True)
+
+    registry = ToolRegistry()
+    registry.register(PingTool())
+    store = InMemorySkillStore()
+    store.save(
+        SkillDefinition(
+            name="Ler Jarvis",
+            steps=(SkillStep("ping_tool", {}),),
+        )
+    )
+    manager = ResourceManager()
+    llm = RuntimeAwareLLM(manager)
+    harness = Harness(
+        llm=llm,
+        tool_registry=registry,
+        tool_executor=ResultExecutor(),  # type: ignore[arg-type]
+        memory=ConversationMemory(),
+        memory_store=InMemoryMemoryStore(),
+        resource_manager=manager,
+        skill_store=store,
+    )
+
+    response = harness.processar_mensagem(
+        "Agora executa esse esquivo aí. Lê Jarvis."
+    )
+
+    assert response == "Pronto."
+    assert llm.calls == 0
+    assert harness.last_tool_trace[0].tool_name == "ping_tool"
+    assert harness.get_last_latency()["tool_calls"] == 1
+
+
+def test_unparsed_skill_control_does_not_fall_through_to_llm() -> None:
+    manager = ResourceManager()
+    llm = RuntimeAwareLLM(manager)
+    harness = make_harness(manager, llm)
+
+    response = harness.processar_mensagem(
+        "Aprenda esse procedimento por favor"
+    )
+
+    assert "não consegui identificar o nome" in response.casefold()
+    assert llm.calls == 0
+
+
+def test_natural_doctor_voice_phrase_bypasses_llm() -> None:
+    manager = ResourceManager()
+    llm = RuntimeAwareLLM(manager)
+    harness = make_harness(manager, llm)
+
+    result = harness.processar_mensagem(
+        "Me diz aí como é que tá teu doctor cara?"
+    )
+
+    assert result.startswith("Jarvis Doctor")
+    assert llm.calls == 0
+
+
+def test_garbled_run_doctor_phrase_still_bypasses_llm() -> None:
+    manager = ResourceManager()
+    llm = RuntimeAwareLLM(manager)
+    harness = make_harness(manager, llm)
+
+    result = harness.processar_mensagem(
+        "No caso, roda aí um barro invertido a doctor."
+    )
+
+    assert result.startswith("Jarvis Doctor")
+    assert llm.calls == 0
+
+
+def test_skill_learning_accepts_named_as_phrase_from_voice_log() -> None:
+    from jarvis.skills.models import ToolTraceStep
+    from jarvis.skills.store import InMemorySkillStore
+
+    manager = ResourceManager()
+    llm = RuntimeAwareLLM(manager)
+    store = InMemorySkillStore()
+    harness = Harness(
+        llm=llm,
+        tool_registry=ToolRegistry(),
+        tool_executor=FakeToolExecutor(),  # type: ignore[arg-type]
+        memory=ConversationMemory(),
+        memory_store=InMemoryMemoryStore(),
+        resource_manager=manager,
+        skill_store=store,
+    )
+    # No executable trace is available, so the important behavior here is that
+    # the natural phrase reaches the deterministic learner instead of the LLM.
+    harness.last_tool_trace = []
+
+    response = harness.processar_mensagem(
+        "Pronto! Aprenda o procedimento de organizar o texto em uma nota "
+        "como Organize Nota."
+    )
+
+    assert response == "Não há um procedimento recente para aprender."
+    assert llm.calls == 0
+
+
+def test_natural_skill_inventory_is_grounded_in_store() -> None:
+    from jarvis.skills.models import SkillDefinition
+    from jarvis.skills.store import InMemorySkillStore
+
+    manager = ResourceManager()
+    llm = RuntimeAwareLLM(manager)
+    store = InMemorySkillStore()
+    store.save(SkillDefinition(name="Organizar nota", steps=()))
+    harness = Harness(
+        llm=llm,
+        tool_registry=ToolRegistry(),
+        tool_executor=FakeToolExecutor(),  # type: ignore[arg-type]
+        memory=ConversationMemory(),
+        memory_store=InMemoryMemoryStore(),
+        resource_manager=manager,
+        skill_store=store,
+    )
+
+    response = harness.processar_mensagem("Me diz ai quais skills você tem.")
+
+    assert response == "Tenho estas Skills: Organizar nota."
+    assert llm.calls == 0
+
+
+def test_natural_doctor_voice_mode_uses_compact_summary(
+    monkeypatch,
+) -> None:
+    manager = ResourceManager()
+    llm = RuntimeAwareLLM(manager)
+    harness = make_harness(manager, llm)
+    monkeypatch.setattr(
+        harness.doctor,
+        "voice_summary",
+        lambda: "Tudo certo por aqui.",
+    )
+
+    result = harness.processar_mensagem(
+        "Me diz aí como está teu doctor?",
+        response_mode="voice",
+    )
+
+    assert result == "Tudo certo por aqui."
+    assert llm.calls == 0

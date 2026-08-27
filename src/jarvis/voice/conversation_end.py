@@ -19,3 +19,11 @@ class ConversationEndInterpreter:
         normalized = ConfirmationInterpreter.normalize(text)
         padded = f" {normalized} "
         return any(f" {phrase} " in padded for phrase in self.PHRASES)
+
+    def reply(self, text: str) -> str:
+        normalized = ConfirmationInterpreter.normalize(text)
+        if "obrigado" in normalized or "valeu" in normalized:
+            return "Por nada. Até mais."
+        if "pode descansar" in normalized:
+            return "Claro. Até mais."
+        return "Até mais."

@@ -79,6 +79,8 @@ class PiperTTS(TextToSpeech):
         voice_factory: Callable[[Path, Path | None], _PiperVoice] | None = None,
         audio_player: _AudioPlayer | None = None,
         tail_silence_seconds: float = 0.30,
+        length_scale: float = 1.18,
+        sentence_silence_seconds: float = 0.18,
     ) -> None:
         self.model_path = Path(model_path)
         self.config_path = Path(config_path) if config_path is not None else None
@@ -86,6 +88,10 @@ class PiperTTS(TextToSpeech):
         self._voice_factory = voice_factory
         self._audio_player = audio_player or _SoundDevicePlayer()
         self.tail_silence_seconds = max(0.0, float(tail_silence_seconds))
+        self.length_scale = max(0.5, float(length_scale))
+        self.sentence_silence_seconds = max(
+            0.0, float(sentence_silence_seconds)
+        )
         self._voice: _PiperVoice | None = None
         self._requests: Queue[_TTSRequest | object] = Queue()
         self._worker: Thread | None = None
@@ -205,11 +211,22 @@ class PiperTTS(TextToSpeech):
                     ) from error
 
                 sample_rate = chunks[0].sample_rate
-                audio_parts = [
-                    np.asarray(chunk.audio_float_array, dtype=np.float32).reshape(-1)
-                    for chunk in chunks
-                    if chunk.sample_rate == sample_rate
-                ]
+                sentence_silence_samples = int(
+                    sample_rate * self.sentence_silence_seconds
+                )
+                audio_parts: list[Any] = []
+                for chunk in chunks:
+                    if chunk.sample_rate != sample_rate:
+                        continue
+                    if audio_parts and sentence_silence_samples > 0:
+                        audio_parts.append(
+                            np.zeros(sentence_silence_samples, dtype=np.float32)
+                        )
+                    audio_parts.append(
+                        np.asarray(
+                            chunk.audio_float_array, dtype=np.float32
+                        ).reshape(-1)
+                    )
                 if not audio_parts:
                     return
                 audio = (
@@ -269,6 +286,12 @@ class PiperTTS(TextToSpeech):
             )
         factory = self._voice_factory or self._default_voice_factory
         self._voice = factory(self.model_path, config_path)
+        # Piper uses length_scale > 1.0 to slow phoneme duration. Keep this
+        # on the loaded voice so every synthesis call uses the conversational
+        # pace without requiring a specific Piper package API version.
+        voice_config = getattr(self._voice, "config", None)
+        if voice_config is not None and hasattr(voice_config, "length_scale"):
+            voice_config.length_scale = self.length_scale
         return self._voice
 
     @staticmethod

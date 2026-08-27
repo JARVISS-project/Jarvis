@@ -158,6 +158,10 @@ class FasterWhisperSTT(SpeechToText):
             ),
         )
 
+    def warm_up(self) -> None:
+        """Carrega o modelo efetivo sem executar inferência de áudio."""
+        self._ensure_model()
+
     def unload(self) -> None:
         self._model = None
         self._loaded_options = None

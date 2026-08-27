@@ -1,8 +1,12 @@
 import argparse
+from collections.abc import Callable
 from pathlib import Path
 
 from jarvis.activation.listener import WakeWordListener
 from jarvis.activation.openwakeword import OpenWakeWordDetector
+from jarvis.application.state import AgentStateBus
+from jarvis.application.state_ipc import LocalStateServer
+from jarvis.application.voice_bridge import VoiceStateBridge
 from jarvis.audio.input import PvRecorderAudioInput
 from jarvis.audio.utterance import UtteranceRecorder
 from jarvis.config import JarvisConfig
@@ -15,12 +19,18 @@ from jarvis.llm.ollama_client import OllamaLLM
 from jarvis.memory.conversation import ConversationMemory
 from jarvis.memory.sqlite_store import SQLiteMemoryStore
 from jarvis.runtime.resource_manager import ResourceManager
+from jarvis.runtime.ambient_ui import (
+    launch_ambient_ui,
+    stop_spawned_ambient_ui,
+)
 from jarvis.runtime.cancellation import CancellationController
 from jarvis.security.audit import AuditLogger
 from jarvis.security.confirmation import ConfirmationProvider, VoiceConfirmation
 from jarvis.security.capabilities import Capability, CapabilityPolicy
 from jarvis.security.filesystem import FileSystemGuard
 from jarvis.security.safety_manager import SafetyManager
+from jarvis.skills.mirror import ObsidianSkillMirror
+from jarvis.skills.store import JsonSkillStore
 from jarvis.speech.faster_whisper import FasterWhisperSTT
 from jarvis.speech.normalizer import TranscriptNormalizer
 from jarvis.speech.validator import TranscriptionValidator
@@ -41,6 +51,7 @@ from jarvis.tts.piper import PiperTTS
 from jarvis.tts.piper_setup import setup_piper_voice
 from jarvis.tts.factory import build_text_to_speech
 from jarvis.voice.pipeline import VoicePipeline
+from jarvis.voice.state import VoicePipelineState
 from jarvis.voice.barge_in import BargeInController
 from jarvis.voice.audio_session import VoiceAudioSession
 
@@ -97,6 +108,7 @@ def build_harness(
         tool_registry.register(DeleteFileTool(filesystem))
 
     note_reference_resolver = None
+    obsidian_vault = None
     if (
         config.obsidian_enabled
         and config.obsidian_vault_path is not None
@@ -126,6 +138,17 @@ def build_harness(
             if capability_policy.is_enabled(capability):
                 tool_registry.register(tool)
 
+    skill_store = JsonSkillStore(config.skill_store_path)
+    skill_mirror = None
+    if (
+        config.skills_obsidian_mirror_enabled
+        and obsidian_vault is not None
+        and capability_policy.is_enabled(Capability.OBSIDIAN_WRITE)
+    ):
+        skill_mirror = ObsidianSkillMirror(
+            obsidian_vault, config.skills_obsidian_mirror_directory
+        )
+
     return Harness(
         llm=llm,
         tool_registry=tool_registry,
@@ -138,6 +161,8 @@ def build_harness(
         file_reference_resolver=file_reference_resolver,
         target_confirmation=safety_manager.confirmation,
         note_reference_resolver=note_reference_resolver,
+        skill_store=skill_store,
+        skill_mirror=skill_mirror,
     )
 
 
@@ -145,6 +170,8 @@ def run_voice_mode(
     config: JarvisConfig,
     model_path: Path | None = None,
     microphone_device_index: int | None = None,
+    state_callback: Callable[[VoicePipelineState], None] | None = None,
+    wake_word_threshold: float | None = None,
 ) -> None:
     resource_manager = ResourceManager()
     resource_manager.idle()
@@ -155,7 +182,11 @@ def run_voice_mode(
     detector = OpenWakeWordDetector(
         model_name=config.wake_word_model,
         model_path=model_path or config.wake_word_model_path,
-        threshold=config.wake_word_threshold,
+        threshold=(
+            config.wake_word_threshold
+            if wake_word_threshold is None
+            else wake_word_threshold
+        ),
         minimum_consecutive_detections=(
             config.wake_min_consecutive_detections
         ),
@@ -349,8 +380,14 @@ def run_voice_mode(
         cancellation=cancellation,
         audio_session=audio_session,
         acknowledgement_enabled=config.voice_acknowledgement_enabled,
+        wake_acknowledgement_enabled=(
+            config.voice_wake_acknowledgement_enabled
+        ),
+        wake_word_label=config.wake_word_phrase,
         debug_enabled=config.voice_debug_enabled,
         latency_debug_enabled=config.latency_debug_enabled,
+        warm_up_stt_on_start=config.stt_warm_up_on_voice_start,
+        warm_up_llm_on_start=config.llm_warm_up_on_voice_start,
         cancel_max_no_speech_probability=(
             config.voice_cancel_max_no_speech_probability
         ),
@@ -369,6 +406,7 @@ def run_voice_mode(
         game_mode_followup_timeout_seconds=(
             config.conversation_followup_timeout_game_mode_seconds
         ),
+        state_callback=state_callback,
         barge_in_controller=(
             BargeInController(
                 audio_input=audio_input,
@@ -384,9 +422,11 @@ def run_voice_mode(
         ),
     )
     if confirmation is not None:
-        state_callback = getattr(pipeline, "set_confirmation_state", None)
-        if callable(state_callback):
-            confirmation.bind_state_callback(state_callback)
+        confirmation_state_callback = getattr(
+            pipeline, "set_confirmation_state", None
+        )
+        if callable(confirmation_state_callback):
+            confirmation.bind_state_callback(confirmation_state_callback)
     pipeline.run()
 
 
@@ -472,12 +512,35 @@ def _argument_parser() -> argparse.ArgumentParser:
         type=int,
         help="Índice opcional do dispositivo de entrada.",
     )
+    parser.add_argument(
+        "--wake-word-threshold",
+        type=float,
+        help=(
+            "Sensibilidade da wake word (0.0 a 1.0). Útil para calibrar "
+            "a chamada curta 'Jarvis'."
+        ),
+    )
+    parser.add_argument(
+        "--tts-pace",
+        choices=("fast", "natural", "calm"),
+        help=(
+            "Sobrescreve o ritmo do Piper apenas nesta execução; útil para "
+            "calibrar a voz sem alterar data/settings.json."
+        ),
+    )
+    parser.add_argument(
+        "--ui",
+        action="store_true",
+        help="Abre a Ambient HUD conectada ao modo voice em outro processo.",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
     args = _argument_parser().parse_args(argv)
     config = JarvisConfig()
+    if args.tts_pace is not None:
+        config.tts_piper_pace = args.tts_pace
 
     if args.setup_voice:
         try:
@@ -507,15 +570,43 @@ def main(argv: list[str] | None = None) -> None:
         print("TTS rápido preparado.")
         return
 
-    if args.voice or config.wake_word_enabled:
+    if args.voice or args.ui or config.wake_word_enabled:
+        if (
+            args.wake_word_threshold is not None
+            and not 0.0 <= args.wake_word_threshold <= 1.0
+        ):
+            raise SystemExit(
+                "Erro no modo voice: --wake-word-threshold deve estar "
+                "entre 0.0 e 1.0."
+            )
+
+        state_server = None
+        ui_process = None
+        state_callback = None
+        if args.ui:
+            state_bus = AgentStateBus()
+            state_server = LocalStateServer(
+                state_bus,
+                endpoint_path=config.ambient_ui_endpoint_path,
+            )
+            state_server.start()
+            state_callback = VoiceStateBridge(state_bus)
+            ui_process = launch_ambient_ui(config.ambient_ui_endpoint_path)
+
         try:
             run_voice_mode(
                 config=config,
                 model_path=args.wake_word_model_path,
                 microphone_device_index=args.microphone_device_index,
+                state_callback=state_callback,
+                wake_word_threshold=args.wake_word_threshold,
             )
         except RuntimeError as error:
             raise SystemExit(f"Erro no modo voice: {error}") from error
+        finally:
+            stop_spawned_ambient_ui(ui_process)
+            if state_server is not None:
+                state_server.close()
         return
 
     resource_manager = ResourceManager()

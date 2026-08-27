@@ -316,7 +316,7 @@ def test_basic_markdown_is_prepared_without_changing_content() -> None:
     text = "**Arquivos:**\n- README.md\n- [Projeto](https://example.test)"
 
     assert prepare_text_for_speech(text) == (
-        "Arquivos:\nREADME.md\nProjeto"
+        "Arquivos: README. Projeto."
     )
 
 
@@ -331,3 +331,25 @@ def test_prepare_text_for_speech_expands_pt_br_clock() -> None:
         "Agora são 23 horas e 35 minutos."
     )
     assert prepare_text_for_speech("Agora é 1h00.") == "Agora é 1 hora."
+
+
+def test_prepare_text_for_speech_turns_lines_into_breathing_sentences() -> None:
+    assert prepare_text_for_speech(
+        "Jarvis é lindo\nsábado eu vou estudar"
+    ) == "Jarvis é lindo. sábado eu vou estudar."
+
+
+def test_prepare_text_for_speech_softens_terminal_status_and_markdown_names() -> None:
+    assert prepare_text_for_speech(
+        "Jarvis Doctor\nRuntime............... OK\nTTS provider.......... piper\n"
+        "Microphone config..... NOT CONFIGURED\n- Jarvis Tool.md"
+    ) == (
+        "Jarvis Doctor. Runtime: ok. T T S provider: piper. "
+        "Microphone config: não configurado. Jarvis Tool."
+    )
+
+
+def test_prepare_text_for_speech_spells_common_technical_initialisms() -> None:
+    assert prepare_text_for_speech(
+        "STT, TTS, LLM, GPU e CPU estão OK."
+    ) == "S T T, T T S, L L M, G P U e C P U estão ok."

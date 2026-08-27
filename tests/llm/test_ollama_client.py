@@ -93,3 +93,21 @@ def test_structured_final_retry_also_disables_thinking(
     assert fake_client.arguments["tools"] == []
     assert fake_client.arguments["format"]["required"] == ["answer"]
     assert response.content == "Resposta final segura."
+
+
+def test_warm_up_loads_model_without_tools_or_thinking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = FakeOllamaClient()
+    monkeypatch.setattr(
+        "jarvis.llm.ollama_client.Client",
+        lambda **_kwargs: fake_client,
+    )
+    llm = OllamaLLM(model="test-model", keep_alive="5m")
+
+    llm.warm_up()
+
+    assert fake_client.arguments["model"] == "test-model"
+    assert fake_client.arguments["tools"] == []
+    assert fake_client.arguments["think"] is False
+    assert fake_client.arguments["options"]["num_predict"] == 4

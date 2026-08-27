@@ -9,7 +9,7 @@ from jarvis.tools.base import Tool
 
 PATH_PARAMETER = {
     "type": "string",
-    "description": "Caminho relativo de uma nota .md dentro do Vault.",
+    "description": "Título/caminho relativo da nota no Vault; .md é opcional.",
 }
 
 

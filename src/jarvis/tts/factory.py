@@ -38,6 +38,8 @@ def build_text_to_speech(config: JarvisConfig) -> TextToSpeech | None:
             config_path=config.tts_piper_config_path,
             fallback=sapi,
             tail_silence_seconds=config.tts_piper_tail_silence_seconds,
+            length_scale=config.tts_piper_length_scale,
+            sentence_silence_seconds=config.tts_piper_sentence_silence_seconds,
         )
 
     neural_installed = (

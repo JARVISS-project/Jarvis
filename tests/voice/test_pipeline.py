@@ -69,6 +69,7 @@ class FakeSpeechToText(SpeechToText):
         self.error = error
         self.calls: list[tuple[list[int], int]] = []
         self.closed = False
+        self.warm_up_calls = 0
 
     def transcribe(
         self,
@@ -80,6 +81,9 @@ class FakeSpeechToText(SpeechToText):
             raise self.error
         return self.result
 
+    def warm_up(self) -> None:
+        self.warm_up_calls += 1
+
     def close(self) -> None:
         self.closed = True
 
@@ -88,6 +92,8 @@ class FakeHarness:
     def __init__(self, response: str = "resposta") -> None:
         self.response = response
         self.calls: list[tuple[str, bool]] = []
+        self.response_modes: list[str] = []
+        self.warm_up_calls = 0
         self.latency = {
             "harness_seconds": 0.20,
             "llm_seconds": 0.15,
@@ -99,12 +105,17 @@ class FakeHarness:
     def get_last_latency(self) -> dict[str, float | int]:
         return dict(self.latency)
 
+    def warm_up_llm(self) -> None:
+        self.warm_up_calls += 1
+
     def processar_mensagem(
         self,
         mensagem: str,
         manage_runtime: bool = True,
+        response_mode: str = "text",
     ) -> str:
         self.calls.append((mensagem, manage_runtime))
+        self.response_modes.append(response_mode)
         return self.response
 
 
@@ -210,6 +221,7 @@ def test_wake_word_captures_audio_transcribes_and_delegates_to_harness() -> None
     assert recorder.calls == 1
     assert stt.calls == [([1, 2, 3], 16000)]
     assert harness.calls == [("listar arquivos", False)]
+    assert harness.response_modes == ["voice"]
     assert "Ouvindo..." in output
     assert "Você: listar arquivos" in output
     assert "Jarvis: arquivos listados" in output
@@ -1064,7 +1076,7 @@ def test_safe_command_speaks_short_acknowledgement() -> None:
         cooldown_waiter=lambda _seconds: None,
     )
     pipeline.process_once()
-    assert tts.spoken == ["Entendi.", "resultado"]
+    assert tts.spoken == ["Certo.", "resultado"]
 
 
 def test_expensive_tts_skips_short_acknowledgement() -> None:
@@ -1293,7 +1305,7 @@ def test_natural_conversation_end_skips_llm_and_followup() -> None:
     pipeline.process_once()
     assert harness.calls == [("pergunta", False)]
     assert followup.calls == 1
-    assert tts.spoken[-1] == "Até mais."
+    assert tts.spoken[-1] == "Por nada. Até mais."
 
 
 def test_waiting_wake_is_not_printed_during_speech() -> None:
@@ -1301,7 +1313,7 @@ def test_waiting_wake_is_not_printed_during_speech() -> None:
     tts = FakeTextToSpeech()
     observed_counts: list[int] = []
     tts.on_speak = lambda: observed_counts.append(
-        output.count('Aguardando "Hey Jarvis"...')
+        output.count('Aguardando "Jarvis"...')
     )
     pipeline = VoicePipeline(
         listener=FakeListener([activation(), KeyboardInterrupt()]),  # type: ignore[arg-type]
@@ -1316,6 +1328,31 @@ def test_waiting_wake_is_not_printed_during_speech() -> None:
     pipeline.run()
     assert observed_counts == [1]
 
+
+
+
+def test_run_warms_stt_before_announcing_waiting_wake() -> None:
+    output: list[str] = []
+    stt = FakeSpeechToText()
+    listener = FakeListener([KeyboardInterrupt()])
+    pipeline = VoicePipeline(
+        listener=listener,  # type: ignore[arg-type]
+        recorder=FakeRecorder([]),  # type: ignore[arg-type]
+        speech_to_text=stt,
+        harness=FakeHarness(),
+        resource_manager=ResourceManager(),
+        warm_up_stt_on_start=True,
+        output=output.append,
+    )
+
+    pipeline.run()
+
+    assert stt.warm_up_calls == 1
+    assert output[:3] == [
+        "Preparando reconhecimento de voz...",
+        "Reconhecimento de voz pronto.",
+        'Aguardando "Jarvis"...',
+    ]
 
 def test_latency_debug_outputs_compact_turn_breakdown() -> None:
     output: list[str] = []
@@ -1341,3 +1378,113 @@ def test_latency_debug_outputs_compact_turn_breakdown() -> None:
     assert "LLM=0.15s/1" in line
     assert "Tools=0.01s/1" in line
     assert "TTS-total=" in line
+
+
+def test_voice_run_warms_stt_and_llm_before_waiting_for_wake() -> None:
+    output: list[str] = []
+    stt = FakeSpeechToText()
+    harness = FakeHarness()
+    pipeline = VoicePipeline(
+        listener=FakeListener([KeyboardInterrupt()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder([1]),  # type: ignore[arg-type]
+        speech_to_text=stt,
+        harness=harness,
+        resource_manager=ResourceManager(),
+        output=output.append,
+        warm_up_stt_on_start=True,
+        warm_up_llm_on_start=True,
+    )
+
+    pipeline.run()
+
+    assert stt.warm_up_calls == 1
+    assert harness.warm_up_calls == 1
+    assert output.index("Reconhecimento de voz pronto.") < output.index(
+        "Assistente pronto."
+    )
+    assert output.index("Assistente pronto.") < output.index(
+        'Aguardando "Jarvis"...'
+    )
+
+
+def test_wake_acknowledgement_is_spoken_before_capture_when_enabled() -> None:
+    manager = ResourceManager()
+    tts = FakeTextToSpeech()
+    output: list[str] = []
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder([1]),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(
+            TranscriptionResult("que horas são", "pt", 0.5)
+        ),
+        harness=FakeHarness("agora são treze horas"),
+        resource_manager=manager,
+        text_to_speech=tts,
+        wake_acknowledgement_enabled=True,
+        output=output.append,
+        cooldown_waiter=lambda _seconds: None,
+    )
+
+    pipeline.process_once()
+
+    assert tts.spoken == ["Oi, tô aqui.", "agora são treze horas"]
+    assert "Jarvis: Oi, tô aqui." in output
+
+
+def test_wake_acknowledgement_rotates_without_llm() -> None:
+    tts = FakeTextToSpeech()
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation(), activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder([1]),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(),
+        harness=FakeHarness("ok"),
+        resource_manager=ResourceManager(),
+        text_to_speech=tts,
+        wake_acknowledgement_enabled=True,
+        cooldown_waiter=lambda _seconds: None,
+    )
+
+    pipeline.process_once()
+    pipeline.process_once()
+
+    assert tts.spoken[0] == "Oi, tô aqui."
+    assert tts.spoken[2] == "Diga."
+
+
+def test_state_callback_exposes_voice_states_for_future_ui() -> None:
+    states: list[VoicePipelineState] = []
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder([1]),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(),
+        harness=FakeHarness("ok"),
+        resource_manager=ResourceManager(),
+        state_callback=states.append,
+        cooldown_waiter=lambda _seconds: None,
+    )
+
+    pipeline.process_once()
+
+    assert VoicePipelineState.LISTENING in states
+    assert VoicePipelineState.PROCESSING in states
+
+
+def test_latency_formats_fast_tool_time_in_milliseconds() -> None:
+    harness = FakeHarness("ok")
+    harness.latency["tool_seconds"] = 0.0008
+    harness.latency["tool_calls"] = 1
+    output: list[str] = []
+    pipeline = VoicePipeline(
+        listener=FakeListener([activation()]),  # type: ignore[arg-type]
+        recorder=FakeRecorder([1]),  # type: ignore[arg-type]
+        speech_to_text=FakeSpeechToText(),
+        harness=harness,
+        resource_manager=ResourceManager(),
+        output=output.append,
+        latency_debug_enabled=True,
+        cooldown_waiter=lambda _seconds: None,
+    )
+
+    pipeline.process_once()
+
+    assert any("Tools=0.8ms/1" in line for line in output)

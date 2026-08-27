@@ -24,3 +24,11 @@ data/
 
 # Python package metadata
 *.egg-info/
+
+# Local recovery / patch artifacts
+/*.patch
+/JARVIS_STATE.md
+/jarvis_state.txt
+/README-JARVIS-RECOVERY.txt
+/apply-jarvis-*.ps1
+/AGENTS_HEAD.md

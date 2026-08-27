@@ -30,9 +30,11 @@ def test_config_defaults_match_current_application(
     assert config.ollama_keep_alive_game_mode == "30s"
     assert config.llm_thinking_enabled is False
     assert config.wake_word_enabled is False
+    assert config.wake_word_phrase == "Jarvis"
     assert config.wake_word_model == "hey_jarvis"
     assert config.wake_word_model_path is None
     assert config.wake_word_threshold == 0.5
+    assert config.ambient_ui_endpoint_path == Path("data/runtime/ambient-ui.json")
     assert config.microphone_device_index is None
     assert config.stt_model == "small"
     assert config.stt_initial_prompt is None
@@ -63,12 +65,13 @@ def test_config_defaults_match_current_application(
     assert config.voice_confirmation_min_speech_duration_seconds == 0.15
     assert config.voice_confirmation_keyboard_fallback is False
     assert config.voice_repair_timeout_seconds == 8.0
-    assert config.voice_acknowledgement_enabled is True
+    assert config.voice_wake_acknowledgement_enabled is True
+    assert config.voice_acknowledgement_enabled is False
     assert config.conversation_followup_enabled is True
     assert config.conversation_followup_timeout_seconds == 15.0
     assert config.conversation_question_timeout_seconds == 20.0
     assert config.conversation_followup_timeout_game_mode_seconds == 4.0
-    assert config.barge_in_enabled is True
+    assert config.barge_in_enabled is False
     assert config.barge_in_energy_margin == 500.0
     assert config.barge_in_min_speech_duration_seconds == 0.18
     assert config.barge_in_grace_period_seconds == 0.2
@@ -85,6 +88,14 @@ def test_config_defaults_match_current_application(
     assert config.tts_volume == 1.0
     assert config.tts_voice_id is None
     assert config.tts_post_speech_cooldown_seconds == 0.75
+
+
+def test_barge_in_can_be_explicitly_enabled(monkeypatch) -> None:
+    monkeypatch.setenv("JARVIS_BARGE_IN_ENABLED", "true")
+
+    config = JarvisConfig()
+
+    assert config.barge_in_enabled is True
 
 
 def test_obsidian_config_comes_from_environment(monkeypatch) -> None:
@@ -157,3 +168,16 @@ def test_settings_file_is_covered_by_gitignore() -> None:
 def test_piper_tail_silence_default() -> None:
     config = JarvisConfig()
     assert config.tts_piper_tail_silence_seconds == 0.30
+
+
+def test_piper_pace_defaults_to_natural_and_maps_to_length_scale(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("JARVIS_TTS_PIPER_PACE", raising=False)
+    config = JarvisConfig(
+        tts_piper_pace="natural",
+        settings_path=tmp_path / "missing-settings.json",
+    )
+    assert config.tts_piper_length_scale == 1.18
+    config.tts_piper_pace = "calm"
+    assert config.tts_piper_length_scale == 1.30

@@ -8,6 +8,10 @@ class LLMClient(ABC):
     def set_keep_alive(self, keep_alive: str) -> None:
         pass
 
+    def warm_up(self) -> None:
+        """Optionally load the model without affecting conversation state."""
+        return None
+
     @abstractmethod
     def generate(
         self,

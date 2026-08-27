@@ -10,6 +10,7 @@ from jarvis.security.authorization import AuthorizationGrant
 from jarvis.config import JarvisConfig
 from jarvis.context.recent import RecentContext
 from jarvis.context.active import ActiveContext, ContextRouter
+from jarvis.context.compound_actions import CompoundActionPlanner
 from jarvis.context.pending_action import (
     PendingAction,
     PendingActionContext,
@@ -26,6 +27,8 @@ from jarvis.context.file_reference_resolver import (
 from jarvis.doctor import JarvisDoctor
 from jarvis.llm.base import LLMClient
 from jarvis.llm.firewall import FinalResponseFirewall
+from jarvis.llm.grounding import ExecutionClaimGuard
+from jarvis.llm.types import LLMResponse, ToolCallRequest
 from jarvis.llm.tool_schema import tool_to_ollama_schema
 from jarvis.memory.conversation import ConversationMemory
 from jarvis.memory.in_memory_store import InMemoryMemoryStore
@@ -33,6 +36,12 @@ from jarvis.memory.store import MemoryStore
 from jarvis.persona import PersonaProfile
 from jarvis.runtime.resource_manager import ResourceManager
 from jarvis.runtime.cancellation import CancellationInterpreter
+from jarvis.runtime.fast_path import (
+    FastPathRouter,
+    format_datetime_tool_result,
+)
+from jarvis.runtime.tool_selection import ToolSelectionRouter
+from jarvis.runtime.obsidian_commands import ObsidianCommandParser
 from jarvis.security.risk import RiskLevel
 from jarvis.security.confirmation import ConfirmationProvider
 from jarvis.security.confirmation_request import (
@@ -44,6 +53,12 @@ from jarvis.security.confirmation_intent import (
     ConfirmationInterpreter,
 )
 from jarvis.security.tool_intent import ToolIntentGuard
+from jarvis.skills.executor import SkillExecutor
+from jarvis.skills.learner import SkillLearner
+from jarvis.skills.matcher import SkillMatcher
+from jarvis.skills.mirror import ObsidianSkillMirror
+from jarvis.skills.models import ToolTraceStep
+from jarvis.skills.store import InMemorySkillStore, SkillStore
 from jarvis.tools.execution_result import ToolExecutionResult
 from jarvis.tools.executor import ToolExecutor
 from jarvis.tools.registry import ToolRegistry
@@ -73,6 +88,8 @@ class Harness:
         pending_actions: PendingActionContext | None = None,
         note_reference_resolver: NoteReferenceResolver | None = None,
         context_router: ContextRouter | None = None,
+        skill_store: SkillStore | None = None,
+        skill_mirror: ObsidianSkillMirror | None = None,
     ) -> None:
         self.llm = llm
         self.tool_registry = tool_registry
@@ -101,12 +118,29 @@ class Harness:
         self.confirmation_interpreter = ConfirmationInterpreter()
         self.note_reference_resolver = note_reference_resolver
         self.context_router = context_router or ContextRouter()
+        self.fast_path_router = FastPathRouter()
+        self.compound_action_planner = CompoundActionPlanner()
+        self.tool_selection_router = ToolSelectionRouter()
+        self.obsidian_command_parser = ObsidianCommandParser()
+        self.skill_store = skill_store or InMemorySkillStore()
+        self.skill_learner = SkillLearner(tool_registry)
+        self.skill_matcher = SkillMatcher()
+        self.skill_executor = SkillExecutor(
+            tool_registry, tool_executor, execute_step=self._execute_tool
+        )
+        self.skill_mirror = skill_mirror
+        self._current_tool_trace: list[ToolTraceStep] = []
+        self._current_trace_request = ""
+        self.last_tool_trace: list[ToolTraceStep] = []
+        self.last_tool_trace_request = ""
         self.final_response_firewall = FinalResponseFirewall()
+        self.execution_claim_guard = ExecutionClaimGuard()
         self.doctor = JarvisDoctor(
             self.config,
             self.resource_manager,
             self.memory_store,
             self.tool_registry,
+            self.skill_store,
         )
         self.last_latency: dict[str, float | int] = {
             "harness_seconds": 0.0,
@@ -135,12 +169,17 @@ class Harness:
         self,
         mensagem: str,
         manage_runtime: bool = True,
+        response_mode: str = "text",
     ) -> str:
         stripped_message = mensagem.strip()
         command = stripped_message.lower()
 
         if command == "/doctor":
-            return self.doctor.report()
+            return (
+                self.doctor.voice_summary()
+                if response_mode == "voice"
+                else self.doctor.report()
+            )
 
         if command == "/config" or command.startswith("/config "):
             return self._process_config_command(stripped_message)
@@ -187,6 +226,12 @@ class Harness:
 
             return "Memória não encontrada."
 
+        if command == "/skills":
+            return self._format_skills()
+
+        if command == "/skill" or command.startswith("/skill "):
+            return self._process_skill_command(stripped_message)
+
         if command == "/gamemode on":
             self.resource_manager.enable_game_mode()
             return "Game Mode ativado."
@@ -212,16 +257,17 @@ class Harness:
                 f"Memórias: {len(self.memory_store.get_all())}"
             )
 
+        self._begin_tool_trace(mensagem)
         self._start_latency_turn()
         if not manage_runtime:
             try:
-                return self._process_active_message(mensagem)
+                return self._process_active_message(mensagem, response_mode)
             finally:
                 self._finish_latency_turn()
 
         self.resource_manager.activate()
         try:
-            return self._process_active_message(mensagem)
+            return self._process_active_message(mensagem, response_mode)
         finally:
             self._finish_latency_turn()
             self.resource_manager.idle()
@@ -246,30 +292,69 @@ class Harness:
                 time.perf_counter() - started
             )
         self._latency_turn_started_at = None
+        if self._current_tool_trace:
+            self.last_tool_trace = list(self._current_tool_trace)
+            self.last_tool_trace_request = self._current_trace_request
+        self._current_tool_trace = []
+        self._current_trace_request = ""
 
     def _format_latency_report(self) -> str:
         latency = self.last_latency
         if not latency or float(latency.get("harness_seconds", 0.0)) <= 0:
             return "Ainda não há uma interação medida."
+        tool_seconds = float(latency["tool_seconds"])
+        tool_calls = int(latency["tool_calls"])
+        tool_time = self._format_short_duration(tool_seconds, tool_calls)
         return (
             "Última interação: "
             f"Harness {float(latency['harness_seconds']):.2f}s | "
             f"LLM {float(latency['llm_seconds']):.2f}s "
             f"({int(latency['llm_calls'])} chamada(s)) | "
-            f"Tools {float(latency['tool_seconds']):.2f}s "
-            f"({int(latency['tool_calls'])} chamada(s))."
+            f"Tools {tool_time} ({tool_calls} chamada(s))."
         )
+
+    @staticmethod
+    def _format_short_duration(seconds: float, calls: int) -> str:
+        if calls > 0 and 0.0 <= seconds < 0.01:
+            return f"{seconds * 1000:.1f}ms"
+        return f"{seconds:.2f}s"
 
     def has_pending_action(self) -> bool:
         return self.pending_actions.has_pending()
 
-    def _process_active_message(self, mensagem: str) -> str:
+    def _process_active_message(
+        self, mensagem: str, response_mode: str = "text"
+    ) -> str:
+        natural_doctor = self._natural_doctor_response(
+            mensagem, response_mode=response_mode
+        )
+        if natural_doctor is not None:
+            return natural_doctor
+
+        if self._natural_skill_list_requested(mensagem):
+            return self._natural_skill_list_response()
+        natural_skill_run = self._natural_skill_run_name(mensagem)
+        if natural_skill_run is not None:
+            return self._run_skill(natural_skill_run)
+        natural_skill_name = self._natural_skill_learning_name(mensagem)
+        if natural_skill_name is not None:
+            return self._learn_last_skill(natural_skill_name)
+        skill_control_fallback = self._skill_control_fallback(mensagem)
+        if skill_control_fallback is not None:
+            return skill_control_fallback
+
         if self._is_ambiguous_note_cleanup(mensagem):
             self._cancel_pending_action()
             return (
                 "Posso listar as notas que parecem ser de teste e você "
                 "escolhe quais deseja revisar ou remover. Qual escopo devo usar?"
             )
+        fast_response = self._fast_path_response(mensagem)
+        if fast_response is not None:
+            return fast_response
+        learned_response = self._learned_skill_response(mensagem)
+        if learned_response is not None:
+            return learned_response
         previous_context = self.context_router.state.active
         routed_context = self.context_router.update(mensagem)
         if (
@@ -291,6 +376,12 @@ class Harness:
             and not self._obsidian_write_available()
         ):
             return "A escrita no Obsidian está desabilitada ou indisponível."
+        obsidian_response = self._obsidian_fast_response(mensagem)
+        if obsidian_response is not None:
+            return obsidian_response
+        compound_response = self._compound_fast_response(mensagem)
+        if compound_response is not None:
+            return compound_response
         runtime_response = self._runtime_info_response(mensagem)
         if runtime_response is not None:
             return runtime_response
@@ -303,7 +394,492 @@ class Harness:
             else self.config.ollama_keep_alive_normal
         )
         self.llm.set_keep_alive(keep_alive)
-        return self._process_normal_message(mensagem)
+        return self._process_normal_message(mensagem, response_mode)
+
+    def _natural_doctor_response(
+        self, message: str, *, response_mode: str = "text"
+    ) -> str | None:
+        normalized = self.context_router.normalize(message)
+        if re.search(r"\b(?:doctor|doutor)\b", normalized) is None:
+            return None
+        if re.search(
+            r"\b(?:rode|roda|rodar|execute|executa|executar|verifique|"
+            r"verifica|cheque|checa|mostre|mostra|status|diagnostico)\b",
+            normalized,
+        ) or re.search(
+            r"\b(?:teu|seu) (?:doctor|doutor)\b|"
+            r"\bcomo (?:e que )?(?:ta|esta) (?:o )?(?:doctor|doutor)\b",
+            normalized,
+        ):
+            return (
+                self.doctor.voice_summary()
+                if response_mode == "voice"
+                else self.doctor.report()
+            )
+        return None
+
+    def warm_up_llm(self) -> None:
+        keep_alive = (
+            self.config.ollama_keep_alive_game_mode
+            if self.resource_manager.is_game_mode_active()
+            else self.config.ollama_keep_alive_normal
+        )
+        self.llm.set_keep_alive(keep_alive)
+        self.llm.warm_up()
+
+    def _begin_tool_trace(self, request: str) -> None:
+        self._current_tool_trace = []
+        self._current_trace_request = request.strip()
+
+    def _obsidian_fast_response(self, message: str) -> str | None:
+        """Execute high-confidence Obsidian commands through real Tools.
+
+        This prevents the LLM from narrating actions such as "anotado" or
+        "abri" when no Tool actually ran. Ambiguous commands still fall back
+        to the normal agent loop.
+        """
+        if self.context_router.state.active is not ActiveContext.OBSIDIAN:
+            return None
+        command = self.obsidian_command_parser.parse(message)
+        if command is None:
+            if self.obsidian_command_parser.looks_like_create_without_title(
+                message
+            ):
+                return "Qual nome você quer dar à nota?"
+            return None
+
+        if command.action in {"create", "append"} and not self._obsidian_write_available():
+            return "A escrita no Obsidian está desabilitada ou indisponível."
+
+        if command.action == "list":
+            tool = self.tool_registry.get("obsidian_list_notes")
+            if tool is None:
+                return None
+            arguments: dict[str, Any] = {}
+            valid, error = self.argument_validator.validate(tool, arguments)
+            if not valid:
+                return f"Não consegui preparar a ação: {error}"
+            intent = self.intent_guard.validate(message, tool, arguments)
+            if not intent.allowed:
+                return intent.response or "Não consegui validar essa ação."
+            self.memory.add_user_message(message)
+            result = self._execute_tool(tool, arguments)
+            if result.status != "success":
+                self.memory.add_assistant_message(result.content)
+                return result.content
+            self._remember_operational_context(tool.name, arguments, result.content)
+            notes = [
+                line.strip()
+                for line in result.content.splitlines()
+                if line.strip()
+            ]
+            response = (
+                "Nenhuma nota encontrada."
+                if not notes
+                else "Aqui estão suas notas:\n"
+                + "\n".join(f"- {note}" for note in notes)
+            )
+            self.memory.add_assistant_message(response)
+            return response
+
+        # Abrir uma nota nomeada continua no agent loop para preservar o
+        # roteamento contextual existente. Leituras nomeadas são SAFE e têm
+        # fast path porque são o caso de voz que mais sofria com paráfrases.
+        if command.action == "open" and command.reference is not None:
+            return None
+
+        if command.action == "create":
+            tool = self.tool_registry.get("obsidian_create_note")
+            if tool is None or not command.reference:
+                return None
+            try:
+                path = tool.vault.normalize_note_path(command.reference)
+            except (AttributeError, PermissionError, ValueError) as error:
+                return f"Não consegui usar esse título de nota: {error}"
+            arguments = {"path": path, "content": command.content}
+            self.memory.add_user_message(message)
+            result = self._execute_tool(tool, arguments)
+            if result.status != "success":
+                self.memory.add_assistant_message(result.content)
+                return result.content
+            self._remember_operational_context(tool.name, arguments, result.content)
+            response = (
+                f'Pronto. Criei a nota "{path}" e gravei o conteúdo.'
+                if command.content
+                else f'Pronto. Criei a nota "{path}".'
+            )
+            self.memory.add_assistant_message(response)
+            return response
+
+        reference = command.reference or "essa nota"
+        match = (
+            self.note_reference_resolver.resolve(reference)
+            if self.note_reference_resolver is not None
+            else None
+        )
+        if match is None:
+            return None
+        if match.kind is NoteMatchKind.AMBIGUOUS:
+            return "Qual nota você quis dizer? " + ", ".join(match.candidates)
+        if match.kind is NoteMatchKind.NOT_FOUND or match.canonical_path is None:
+            return f'Não encontrei a nota "{command.reference or "anterior"}" no Obsidian.'
+        path = match.canonical_path
+
+        if command.action == "append":
+            action_names = ("obsidian_append_note",)
+        elif command.action == "open":
+            action_names = ("obsidian_open_note",)
+        elif command.action == "read":
+            action_names = ("obsidian_read_note",)
+        elif command.action == "open_read":
+            action_names = ("obsidian_open_note", "obsidian_read_note")
+        else:
+            return None
+
+        self.memory.add_user_message(message)
+        last_result: ToolExecutionResult | None = None
+        for tool_name in action_names:
+            tool = self.tool_registry.get(tool_name)
+            if tool is None:
+                return None
+            arguments: dict[str, Any] = {"path": path}
+            if tool_name == "obsidian_append_note":
+                arguments["content"] = command.content
+            valid, error = self.argument_validator.validate(tool, arguments)
+            if not valid:
+                response = f"Não consegui preparar a ação: {error}"
+                self.memory.add_assistant_message(response)
+                return response
+            intent = self.intent_guard.validate(message, tool, arguments)
+            if not intent.allowed:
+                response = intent.response or "Não consegui validar essa ação."
+                self.memory.add_assistant_message(response)
+                return response
+            last_result = self._execute_tool(tool, arguments)
+            if last_result.status != "success":
+                self.memory.add_assistant_message(last_result.content)
+                return last_result.content
+            self._remember_operational_context(
+                tool.name, arguments, last_result.content
+            )
+
+        if command.action == "append":
+            follow_up = self._execute_compound_follow_up(
+                message,
+                completed_tool="obsidian_append_note",
+                completed_arguments={
+                    "path": path,
+                    "content": command.content,
+                },
+                already_requested=set(action_names),
+            )
+            if follow_up is not None:
+                _name, _arguments, follow_result = follow_up
+                if follow_result.status != "success":
+                    self.memory.add_assistant_message(follow_result.content)
+                    return follow_result.content
+                response = follow_result.content.strip() or "A nota está vazia."
+            else:
+                response = (
+                    last_result.content
+                    if last_result is not None
+                    else "Conteúdo adicionado à nota."
+                )
+        elif command.action in {"read", "open_read"}:
+            response = (
+                last_result.content.strip() if last_result is not None else ""
+            ) or "A nota está vazia."
+        else:
+            response = f'Pronto. Abri a nota "{path}" no Obsidian.'
+        self.memory.add_assistant_message(response)
+        return response
+
+    def _compound_fast_response(self, message: str) -> str | None:
+        resolver = self.note_reference_resolver
+        if resolver is None or not self._obsidian_available():
+            return None
+        reference = self.compound_action_planner.explicit_open_read_reference(
+            message
+        )
+        if reference is None:
+            return None
+        match = resolver.resolve(reference)
+        accepted = match.kind in {
+            NoteMatchKind.EXACT_LITERAL,
+            NoteMatchKind.NORMALIZED,
+            NoteMatchKind.CONTEXT,
+        }
+        if match.kind is NoteMatchKind.FUZZY and (match.score or 0.0) >= 0.82:
+            accepted = True
+        if not accepted or match.canonical_path is None:
+            return None
+        path = match.canonical_path
+        open_tool = self.tool_registry.get("obsidian_open_note")
+        read_tool = self.tool_registry.get("obsidian_read_note")
+        if open_tool is None or read_tool is None:
+            return None
+        arguments = {"path": path}
+        for tool in (open_tool, read_tool):
+            valid, _error = self.argument_validator.validate(tool, arguments)
+            if not valid:
+                return None
+            intent = self.intent_guard.validate(message, tool, arguments)
+            if not intent.allowed:
+                return None
+
+        self.memory.add_user_message(message)
+        opened = self._execute_tool(open_tool, arguments)
+        if opened.status != "success":
+            self.memory.add_assistant_message(opened.content)
+            return opened.content
+        self._remember_operational_context(
+            open_tool.name, arguments, opened.content
+        )
+        read = self._execute_tool(read_tool, arguments)
+        if read.status != "success":
+            self.memory.add_assistant_message(read.content)
+            return read.content
+        self._remember_operational_context(
+            read_tool.name, arguments, read.content
+        )
+        response = read.content.strip() or "A nota está vazia."
+        self.memory.add_assistant_message(response)
+        return response
+
+    def _format_skills(self) -> str:
+        try:
+            skills = self.skill_store.list()
+        except RuntimeError as error:
+            return f"Não foi possível carregar as Skills: {error}"
+        if not skills:
+            return "Nenhuma Skill aprendida ainda."
+        lines = ["Skills aprendidas:"]
+        for skill in skills:
+            lines.append(
+                f"- {skill.id} | {skill.name} | "
+                f"{skill.success_count}/{skill.execution_count} sucessos"
+            )
+        return "\n".join(lines)
+
+    def _process_skill_command(self, command: str) -> str:
+        if command.strip().casefold() == "/skill":
+            return (
+                "Uso: /skills | /skill learn <nome> | /skill show <id|nome> | "
+                "/skill run <id|nome> | /skill forget <id|nome> | /skill sync"
+            )
+        learn = re.fullmatch(
+            r'/skill\s+learn\s+"?(.+?)"?', command, flags=re.IGNORECASE
+        )
+        if learn is not None:
+            return self._learn_last_skill(learn.group(1))
+        show = re.fullmatch(
+            r'/skill\s+show\s+"?(.+?)"?', command, flags=re.IGNORECASE
+        )
+        if show is not None:
+            skill = self.skill_store.get(show.group(1))
+            if skill is None:
+                return "Skill não encontrada."
+            lines = [
+                f"Skill: {skill.name} ({skill.id})",
+                f"Origem: {skill.original_request or 'não registrada'}",
+                "Etapas:",
+            ]
+            lines.extend(
+                f"{index}. {step.tool_name} {step.arguments}"
+                for index, step in enumerate(skill.steps, 1)
+            )
+            return "\n".join(lines)
+        run = re.fullmatch(
+            r'/skill\s+run\s+"?(.+?)"?', command, flags=re.IGNORECASE
+        )
+        if run is not None:
+            return self._run_skill(run.group(1))
+        forget = re.fullmatch(
+            r'/skill\s+forget\s+"?(.+?)"?', command, flags=re.IGNORECASE
+        )
+        if forget is not None:
+            skill = self.skill_store.delete(forget.group(1))
+            if skill is None:
+                return "Skill não encontrada."
+            self._mirror_skill(skill, active=False)
+            return f"Skill '{skill.name}' removida do registro executável."
+        if re.fullmatch(r"/skill\s+sync", command, flags=re.IGNORECASE):
+            if self.skill_mirror is None:
+                return "Espelho de Skills no Obsidian não está disponível."
+            count = 0
+            for skill in self.skill_store.list():
+                self._mirror_skill(skill)
+                count += 1
+            return f"{count} Skill(s) sincronizada(s) com o Obsidian."
+        return "Comando de Skill inválido. Use /skill para ver as opções."
+
+    def _learned_skill_response(self, message: str) -> str | None:
+        try:
+            skill = self.skill_matcher.match(message, self.skill_store.list())
+        except RuntimeError:
+            return None
+        if skill is None:
+            return None
+        return self._run_skill(skill.id)
+
+    def _natural_skill_run_name(self, message: str) -> str | None:
+        # Speech recognizers commonly hear the English word "skill" as
+        # "esquivo/esquilo" in pt-BR. These variants are accepted only after
+        # an explicit execution verb, so normal dictated text is untouched.
+        match = re.search(
+            r"(?:^|[.!?]\s*|\bent[aã]o[ ,]+|\bagora[ ,]+)"
+            r"(?:jarvis[ ,]+)?(?:execute|executa|rode|roda|rodar|faca|faça)\s+"
+            r"(?:(?:a|essa|esta|esse)\s+)?"
+            r"(?:skill|esquivo|esquilo|esquil|rotina|procedimento)"
+            r"(?:\s+a[ií])?\s*[,.:;-]?\s*(.+)$",
+            message.strip(),
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            return None
+        name = match.group(1).strip(" .\"'")
+        return re.sub(r"\.md$", "", name, flags=re.IGNORECASE).strip()
+
+    def _run_skill(self, identifier: str) -> str:
+        try:
+            skill = self.skill_store.get(identifier)
+            if skill is None:
+                skill = self.skill_matcher.match_explicit_name(
+                    identifier, self.skill_store.list()
+                )
+        except RuntimeError as error:
+            return f"Não foi possível carregar as Skills: {error}"
+        if skill is None:
+            return "Skill não encontrada."
+        result = self.skill_executor.execute(skill)
+        for step, execution in zip(skill.steps, result.results):
+            if execution.status == "success":
+                self._remember_operational_context(
+                    step.tool_name, step.arguments, execution.content
+                )
+        skill.mark_execution(result.success)
+        self.skill_store.save(skill)
+        self._mirror_skill(skill)
+        if not result.success:
+            return result.message
+        if result.results and skill.steps[-1].tool_name in {
+            "obsidian_read_note", "read_file", "get_datetime",
+            "get_runtime_info",
+        }:
+            return result.results[-1].content
+        return "Pronto."
+
+    @staticmethod
+    def _natural_skill_list_requested(message: str) -> bool:
+        normalized = SkillMatcher.normalize(message)
+        has_skill = re.search(
+            r"\b(?:skill|skills|rotina|rotinas|procedimento|procedimentos)\b",
+            normalized,
+        ) is not None
+        asks_inventory = re.search(
+            r"\b(?:quais|liste|lista|listar|mostre|mostra|tem|tenho)\b",
+            normalized,
+        ) is not None
+        return has_skill and asks_inventory
+
+    def _natural_skill_list_response(self) -> str:
+        try:
+            skills = self.skill_store.list()
+        except RuntimeError as error:
+            return f"Não foi possível carregar as Skills: {error}"
+        if not skills:
+            return "Ainda não tenho nenhuma Skill aprendida."
+        names = ", ".join(skill.name for skill in skills)
+        return f"Tenho estas Skills: {names}."
+
+    def _natural_skill_learning_name(self, message: str) -> str | None:
+        value = message.strip()
+        patterns = (
+            re.compile(
+                r"(?:(?:agora|entao|beleza|boa)[ ,]+)*"
+                r"(?:jarvis[ ,]+)?(?:aprenda|aprende|memorize|salve)\s+"
+                r"(?:isso|esse procedimento|essa rotina|esse processo|"
+                r"essa sequ[eê]ncia)\s+(?:(?:de\s+)?como|de)\s+(.+)$",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"(?:(?:agora|entao|beleza|boa|pronto)[ ,!]+)*"
+                r"(?:jarvis[ ,]+)?(?:aprenda|aprende|memorize|salve)\s+"
+                r"(?:(?:esse|essa|esses|essas|o|a)\s+)?"
+                r"(?:procedimento|procedimentos|rotina|rotinas|processo|processos|"
+                r"sequ[eê]ncia|skill)\b.*?\s+como\s+(.+)$",
+                re.IGNORECASE,
+            ),
+        )
+        for pattern in patterns:
+            match = pattern.fullmatch(value)
+            if match is not None:
+                return match.group(1).strip(" .\"'")
+        return None
+
+    @staticmethod
+    def _skill_control_fallback(message: str) -> str | None:
+        normalized = SkillMatcher.normalize(message)
+        learning = bool(
+            re.search(r"\b(?:aprenda|aprende|memorize|salve)\b", normalized)
+            and re.search(
+                r"\b(?:procedimento|rotina|processo|sequencia|skill)\b",
+                normalized,
+            )
+        )
+        if learning:
+            return (
+                "Entendi que você quer salvar um procedimento, mas não consegui "
+                "identificar o nome. Diga: aprenda esse procedimento como "
+                "<nome da Skill>."
+            )
+        running = bool(
+            re.search(
+                r"\b(?:execute|executa|rode|roda|rodar|faca)\b", normalized
+            )
+            and re.search(
+                r"\b(?:skill|esquivo|esquilo|esquil|rotina|procedimento)\b",
+                normalized,
+            )
+        )
+        if running:
+            return (
+                "Entendi que você quer executar uma Skill, mas não consegui "
+                "identificar qual. Diga: executa a Skill <nome>."
+            )
+        return None
+
+    def _learn_last_skill(self, name: str) -> str:
+        try:
+            existing = self.skill_store.get(name)
+            if existing is not None:
+                return (
+                    f"Já existe uma Skill chamada '{existing.name}'. "
+                    "Remova-a primeiro se quiser reaprender."
+                )
+            skill = self.skill_learner.from_trace(
+                name, self.last_tool_trace_request, self.last_tool_trace
+            )
+            self.skill_store.save(skill)
+            mirror_path = self._mirror_skill(skill)
+        except (RuntimeError, ValueError) as error:
+            return str(error)
+        mirror = f" Espelho criado em {mirror_path}." if mirror_path else ""
+        return (
+            f"Skill '{skill.name}' aprendida com {len(skill.steps)} etapa(s)."
+            f"{mirror}"
+        )
+
+    def _mirror_skill(
+        self, skill: Any, *, active: bool = True
+    ) -> str | None:
+        mirror = self.skill_mirror
+        if mirror is None:
+            return None
+        try:
+            return mirror.sync(skill, active=active)
+        except (OSError, PermissionError, ValueError):
+            return None
 
     def _obsidian_available(self) -> bool:
         vault = self.config.obsidian_vault_path
@@ -391,7 +967,30 @@ class Harness:
                 f"Dispositivo neural: {self.config.tts_device}\n"
                 f"Idioma: {self.config.tts_language_id}\n"
                 f"Voz rápida Piper: {'pronta' if piper_ready else 'não preparada'}\n"
+                f"Ritmo Piper: {self.config.tts_piper_pace} "
+                f"(length scale {self.config.tts_piper_length_scale:.2f})\n"
                 f"Voz de referência: {reference_label}"
+            )
+
+        mode_match = re.fullmatch(
+            r"/config\s+voice\s+mode\s+(fast|quality|auto)",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if mode_match is not None:
+            mode = mode_match.group(1).casefold()
+            provider = {
+                "fast": "piper",
+                "quality": "chatterbox",
+                "auto": "auto",
+            }[mode]
+            try:
+                self.config.save_voice_settings(provider=provider)
+            except (OSError, ValueError) as error:
+                return f"Não foi possível salvar a configuração: {error}."
+            return (
+                f"Modo de voz '{mode}' salvo ({provider}). "
+                "Reinicie o Jarvis para aplicar."
             )
 
         provider_match = re.fullmatch(
@@ -407,6 +1006,22 @@ class Harness:
                 return f"Não foi possível salvar a configuração: {error}."
             return (
                 f"TTS '{provider}' salvo. Reinicie o Jarvis para aplicar."
+            )
+
+        pace_match = re.fullmatch(
+            r"/config\s+voice\s+pace\s+(fast|natural|calm)",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if pace_match is not None:
+            pace = pace_match.group(1).casefold()
+            try:
+                self.config.save_voice_settings(piper_pace=pace)
+            except (OSError, ValueError) as error:
+                return f"Não foi possível salvar a configuração: {error}."
+            return (
+                f"Ritmo Piper alterado para '{pace}'. "
+                "Reinicie o Jarvis para aplicar."
             )
 
         reference_off = re.fullmatch(
@@ -463,14 +1078,22 @@ class Harness:
             '/config obsidian vault "C:\\caminho" | '
             "/config obsidian write on|off | "
             "/config voice provider auto|sapi|piper|chatterbox | "
+            "/config voice mode fast|quality|auto | "
+            "/config voice pace fast|natural|calm | "
             '/config voice reference "C:\\voz.wav"|off | '
             "/config persona treatment senhor|natural|direto"
         )
 
-    def _process_normal_message(self, mensagem: str) -> str:
+    def _process_normal_message(
+        self, mensagem: str, response_mode: str = "text"
+    ) -> str:
 
-        available_tools = self.tool_registry.list_tools()
         active_context = self.context_router.state.active
+        available_tools = self.tool_selection_router.select(
+            mensagem,
+            active_context,
+            self.tool_registry.list_tools(),
+        )
         available_tools.sort(
             key=lambda tool: not self._tool_matches_context(
                 tool.name, active_context
@@ -479,8 +1102,10 @@ class Harness:
         tools = [tool_to_ollama_schema(tool) for tool in available_tools]
 
         self.memory.add_user_message(mensagem)
-        messages: list[dict[str, Any]] = self._system_context()
+        messages: list[dict[str, Any]] = self._system_context(response_mode)
         messages.extend(self.memory.get_history())
+        successful_tool_names: set[str] = set()
+        tool_retry_used = False
 
         for _ in range(self.config.max_tool_iterations):
             llm_started = time.perf_counter()
@@ -496,6 +1121,9 @@ class Harness:
                 self.last_latency["llm_calls"] += 1
             for tool_call in response.tool_calls:
                 self._route_tool_call(mensagem, tool_call)
+            requested_tool_names = {
+                tool_call.name for tool_call in response.tool_calls
+            }
             if response.tool_calls:
                 # Conteúdo textual adjacente a uma tool call é protocolo
                 # interno e nunca é candidato a resposta final.
@@ -503,14 +1131,51 @@ class Harness:
             messages.append(response.to_message())
 
             if not response.tool_calls:
-                final_response = self._finalize_llm_response(
-                    response.content, messages
+                action_requested = self.tool_selection_router.looks_like_action(
+                    mensagem, self.context_router.state.active
                 )
+                if (
+                    action_requested
+                    and tools
+                    and not successful_tool_names
+                    and not tool_retry_used
+                ):
+                    tool_retry_used = True
+                    messages.append(
+                        {
+                            "role": "system",
+                            "content": (
+                                "O pedido do usuário parece exigir uma ação real. "
+                                "Ignore qualquer narração de execução da resposta "
+                                "anterior. Se houver uma Tool adequada e a intenção "
+                                "estiver clara, faça a chamada agora. Não exija uma "
+                                "frase exata. Se faltar um alvo necessário, peça "
+                                "somente esse esclarecimento."
+                            ),
+                        }
+                    )
+                    continue
+
+                if action_requested and not successful_tool_names:
+                    final_response = (
+                        "Entendi que você quer uma ação real, mas não consegui "
+                        "determinar uma Tool segura para executá-la nessa tentativa. "
+                        "Se estiver faltando um alvo, diga qual arquivo, nota ou "
+                        "item você quer usar."
+                    )
+                else:
+                    final_response = self._finalize_llm_response(
+                        response.content,
+                        messages,
+                        tool_executed=bool(successful_tool_names),
+                    )
                 self.memory.add_assistant_message(final_response)
                 return final_response
 
             for tool_call in response.tool_calls:
                 tool = self.tool_registry.get(tool_call.name)
+                resolved_arguments = dict(tool_call.arguments)
+                execution_result: ToolExecutionResult | None = None
 
                 if tool is None:
                     tool_result = (
@@ -598,6 +1263,17 @@ class Harness:
                             prepared_grant, interaction_id,
                         )
                         tool_result = execution_result.content
+                        if execution_result.status == "success":
+                            successful_tool_names.add(tool.name)
+                        elif tool.name in {
+                            "obsidian_create_note",
+                            "obsidian_append_note",
+                            "obsidian_open_note",
+                            "obsidian_read_note",
+                            "obsidian_delete_note",
+                        }:
+                            self.memory.add_assistant_message(tool_result)
+                            return tool_result
                         if (
                             tool.name == "obsidian_search_notes"
                             and execution_result.status == "success"
@@ -661,6 +1337,37 @@ class Harness:
                         "content": str(tool_result),
                     }
                 )
+                if (
+                    tool is not None
+                    and execution_result is not None
+                    and execution_result.status == "success"
+                ):
+                    follow_up = self._execute_compound_follow_up(
+                        mensagem,
+                        completed_tool=tool.name,
+                        completed_arguments=resolved_arguments,
+                        already_requested=requested_tool_names,
+                    )
+                    if follow_up is not None:
+                        follow_name, follow_arguments, follow_result = follow_up
+                        messages.append(
+                            LLMResponse(
+                                content="",
+                                tool_calls=[
+                                    ToolCallRequest(
+                                        follow_name, follow_arguments
+                                    )
+                                ],
+                            ).to_message()
+                        )
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_name": follow_name,
+                                "content": follow_result.content,
+                            }
+                        )
+                        requested_tool_names.add(follow_name)
 
         final_response = "Limite de chamadas de ferramentas atingido."
         self.memory.add_assistant_message(final_response)
@@ -683,24 +1390,78 @@ class Harness:
                 and interaction_id is not None
                 and callable(execute_with_grant)
             ):
-                return execute_with_grant(
+                result = execute_with_grant(
                     tool, grant, interaction_id, **arguments
                 )
-            execute_with_result = getattr(
-                self.tool_executor,
-                "execute_with_result",
-                None,
-            )
-            if callable(execute_with_result):
-                return execute_with_result(tool, **arguments)
-
-            content = self.tool_executor.execute(tool, **arguments)
-            return ToolExecutionResult(str(content), "success", True)
+            else:
+                execute_with_result = getattr(
+                    self.tool_executor,
+                    "execute_with_result",
+                    None,
+                )
+                if callable(execute_with_result):
+                    result = execute_with_result(tool, **arguments)
+                else:
+                    content = self.tool_executor.execute(tool, **arguments)
+                    result = ToolExecutionResult(str(content), "success", True)
+            if result.status == "success":
+                self._current_tool_trace.append(
+                    ToolTraceStep(tool.name, dict(arguments))
+                )
+            if self.config.latency_debug_enabled:
+                safe_arguments = {
+                    key: (
+                        "<redacted>"
+                        if key in {"content", "text"}
+                        else value
+                    )
+                    for key, value in arguments.items()
+                }
+                print(
+                    f"[tool] {tool.name} {safe_arguments} -> {result.status}"
+                )
+            return result
         finally:
             self.last_latency["tool_seconds"] += (
                 time.perf_counter() - tool_started
             )
             self.last_latency["tool_calls"] += 1
+
+    def _execute_compound_follow_up(
+        self,
+        message: str,
+        *,
+        completed_tool: str,
+        completed_arguments: dict[str, Any],
+        already_requested: set[str],
+    ) -> tuple[str, dict[str, Any], ToolExecutionResult] | None:
+        planned = self.compound_action_planner.follow_up(
+            message,
+            completed_tool=completed_tool,
+            completed_arguments=completed_arguments,
+            already_requested=already_requested,
+        )
+        if planned is None:
+            return None
+        tool = self.tool_registry.get(planned.name)
+        if tool is None or tool.risk >= RiskLevel.MEDIUM:
+            return None
+        valid, _error = self.argument_validator.validate(
+            tool, planned.arguments
+        )
+        if not valid:
+            return None
+        intent = self.intent_guard.validate(
+            message, tool, planned.arguments
+        )
+        if not intent.allowed:
+            return None
+        result = self._execute_tool(tool, planned.arguments)
+        if result.status == "success":
+            self._remember_operational_context(
+                tool.name, planned.arguments, result.content
+            )
+        return tool.name, dict(planned.arguments), result
 
     def _resolve_file_reference(
         self,
@@ -1050,13 +1811,15 @@ class Harness:
         if callable(invalidate):
             invalidate()
 
-    def _system_context(self) -> list[dict[str, Any]]:
+    def _system_context(
+        self, response_mode: str = "text"
+    ) -> list[dict[str, Any]]:
         memories = self.memory_store.get_all()
         persona = PersonaProfile(
             address_mode=self.config.assistant_address_mode,
             response_style=self.config.assistant_response_style,
         )
-        lines = [persona.system_prompt()]
+        lines = [persona.system_prompt(response_mode=response_mode)]
         active = self.context_router.state.active
         lines.extend(
             [
@@ -1064,6 +1827,15 @@ class Harness:
                 "Use as ferramentas da fonte ativa quando o pedido ainda "
                 "fizer sentido nela. Uma troca explícita do usuário tem "
                 "prioridade.",
+                "Entenda pedidos de ação em linguagem natural e coloquial. "
+                "Não exija uma frase ou verbo exato: se a intenção estiver clara "
+                "e houver Tool adequada, use a Tool.",
+                "Nunca afirme que abriu, criou, leu, listou, encontrou, alterou, "
+                "executou ou verificou algo no computador sem um resultado real "
+                "de Tool na interação atual.",
+                "Nunca invente a data ou a hora atuais. Para informar data, "
+                "hora ou fuso atuais, use get_datetime. Se a ferramenta não "
+                "estiver disponível, diga que não consegue verificar agora.",
             ]
         )
         self._append_recent_context(lines, active)
@@ -1185,18 +1957,42 @@ class Harness:
         self,
         content: str,
         messages: list[dict[str, Any]],
+        *,
+        tool_executed: bool = False,
     ) -> str:
         validated = self.final_response_firewall.validate(content)
         if validated.accepted:
-            return validated.text
-        if self.config.llm_debug_enabled:
+            grounded = self.execution_claim_guard.validate(
+                validated.text,
+                tool_executed=tool_executed,
+            )
+            if grounded.accepted:
+                return validated.text
+            if self.config.llm_debug_enabled:
+                print(
+                    "[llm] final response rejected "
+                    f"reason={grounded.reason}"
+                )
+        elif self.config.llm_debug_enabled:
             print(
                 "[llm] final response rejected "
                 f"reason={validated.reason}"
             )
+
         # O retry recebe apenas o histórico e resultados já produzidos.
         # Não há schema de Tool, executor ou grant neste caminho.
         retry_messages = messages[:-1] if messages else messages
+        retry_messages = [
+            *retry_messages,
+            {
+                "role": "system",
+                "content": (
+                    "Responda apenas com fatos sustentados pela conversa e pelos "
+                    "resultados de Tool já presentes. Não afirme que executou, "
+                    "consultou ou encontrou algo se nenhuma Tool fez isso."
+                ),
+            },
+        ]
         llm_started = time.perf_counter()
         try:
             retry = self.llm.generate_final(retry_messages)
@@ -1208,11 +2004,34 @@ class Harness:
         if retry.tool_calls:
             return self.SAFE_FALLBACK_RESPONSE
         retried = self.final_response_firewall.validate(retry.content)
-        return (
-            retried.text
-            if retried.accepted
-            else "Não consegui formular uma resposta segura. Tente novamente."
+        if not retried.accepted:
+            return "Não consegui formular uma resposta segura. Tente novamente."
+        grounded = self.execution_claim_guard.validate(
+            retried.text,
+            tool_executed=tool_executed,
         )
+        if not grounded.accepted:
+            return (
+                "Não executei nenhuma Tool para sustentar esse resultado. "
+                "Posso tentar a ação novamente de forma segura."
+            )
+        return retried.text
+
+    def _fast_path_response(self, message: str) -> str | None:
+        match = self.fast_path_router.match(message)
+        if match is None:
+            return None
+        tool = self.tool_registry.get("get_datetime")
+        if tool is None:
+            return None
+        self.memory.add_user_message(message)
+        result = self._execute_tool(tool, {})
+        if result.status != "success":
+            self.memory.add_assistant_message(result.content)
+            return result.content
+        response = format_datetime_tool_result(result.content, match.intent)
+        self.memory.add_assistant_message(response)
+        return response
 
     def _runtime_info_response(self, message: str) -> str | None:
         normalized = self.confirmation_interpreter.normalize(message)

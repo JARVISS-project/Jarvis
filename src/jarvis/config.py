@@ -26,6 +26,7 @@ def _load_local_settings(path: Path) -> tuple[dict[str, Any], str | None]:
         "obsidian_write": bool,
         "tts_provider": str,
         "tts_reference_audio": str,
+        "tts_piper_pace": str,
         "assistant_address_mode": str,
     }
     for key, expected_type in validators.items():
@@ -49,6 +50,9 @@ class JarvisConfig:
     audit_log_path: Path = Path("logs/audit.log")
     filesystem_base_directory: Path = field(default_factory=Path.cwd)
     settings_path: Path = Path("data/settings.json")
+    skill_store_path: Path = Path("data/skills.json")
+    skills_obsidian_mirror_enabled: bool = True
+    skills_obsidian_mirror_directory: str = "Jarvis/Skills"
     obsidian_enabled: bool | None = None
     obsidian_vault_path: Path | None = None
     filesystem_read_enabled: bool = True
@@ -61,15 +65,21 @@ class JarvisConfig:
     ollama_keep_alive_normal: str = "5m"
     ollama_keep_alive_game_mode: str = "30s"
     llm_thinking_enabled: bool = False
+    llm_warm_up_on_voice_start: bool = True
     llm_debug_enabled: bool = field(
         default_factory=lambda: _environment_flag("JARVIS_LLM_DEBUG", False)
     )
     wake_word_enabled: bool = False
+    # A experiência usa "Jarvis" como chamada. O modelo oficial disponível no
+    # openWakeWord continua sendo ``hey_jarvis`` e também pode reconhecer
+    # "Jarvis" isoladamente, embora com maior chance de rejeição.
+    wake_word_phrase: str = "Jarvis"
     wake_word_model: str = "hey_jarvis"
     wake_word_model_path: Path | None = None
     wake_word_threshold: float = 0.5
     wake_min_consecutive_detections: int = 2
     wake_word_cooldown_seconds: float = 1.5
+    ambient_ui_endpoint_path: Path = Path("data/runtime/ambient-ui.json")
     microphone_device_index: int | None = None
     stt_model: str = "small"
     stt_model_normal: str = "medium"
@@ -83,6 +93,7 @@ class JarvisConfig:
     stt_vad_min_silence_duration_ms: int = 500
     stt_vad_speech_pad_ms: int = 200
     stt_vad_threshold: float = 0.5
+    stt_warm_up_on_voice_start: bool = True
     stt_device_normal: str = "auto"
     stt_compute_type_normal: str = "auto"
     stt_device_game_mode: str = "cpu"
@@ -106,7 +117,11 @@ class JarvisConfig:
     voice_confirmation_keyboard_fallback: bool = False
     voice_repair_timeout_seconds: float = 8.0
     voice_post_tts_grace_seconds: float = 0.75
-    voice_acknowledgement_enabled: bool = True
+    # Wake acknowledgement confirms presence immediately after "Jarvis".
+    voice_wake_acknowledgement_enabled: bool = True
+    # Per-command acknowledgement is optional; wake acknowledgement already
+    # provides conversational feedback and avoids repetitive "Entendi" chatter.
+    voice_acknowledgement_enabled: bool = False
     voice_debug_enabled: bool = field(
         default_factory=lambda: _environment_flag("JARVIS_VOICE_DEBUG", False)
     )
@@ -121,7 +136,11 @@ class JarvisConfig:
     conversation_question_timeout_seconds: float = 20.0
     conversation_followup_timeout_game_mode_seconds: float = 4.0
     pending_action_timeout_seconds: float = 30.0
-    barge_in_enabled: bool = True
+    # Full-duplex barge-in is experimental without acoustic echo cancellation.
+    # Keep it disabled by default so Jarvis cannot transcribe its own speaker.
+    barge_in_enabled: bool = field(
+        default_factory=lambda: _environment_flag("JARVIS_BARGE_IN_ENABLED", False)
+    )
     barge_in_energy_margin: float = 500.0
     barge_in_min_speech_duration_seconds: float = 0.18
     barge_in_grace_period_seconds: float = 0.2
@@ -133,8 +152,14 @@ class JarvisConfig:
     tts_reference_audio_path: Path | None = None
     tts_piper_model_path: Path = Path("data/voices/razo/pt-BR-razo-medium.onnx")
     tts_piper_config_path: Path = Path("data/voices/razo/pt-BR-razo-medium.onnx.json")
-    # Small silence tail keeps the audio device from clipping the last phoneme.
+    # Keep enough drain tail for Windows audio devices to avoid clipping the
+    # final phoneme. The conversational profiles intentionally favor a calmer
+    # cadence over maximum throughput.
     tts_piper_tail_silence_seconds: float = 0.30
+    # Piper length scale: > 1 speaks more slowly. These values preserve the
+    # slower cadence previously preferred for Razo in real voice sessions.
+    tts_piper_pace: str = "natural"
+    tts_piper_sentence_silence_seconds: float = 0.18
     tts_chatterbox_t3_model: str = "v3"
     tts_chatterbox_exaggeration: float = 0.35
     tts_chatterbox_cfg_weight: float = 0.35
@@ -167,6 +192,14 @@ class JarvisConfig:
         if self.tts_provider not in {"auto", "sapi", "piper", "chatterbox"}:
             self.settings_error = "Configuração local inválida: tts_provider."
             self.tts_provider = "auto"
+
+        environment_pace = os.getenv("JARVIS_TTS_PIPER_PACE")
+        local_pace = settings.get("tts_piper_pace")
+        pace = environment_pace or local_pace or self.tts_piper_pace
+        self.tts_piper_pace = str(pace).casefold().strip()
+        if self.tts_piper_pace not in {"fast", "natural", "calm"}:
+            self.settings_error = "Configuração local inválida: tts_piper_pace."
+            self.tts_piper_pace = "natural"
 
         environment_reference = os.getenv("JARVIS_TTS_REFERENCE_AUDIO")
         local_reference = settings.get("tts_reference_audio")
@@ -226,6 +259,7 @@ class JarvisConfig:
         provider: str | None = None,
         reference_audio: Path | None = None,
         clear_reference: bool = False,
+        piper_pace: str | None = None,
     ) -> None:
         settings, _error = _load_local_settings(self.settings_path)
         if provider is not None:
@@ -237,14 +271,29 @@ class JarvisConfig:
             settings.pop("tts_reference_audio", None)
         elif reference_audio is not None:
             settings["tts_reference_audio"] = str(reference_audio)
+        if piper_pace is not None:
+            normalized_pace = piper_pace.casefold().strip()
+            if normalized_pace not in {"fast", "natural", "calm"}:
+                raise ValueError("Ritmo do Piper inválido.")
+            settings["tts_piper_pace"] = normalized_pace
         self._write_local_settings(settings)
         if provider is not None and os.getenv("JARVIS_TTS_PROVIDER") is None:
             self.tts_provider = provider.casefold().strip()
+        if piper_pace is not None and os.getenv("JARVIS_TTS_PIPER_PACE") is None:
+            self.tts_piper_pace = piper_pace.casefold().strip()
         if os.getenv("JARVIS_TTS_REFERENCE_AUDIO") is None:
             if clear_reference:
                 self.tts_reference_audio_path = None
             elif reference_audio is not None:
                 self.tts_reference_audio_path = reference_audio
+
+    @property
+    def tts_piper_length_scale(self) -> float:
+        return {
+            "fast": 1.00,
+            "natural": 1.18,
+            "calm": 1.30,
+        }.get(self.tts_piper_pace, 1.18)
 
     def save_persona_settings(self, *, address_mode: str) -> None:
         normalized = address_mode.casefold().strip()

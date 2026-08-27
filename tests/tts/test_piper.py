@@ -9,6 +9,7 @@ from jarvis.tts.piper import PiperTTS
 class FakeVoice:
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.config = SimpleNamespace(length_scale=1.0)
 
     def synthesize(self, text: str):  # type: ignore[no-untyped-def]
         self.calls.append(text)
@@ -135,4 +136,57 @@ def test_piper_exposes_last_synthesis_time(tmp_path: Path) -> None:
 
     assert tts.last_synthesis_seconds is not None
     assert tts.last_synthesis_seconds >= 0.0
+    tts.close()
+
+
+def test_piper_applies_conversational_length_scale(tmp_path: Path) -> None:
+    model, config = _ready_paths(tmp_path)
+    fake_voice = FakeVoice()
+    tts = PiperTTS(
+        model_path=model,
+        config_path=config,
+        voice_factory=lambda _model, _config: fake_voice,
+        audio_player=FakePlayer(),
+        length_scale=1.18,
+    )
+
+    tts.warm_up()
+
+    assert fake_voice.config.length_scale == 1.18
+    tts.close()
+
+
+def test_piper_inserts_silence_between_sentence_chunks(tmp_path: Path) -> None:
+    model, config = _ready_paths(tmp_path)
+
+    class TwoSentenceVoice(FakeVoice):
+        def synthesize(self, text: str):  # type: ignore[no-untyped-def]
+            self.calls.append(text)
+            return [
+                SimpleNamespace(
+                    sample_rate=1000,
+                    audio_float_array=np.array([0.1, 0.2], dtype=np.float32),
+                ),
+                SimpleNamespace(
+                    sample_rate=1000,
+                    audio_float_array=np.array([0.3, 0.4], dtype=np.float32),
+                ),
+            ]
+
+    player = FakePlayer()
+    tts = PiperTTS(
+        model_path=model,
+        config_path=config,
+        voice_factory=lambda _model, _config: TwoSentenceVoice(),
+        audio_player=player,
+        sentence_silence_seconds=0.18,
+        tail_silence_seconds=0.0,
+    )
+
+    tts.speak("Primeira frase. Segunda frase.")
+
+    audio, sample_rate = player.calls[0]
+    assert sample_rate == 1000
+    assert len(audio) == 2 + 180 + 2
+    assert np.all(audio[2:182] == 0.0)
     tts.close()
