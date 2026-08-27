@@ -162,29 +162,39 @@ A UI não possui canal de comandos para o Core. O IPC atual é destinado à publ
 
 Qualquer ação real continua passando por Tool, policy, SafetyManager, risco/confirmação e audit.
 
-## 12. Harness e limite de manutenção
+## 12. Harness e coordenadores de aplicação
 
-`src/jarvis/harness.py` está atualmente em torno de **2100 linhas** e concentra muita orquestração.
+Dois sprints de decomposição do Harness foram concluídos sem mudança intencional de comportamento. `src/jarvis/harness.py` caiu de aproximadamente **2100 para ~890 linhas**.
 
-Não adicionar Desktop Automation, Vision ou Browser diretamente ao arquivo antes de extrair coordenadores. Direção planejada:
+Responsabilidades extraídas para `src/jarvis/application/`:
 
 ```text
 Harness
 ├── IntentCoordinator
+├── AgentLoopCoordinator
 ├── SkillCoordinator
 ├── ObsidianCoordinator
 ├── ToolExecutionCoordinator
 └── ResponseCoordinator
 ```
 
-O Harness deve continuar sendo o maestro, não virar um arquivo monolítico de todos os subsistemas.
+- `IntentCoordinator`: escolhe fast path, Skills, Obsidian, PendingAction ou agent loop e aplica a política de keep-alive;
+- `AgentLoopCoordinator`: seleciona Tools expostas ao LLM, executa retries controlados, processa Tool Calls e compõe o ciclo LLM → Tool → LLM;
+- `SkillCoordinator`: aprendizado, matching, execução e mirror de Skills;
+- `ObsidianCoordinator`: disponibilidade e fast paths determinísticos do Obsidian;
+- `ToolExecutionCoordinator`: resolução de alvo, PendingAction, autorização composta e contexto operacional;
+- `ResponseCoordinator`: contexto do LLM, roteamento equivalente, firewall e grounding de resposta.
+
+O `Harness` continua como maestro, dono do ciclo de vida, latência, trace e chamada primitiva `_execute_tool()`. Os coordenadores não executam Tools diretamente por fora desse caminho. Wrappers temporários permanecem para preservar compatibilidade com testes/código existente.
+
+A decomposição atual já é suficiente para impedir que Desktop Automation, Vision e Browser precisem entrar como blocos gigantes no Harness. Antes desses subsistemas, ainda vale revisar as fronteiras públicas dos coordenadores e reduzir wrappers privados gradualmente, sem quebrar comportamento.
 
 ## 13. Testes
 
-Marco conhecido antes desta consolidação:
+Marco conhecido após o segundo sprint de decomposição do Harness:
 
 ```text
-613 passed
+623 passed
 compileall OK
 ```
 
@@ -205,16 +215,15 @@ python -m pytest
 
 ## 15. Próximas prioridades
 
-1. consolidar o estado atual no Git quando autorizado;
-2. extrair coordenadores do Harness antes de grandes subsistemas novos;
-3. melhorar confiabilidade conversacional, grounding e contexto;
-4. evoluir memória pessoal persistente com autorização clara;
-5. transformar indicadores decorativos da HUD em telemetria real;
-6. Desktop Tools;
-7. visão e verificação pós-ação;
-8. browser agent;
-9. startup automático e background runtime;
-10. acesso remoto seguro.
+1. validar o V9 no PC principal e consolidar no Git quando autorizado;
+2. melhorar confiabilidade conversacional, grounding e contexto;
+3. evoluir memória pessoal persistente com autorização clara;
+4. transformar indicadores decorativos da HUD em telemetria real;
+5. iniciar Desktop Tools em módulo próprio, sem acoplar ao Harness;
+6. visão e verificação pós-ação;
+7. browser agent;
+8. startup automático e background runtime;
+9. acesso remoto seguro.
 
 ## 16. Regras para continuidade
 
