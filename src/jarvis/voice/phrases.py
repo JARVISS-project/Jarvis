@@ -26,6 +26,10 @@ class ResponseVariationManager:
         "Já vejo isso.",
         "Beleza.",
     )
+    confirmation_reminder_phrases: tuple[str, ...] = (
+        "Ainda estou aguardando sua confirmação.",
+        "Continuo aguardando. Se não quiser prosseguir, diga cancelar.",
+    )
     _wake_index: int = field(default=0, init=False, repr=False)
     _action_index: int = field(default=0, init=False, repr=False)
 
@@ -48,6 +52,13 @@ class ResponseVariationManager:
         if self._ACTION.search(text) is None:
             return None
         return self._next("action")
+
+    def confirmation_reminder(self, reminder_index: int) -> str:
+        if not self.confirmation_reminder_phrases:
+            return ""
+        index = max(1, reminder_index) - 1
+        index = min(index, len(self.confirmation_reminder_phrases) - 1)
+        return self.confirmation_reminder_phrases[index]
 
     def _next(self, group: str) -> str:
         if group == "wake":

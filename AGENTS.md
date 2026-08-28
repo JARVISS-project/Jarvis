@@ -27,4 +27,4 @@ Recent commits use short, imperative Portuguese summaries such as `Adiciona cama
 
 ## Security & Configuration
 
-Never commit `.env`, credentials, local model data, virtual environments, or audit logs. Route filesystem operations through `FileSystemGuard` and tool execution through the existing safety and audit layers; do not bypass confirmation or policy checks.
+Never commit `.env`, credentials, local model data, virtual environments, or audit logs. Route filesystem operations through `FileSystemGuard` and tool execution through the existing safety and audit layers; do not bypass confirmation or policy checks. Desktop control must remain capability-gated, use explicit allowlists instead of arbitrary command/path execution, and preserve an LLM-independent emergency stop before broader mouse/keyboard automation is enabled.

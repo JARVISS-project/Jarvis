@@ -340,6 +340,15 @@ class ToolExecutionCoordinator:
 
         return self.resolve_and_execute_pending(pending, message)
 
+    def process_pending_cancellation(self, message: str) -> str | None:
+        if (
+            self.pending_actions.has_pending()
+            and self.cancellation_interpreter.is_cancellation(message)
+        ):
+            self.cancel_pending_action()
+            return "Cancelado."
+        return None
+
     def resolve_and_execute_pending(
         self,
         pending: PendingAction,

@@ -19,10 +19,25 @@ class RecordingProvider(ConfirmationProvider):
 def test_safety_manager_builds_combined_understanding_and_risk_prompt() -> None:
     provider = RecordingProvider()
     manager = SafetyManager(provider)
-    assert manager.authorize("delete_file", "teste.txt", RiskLevel.HIGH)
+    assert manager.authorize("critical_action", "teste.txt", RiskLevel.CRITICAL)
     request = provider.requests[0]
-    assert request.action == "delete_file"
+    assert request.action == "critical_action"
     assert request.target == "teste.txt"
-    assert request.risk is RiskLevel.HIGH
+    assert request.risk is RiskLevel.CRITICAL
     assert request.prompt_text.startswith("Entendi.")
-    assert "excluir teste ponto txt" in request.prompt_text
+
+
+def test_safety_manager_does_not_prompt_through_high() -> None:
+    provider = RecordingProvider()
+    manager = SafetyManager(provider)
+
+    for risk in (
+        RiskLevel.SAFE,
+        RiskLevel.LOW,
+        RiskLevel.MEDIUM,
+        RiskLevel.HIGH,
+    ):
+        grant = manager.authorize_invocation("action", "target", risk)
+        assert grant is not None
+
+    assert provider.requests == []

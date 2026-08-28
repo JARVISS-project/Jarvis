@@ -21,6 +21,7 @@ def test_voice_mode_does_not_construct_llm_or_tool_executor(
         microphone_device_index: int | None,
         state_callback: Any = None,
         wake_word_threshold: float | None = None,
+        desktop_kill_switch: Any = None,
     ) -> None:
         assert state_callback is None
         assert wake_word_threshold is None

@@ -124,6 +124,49 @@ O modo visual isolado continua disponível para desenvolvimento:
 python -m jarvis.ui
 ```
 
+## Desktop Automation — fundação segura
+
+A automação de desktop é **opt-in**. Leitura e controle começam desabilitados
+para que a instalação padrão não ganhe capacidade de observar ou alterar a área
+de trabalho sem configuração explícita.
+
+```text
+/config desktop
+/config desktop read on
+/config desktop control on
+```
+
+Reinicie o Jarvis depois de alterar essas opções. No Windows, o primeiro estágio
+expõe apenas quatro Tools:
+
+- `desktop_list_windows`: lista títulos de janelas visíveis;
+- `desktop_list_applications`: lista o catálogo permitido;
+- `desktop_focus_window`: traz uma janela inequívoca para primeiro plano;
+- `desktop_open_application`: abre somente executáveis presentes na allowlist.
+
+O catálogo inicial contém `notepad`, `calculator` e `explorer`. O LLM escolhe
+um **nome do catálogo**, nunca um path, argumento, comando PowerShell ou shell.
+Foco e abertura são `MEDIUM` e executam sem confirmação por risco. A abertura
+só é reportada como solicitada com o aplicativo em execução depois que o backend
+observa um processo cuja identidade também está definida na allowlist.
+
+Quando `desktop control` está habilitado, o runtime tenta registrar um kill
+switch global em **Ctrl+Alt+K**. Se o hotkey não puder ser registrado, o
+controle fica bloqueado (fail-closed). Depois de acionado, novas ações de
+controle permanecem bloqueadas até reiniciar o Jarvis. O kill switch não é
+exposto como Tool e o LLM não pode rearmá-lo.
+As ações atuais são curtas/atômicas; quando mouse e teclado entrarem, sequências
+longas deverão consultar o kill switch entre cada passo para permitir interrupção
+real durante a automação.
+
+Ainda **não** existem neste estágio mouse/teclado arbitrários, screenshot,
+Vision ou shell irrestrito. Essas capacidades entram somente depois de validar
+esta fundação no PC principal.
+
+Com `--ui`, o `ToolExecutor` também publica `EXECUTING` quando a mutação real
+começa e volta para `PROCESSING` ao concluir; erros reais de execução publicam
+`ERROR`. O observador não recebe argumentos ou conteúdo da Tool.
+
 ## Fast Paths, linguagem natural e grounding
 
 Intenções determinísticas como data/hora podem ser resolvidas sem uma rodada do
@@ -166,7 +209,8 @@ Jarvis, aprenda esse procedimento como Ler nota de teste
 
 A Skill não armazena grants nem reduz risco. Ao executá-la novamente, cada Tool
 passa pelo `ToolExecutor`, `CapabilityPolicy`, `SafetyManager` e confirmação
-aplicável. Uma ação HIGH continua HIGH mesmo depois de aprendida.
+aplicável. `SAFE`, `LOW`, `MEDIUM` e `HIGH` não pedem confirmação por risco;
+somente `CRITICAL` exige autorização explícita.
 
 Quando o Obsidian está configurado com escrita habilitada, o Jarvis pode gerar
 um espelho em `Jarvis/Skills/`, criando nós úteis no Graph View.

@@ -73,6 +73,14 @@ class JarvisDoctor:
                 "ENABLED" if self.config.obsidian_write_enabled
                 else "DISABLED",
             ),
+            (
+                "Desktop read",
+                "ENABLED" if self.config.desktop_read_enabled else "DISABLED",
+            ),
+            (
+                "Desktop control",
+                "ENABLED" if self.config.desktop_control_enabled else "DISABLED",
+            ),
             ("Tools registered", "YES" if tools_registered else "NO"),
             ("Skills", self._skills_status()),
         ]

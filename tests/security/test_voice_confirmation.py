@@ -244,11 +244,14 @@ def test_keyboard_fallback_still_handles_capture_failure() -> None:
 
 
 def test_tool_executes_only_after_provider_authorizes(tmp_path: Path) -> None:
+    class CriticalCreateFileTool(CreateFileTool):
+        risk = RiskLevel.CRITICAL
+
     denied = FixedConfirmation(False)
     executor = ToolExecutor(
         SafetyManager(denied), AuditLogger(tmp_path / "audit.log")
     )
-    tool = CreateFileTool(FileSystemGuard(tmp_path))
+    tool = CriticalCreateFileTool(FileSystemGuard(tmp_path))
     executor.execute(tool, path="negado.txt", content="x")
     assert not (tmp_path / "negado.txt").exists()
     allowed = FixedConfirmation(True)

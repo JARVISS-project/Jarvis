@@ -204,6 +204,7 @@ class ResponseCoordinator:
         messages: list[dict[str, Any]],
         *,
         tool_executed: bool = False,
+        allow_retry: bool = True,
     ) -> str:
         validated = self.final_response_firewall.validate(content)
         if validated.accepted:
@@ -223,6 +224,9 @@ class ResponseCoordinator:
                 "[llm] final response rejected "
                 f"reason={validated.reason}"
             )
+
+        if not allow_retry:
+            return self.safe_fallback_response
 
         retry_messages = messages[:-1] if messages else messages
         retry_messages = [

@@ -49,8 +49,17 @@ class SafetyManager:
         action: str,
         target: str,
         interaction_id: str | None = None,
+        session_id: str | None = None,
+        arguments_digest: str | None = None,
     ) -> bool:
-        return self.grants.consume(grant, action, target, interaction_id)
+        return self.grants.consume(
+            grant,
+            action,
+            target,
+            interaction_id,
+            session_id,
+            arguments_digest,
+        )
 
     def grant_explicit_authorization(
         self,
@@ -58,6 +67,8 @@ class SafetyManager:
         target: str,
         risk: RiskLevel,
         interaction_id: str,
+        session_id: str | None = None,
+        arguments_digest: str | None = None,
     ) -> AuthorizationGrant | None:
         if (
             not interaction_id
@@ -65,7 +76,16 @@ class SafetyManager:
             or not self.policy.requires_confirmation(risk)
         ):
             return None
-        return self.grants.issue(action, target, interaction_id)
+        return self.grants.issue(
+            action,
+            target,
+            interaction_id,
+            session_id,
+            arguments_digest,
+        )
+
+    def invalidate_session(self, session_id: str) -> None:
+        self.grants.invalidate_session(session_id)
 
     def invalidate_authorizations(self) -> None:
         self.grants.invalidate_all()

@@ -37,5 +37,17 @@ def test_disabled_write_blocks_existing_tool(tmp_path: Path) -> None:
 
 def test_capability_does_not_bypass_security_policy() -> None:
     policy = CapabilityPolicy({Capability.FILESYSTEM_WRITE: True})
+    security_policy = SafetyManager().policy
     assert policy.is_enabled(Capability.FILESYSTEM_WRITE)
-    assert not SafetyManager().policy.is_allowed(RiskLevel.CRITICAL)
+    assert security_policy.is_allowed(RiskLevel.CRITICAL)
+    assert security_policy.requires_confirmation(RiskLevel.CRITICAL)
+
+
+def test_desktop_tools_are_mapped_to_separate_capabilities() -> None:
+    from jarvis.security.capabilities import TOOL_CAPABILITIES
+
+    assert TOOL_CAPABILITIES["desktop_list_windows"] is Capability.DESKTOP_READ
+    assert (
+        TOOL_CAPABILITIES["desktop_open_application"]
+        is Capability.DESKTOP_CONTROL
+    )

@@ -10,15 +10,17 @@ from jarvis.context.active import ActiveContext, ContextRouter
 from jarvis.doctor import JarvisDoctor
 from jarvis.llm.base import LLMClient
 from jarvis.runtime.resource_manager import ResourceManager
+from jarvis.runtime.tool_selection import ToolSelectionRouter
 
 from jarvis.application.obsidian_coordinator import ObsidianCoordinator
 from jarvis.application.response_coordinator import ResponseCoordinator
 from jarvis.application.skill_coordinator import SkillCoordinator
 from jarvis.application.tool_execution_coordinator import ToolExecutionCoordinator
+from jarvis.application.turn_policy import TurnKind, TurnPolicy
 
 
 MessageHandler = Callable[[str], str | None]
-NormalMessageHandler = Callable[[str, str], str]
+NormalMessageHandler = Callable[[str, str, TurnKind], str]
 
 
 class IntentCoordinator:
@@ -35,6 +37,7 @@ class IntentCoordinator:
         obsidian_coordinator: ObsidianCoordinator,
         tool_execution_coordinator: ToolExecutionCoordinator,
         response_coordinator: ResponseCoordinator,
+        turn_policy: TurnPolicy,
         fast_path_response: MessageHandler,
         runtime_info_response: MessageHandler,
         normal_message: NormalMessageHandler,
@@ -49,12 +52,24 @@ class IntentCoordinator:
         self.obsidian_coordinator = obsidian_coordinator
         self.tool_execution_coordinator = tool_execution_coordinator
         self.response_coordinator = response_coordinator
+        self.turn_policy = turn_policy
         self.fast_path_response = fast_path_response
         self.runtime_info_response = runtime_info_response
         self.normal_message = normal_message
         self.get_last_tool_trace = get_last_tool_trace
 
     def process(self, message: str, response_mode: str = "text") -> str:
+        turn_kind = self.turn_policy.classify(message)
+        if turn_kind is TurnKind.ADVISORY:
+            cancellation = (
+                self.tool_execution_coordinator.process_pending_cancellation(
+                    message
+                )
+            )
+            if cancellation is not None:
+                return cancellation
+            return self._normal_message(message, response_mode, turn_kind)
+
         natural_doctor = self.natural_doctor_response(
             message, response_mode=response_mode
         )
@@ -97,8 +112,10 @@ class IntentCoordinator:
 
         previous_context = self.context_router.state.active
         routed_context = self.context_router.update(message)
+        desktop_request = ToolSelectionRouter.is_desktop_request(message)
         if (
-            routed_context is ActiveContext.OBSIDIAN
+            not desktop_request
+            and routed_context is ActiveContext.OBSIDIAN
             and not self.obsidian_coordinator.available()
         ):
             self.context_router.state.active = (
@@ -111,18 +128,22 @@ class IntentCoordinator:
                 "Verifique /doctor ou use /config obsidian."
             )
         if (
-            routed_context is ActiveContext.OBSIDIAN
+            not desktop_request
+            and routed_context is ActiveContext.OBSIDIAN
             and self.obsidian_coordinator.requests_write(message)
             and not self.obsidian_coordinator.write_available()
         ):
             return "A escrita no Obsidian está desabilitada ou indisponível."
 
-        obsidian_response = self.obsidian_coordinator.fast_response(message)
-        if obsidian_response is not None:
-            return obsidian_response
-        compound_response = self.obsidian_coordinator.compound_fast_response(message)
-        if compound_response is not None:
-            return compound_response
+        if not desktop_request:
+            obsidian_response = self.obsidian_coordinator.fast_response(message)
+            if obsidian_response is not None:
+                return obsidian_response
+            compound_response = self.obsidian_coordinator.compound_fast_response(
+                message
+            )
+            if compound_response is not None:
+                return compound_response
         runtime_response = self.runtime_info_response(message)
         if runtime_response is not None:
             return runtime_response
@@ -132,13 +153,21 @@ class IntentCoordinator:
         if pending_response is not None:
             return pending_response
 
+        return self._normal_message(message, response_mode, turn_kind)
+
+    def _normal_message(
+        self,
+        message: str,
+        response_mode: str,
+        turn_kind: TurnKind,
+    ) -> str:
         keep_alive = (
             self.config.ollama_keep_alive_game_mode
             if self.resource_manager.is_game_mode_active()
             else self.config.ollama_keep_alive_normal
         )
         self.llm.set_keep_alive(keep_alive)
-        return self.normal_message(message, response_mode)
+        return self.normal_message(message, response_mode, turn_kind)
 
     def natural_doctor_response(
         self,

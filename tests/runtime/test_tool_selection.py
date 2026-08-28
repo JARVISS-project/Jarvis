@@ -67,3 +67,61 @@ def test_colloquial_action_detection_uses_active_context() -> None:
         "me explica como funciona uma ferramenta",
         ActiveContext.NONE,
     )
+
+
+def test_desktop_request_selects_only_desktop_and_utility_tools() -> None:
+    router = ToolSelectionRouter()
+    tools = [
+        NamedTool("desktop_list_windows"),
+        NamedTool("desktop_focus_window"),
+        NamedTool("read_file"),
+        NamedTool("obsidian_read_note"),
+        NamedTool("get_runtime_info"),
+    ]
+
+    selected = router.select(
+        "Foque a janela do Obsidian no desktop.",
+        ActiveContext.NONE,
+        tools,
+    )
+
+    assert names(selected) == [
+        "desktop_list_windows",
+        "desktop_focus_window",
+        "get_runtime_info",
+    ]
+    assert router.looks_like_action(
+        "Foque a janela do Obsidian no desktop.", ActiveContext.NONE
+    )
+
+
+def test_window_request_overrides_obsidian_context() -> None:
+    router = ToolSelectionRouter()
+    tools = [
+        NamedTool("desktop_focus_window"),
+        NamedTool("obsidian_open_note"),
+    ]
+
+    selected = router.select(
+        "Foca a janela do Obsidian.",
+        ActiveContext.OBSIDIAN,
+        tools,
+    )
+
+    assert names(selected) == ["desktop_focus_window"]
+
+
+def test_note_request_mentioning_application_stays_in_obsidian() -> None:
+    router = ToolSelectionRouter()
+    tools = [
+        NamedTool("desktop_open_application"),
+        NamedTool("obsidian_open_note"),
+    ]
+
+    selected = router.select(
+        "Abra a nota Projeto no aplicativo Obsidian.",
+        ActiveContext.OBSIDIAN,
+        tools,
+    )
+
+    assert names(selected) == ["obsidian_open_note"]

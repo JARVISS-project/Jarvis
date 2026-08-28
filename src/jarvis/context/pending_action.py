@@ -70,6 +70,16 @@ class PendingActionContext:
         with self._lock:
             self._pending = None
 
+    def clear_if_interaction(self, interaction_id: str) -> bool:
+        with self._lock:
+            if (
+                self._pending is None
+                or self._pending.interaction_id != interaction_id
+            ):
+                return False
+            self._pending = None
+            return True
+
     def transition(self, state: PendingActionState) -> PendingAction | None:
         with self._lock:
             if self._pending is None:

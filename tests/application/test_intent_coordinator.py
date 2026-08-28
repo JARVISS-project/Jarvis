@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from jarvis.application.intent_coordinator import IntentCoordinator
+from jarvis.application.turn_policy import TurnKind, TurnPolicy
 from jarvis.context.active import ContextRouter
 
 
@@ -63,8 +64,20 @@ class ToolExecutionStub:
     def cancel_pending_action():
         raise AssertionError("não deveria cancelar")
 
+    @staticmethod
+    def process_pending_cancellation(_message):
+        return None
 
-def make_intent(*, game_mode=False, doctor=None, normal=None):
+
+def make_intent(
+    *,
+    game_mode=False,
+    doctor=None,
+    normal=None,
+    obsidian=None,
+    fast_path=None,
+    tool_execution=None,
+):
     llm = SimpleNamespace(keep_alive=None)
 
     def set_keep_alive(value):
@@ -78,7 +91,9 @@ def make_intent(*, game_mode=False, doctor=None, normal=None):
         voice_summary=lambda: "doctor voice",
         report=lambda: "doctor text",
     )
-    normal = normal or (lambda message, mode: f"normal:{mode}:{message}")
+    normal = normal or (
+        lambda message, mode, _kind: f"normal:{mode}:{message}"
+    )
     coordinator = IntentCoordinator(
         config=SimpleNamespace(
             ollama_keep_alive_game_mode="30s",
@@ -89,10 +104,11 @@ def make_intent(*, game_mode=False, doctor=None, normal=None):
         context_router=ContextRouter(),
         doctor=doctor,
         skill_coordinator=SkillStub(),
-        obsidian_coordinator=ObsidianStub(),
-        tool_execution_coordinator=ToolExecutionStub(),
+        obsidian_coordinator=obsidian or ObsidianStub(),
+        tool_execution_coordinator=tool_execution or ToolExecutionStub(),
         response_coordinator=ResponseStub(),
-        fast_path_response=lambda _message: None,
+        turn_policy=TurnPolicy(),
+        fast_path_response=fast_path or (lambda _message: None),
         runtime_info_response=lambda _message: None,
         normal_message=normal,
         get_last_tool_trace=lambda: ("", []),
@@ -116,3 +132,42 @@ def test_intent_coordinator_delegates_to_agent_loop_with_keep_alive_policy():
 
     assert result == "normal:text:Explique filas"
     assert llm.keep_alive == "30s"
+
+
+def test_desktop_window_request_is_not_blocked_by_obsidian_availability():
+    obsidian = ObsidianStub()
+    obsidian.available = lambda: False
+    coordinator, _llm = make_intent(obsidian=obsidian)
+
+    result = coordinator.process("Foca a janela do Obsidian.", "text")
+
+    assert result == "normal:text:Foca a janela do Obsidian."
+
+
+def test_advisory_turn_bypasses_operational_fast_paths() -> None:
+    received: list[TurnKind] = []
+    coordinator, llm = make_intent(
+        normal=lambda _message, _mode, kind: received.append(kind) or "opinião",
+        fast_path=lambda _message: "efeito executado",
+    )
+
+    result = coordinator.process(
+        "Você acha que vale criar reconhecimento facial agora?"
+    )
+
+    assert result == "opinião"
+    assert received == [TurnKind.ADVISORY]
+    assert llm.keep_alive == "5m"
+
+
+def test_advisory_turn_preserves_pending_action_unless_user_cancels() -> None:
+    tool_execution = ToolExecutionStub()
+    tool_execution.process_pending_cancellation = (
+        lambda message: "Cancelado." if "cancela" in message.casefold() else None
+    )
+    coordinator, llm = make_intent(tool_execution=tool_execution)
+
+    result = coordinator.process("O que você acha? Cancela isso.")
+
+    assert result == "Cancelado."
+    assert llm.keep_alive is None

@@ -11,6 +11,7 @@ from jarvis.application.obsidian_coordinator import ObsidianCoordinator
 from jarvis.application.response_coordinator import ResponseCoordinator
 from jarvis.application.skill_coordinator import SkillCoordinator
 from jarvis.application.tool_execution_coordinator import ToolExecutionCoordinator
+from jarvis.application.turn_policy import TurnKind, TurnPolicy
 
 from jarvis.config import JarvisConfig
 from jarvis.context.recent import RecentContext
@@ -40,7 +41,17 @@ from jarvis.runtime.tool_selection import ToolSelectionRouter
 from jarvis.runtime.obsidian_commands import ObsidianCommandParser
 from jarvis.security.risk import RiskLevel
 from jarvis.security.confirmation import ConfirmationProvider
+from jarvis.security.confirmation import security_prompt
 from jarvis.security.confirmation_intent import ConfirmationInterpreter
+from jarvis.security.confirmation_request import ConfirmationPurpose
+from jarvis.security.confirmation_session import (
+    ConfirmationDecision,
+    ConfirmationEventKind,
+    ConfirmationSession,
+    ConfirmationSessionManager,
+    ConfirmationSessionState,
+    digest_arguments,
+)
 from jarvis.security.tool_intent import ToolIntentGuard
 from jarvis.skills.executor import SkillExecutor
 from jarvis.skills.learner import SkillLearner
@@ -103,6 +114,17 @@ class Harness:
         self.pending_actions = pending_actions or PendingActionContext(
             self.config.pending_action_timeout_seconds
         )
+        self.confirmation_sessions = ConfirmationSessionManager(
+            first_reminder_seconds=(
+                self.config.confirmation_first_reminder_seconds
+            ),
+            reminder_interval_seconds=(
+                self.config.confirmation_reminder_interval_seconds
+            ),
+            max_reminders=self.config.confirmation_max_reminders,
+            timeout_seconds=self.config.confirmation_session_timeout_seconds,
+            cleanup=self._cleanup_confirmation_session,
+        )
         self.cancellation_interpreter = CancellationInterpreter()
         self.confirmation_interpreter = ConfirmationInterpreter()
         self.note_reference_resolver = note_reference_resolver
@@ -124,6 +146,11 @@ class Harness:
         self.last_tool_trace_request = ""
         self.final_response_firewall = FinalResponseFirewall()
         self.execution_claim_guard = ExecutionClaimGuard()
+        self.turn_policy = TurnPolicy()
+        if hasattr(self.tool_executor, "confirmation_requester"):
+            self.tool_executor.confirmation_requester = (
+                self._request_critical_confirmation
+            )
         self.doctor = JarvisDoctor(
             self.config,
             self.resource_manager,
@@ -215,6 +242,7 @@ class Harness:
             self.obsidian_coordinator,
             self.tool_execution_coordinator,
             self.response_coordinator,
+            self.turn_policy,
             self._fast_path_response,
             self._runtime_info_response,
             self.agent_loop_coordinator.process,
@@ -226,24 +254,37 @@ class Harness:
         print("Jarvis iniciado.")
         print("Digite 'sair' para encerrar.\n")
 
-        while True:
-            mensagem = input("Você: ")
+        try:
+            while True:
+                mensagem = input("Você: ")
 
-            if mensagem.lower() == "sair":
-                print("Jarvis: Até mais.")
-                break
+                if mensagem.lower() == "sair":
+                    print("Jarvis: Até mais.")
+                    break
 
-            resposta = self.processar_mensagem(mensagem)
-            print(f"Jarvis: {resposta}")
+                resposta = self.processar_mensagem(mensagem)
+                print(f"Jarvis: {resposta}")
+        finally:
+            self.close_confirmation_sessions()
 
     def processar_mensagem(
         self,
         mensagem: str,
         manage_runtime: bool = True,
         response_mode: str = "text",
+        confirmation_session_id: str | None = None,
+        confirmation_challenge_id: str | None = None,
     ) -> str:
         stripped_message = mensagem.strip()
         command = stripped_message.lower()
+
+        confirmation_response = self._process_confirmation_message(
+            stripped_message,
+            confirmation_session_id,
+            confirmation_challenge_id,
+        )
+        if confirmation_response is not None:
+            return confirmation_response
 
         if command == "/doctor":
             return (
@@ -391,7 +432,32 @@ class Harness:
         return f"{seconds:.2f}s"
 
     def has_pending_action(self) -> bool:
-        return self.pending_actions.has_pending()
+        return (
+            self.pending_actions.has_pending()
+            or self.confirmation_sessions.current() is not None
+        )
+
+    def has_pending_confirmation(self) -> bool:
+        return self.confirmation_sessions.current() is not None
+
+    def current_confirmation_context(self) -> tuple[str, str] | None:
+        return self.confirmation_sessions.context()
+
+    def confirmation_state(self) -> str | None:
+        state = self.confirmation_sessions.state()
+        return state.value if state is not None else None
+
+    def pop_confirmation_event(self) -> tuple[str, int, str] | None:
+        event = self.confirmation_sessions.pop_event()
+        if event is None:
+            return None
+        return event.kind.value, event.reminder_index, event.session_id
+
+    def cancel_pending_confirmation(self) -> bool:
+        return self.confirmation_sessions.cancel()
+
+    def close_confirmation_sessions(self) -> None:
+        self.confirmation_sessions.close()
 
     def _process_active_message(
         self, mensagem: str, response_mode: str = "text"
@@ -528,6 +594,37 @@ class Harness:
             state = "habilitada" if enabled else "desabilitada"
             return f"Escrita no Obsidian {state} na configuração local."
 
+        if normalized.casefold() == "/config desktop":
+            read = "ENABLED" if self.config.desktop_read_enabled else "DISABLED"
+            control = (
+                "ENABLED" if self.config.desktop_control_enabled else "DISABLED"
+            )
+            return (
+                f"Desktop read: {read}\n"
+                f"Desktop control: {control}\n"
+                "Kill switch: Ctrl+Alt+K (quando control está habilitado)"
+            )
+
+        desktop_match = re.fullmatch(
+            r"/config\s+desktop\s+(read|control)\s+(on|off)",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if desktop_match is not None:
+            setting = desktop_match.group(1).casefold()
+            enabled = desktop_match.group(2).casefold() == "on"
+            try:
+                if setting == "read":
+                    self.config.save_desktop_settings(read=enabled)
+                else:
+                    self.config.save_desktop_settings(control=enabled)
+            except OSError as error:
+                return f"Não foi possível salvar a configuração: {error}."
+            state = "habilitado" if enabled else "desabilitado"
+            return (
+                f"Desktop {setting} {state}. Reinicie o Jarvis para aplicar."
+            )
+
         if normalized.casefold() == "/config voice":
             reference = self.config.tts_reference_audio_path
             reference_label = str(reference) if reference is not None else "nenhuma"
@@ -647,9 +744,12 @@ class Harness:
             return f"Modo de tratamento alterado para '{treatment}'."
 
         return (
-            "Uso: /config | /config obsidian | /config voice | /config persona | "
+            "Uso: /config | /config obsidian | /config desktop | "
+            "/config voice | /config persona | "
             '/config obsidian vault "C:\\caminho" | '
             "/config obsidian write on|off | "
+            "/config desktop read on|off | "
+            "/config desktop control on|off | "
             "/config voice provider auto|sapi|piper|chatterbox | "
             "/config voice mode fast|quality|auto | "
             "/config voice pace fast|natural|calm | "
@@ -658,9 +758,14 @@ class Harness:
         )
 
     def _process_normal_message(
-        self, mensagem: str, response_mode: str = "text"
+        self,
+        mensagem: str,
+        response_mode: str = "text",
+        turn_kind: TurnKind = TurnKind.EFFECT_REQUEST,
     ) -> str:
-        return self.agent_loop_coordinator.process(mensagem, response_mode)
+        return self.agent_loop_coordinator.process(
+            mensagem, response_mode, turn_kind
+        )
 
     def _generate_llm_response(
         self,
@@ -703,7 +808,11 @@ class Harness:
                     None,
                 )
                 if callable(execute_with_result):
-                    result = execute_with_result(tool, **arguments)
+                    result = execute_with_result(
+                        tool,
+                        _interaction_id=interaction_id,
+                        **arguments,
+                    )
                 else:
                     content = self.tool_executor.execute(tool, **arguments)
                     result = ToolExecutionResult(str(content), "success", True)
@@ -729,6 +838,144 @@ class Harness:
                 time.perf_counter() - tool_started
             )
             self.last_latency["tool_calls"] += 1
+
+    def _request_critical_confirmation(
+        self,
+        tool: Any,
+        target: str,
+        arguments: dict[str, Any],
+        interaction_id: str | None,
+    ) -> ToolExecutionResult:
+        session = self.confirmation_sessions.request(
+            tool_name=tool.name,
+            target=target,
+            arguments=arguments,
+            risk=tool.risk,
+            interaction_id=interaction_id,
+            prompt_text=security_prompt(tool.name, target, risk=tool.risk),
+        )
+        if session is None:
+            return ToolExecutionResult(
+                "Já existe uma ação crítica aguardando confirmação. "
+                "Confirme ou cancele essa ação antes de iniciar outra.",
+                "confirmation_required",
+                False,
+            )
+        return ToolExecutionResult(
+            session.prompt_text,
+            "confirmation_required",
+            False,
+        )
+
+    def _process_confirmation_message(
+        self,
+        message: str,
+        session_id: str | None,
+        challenge_id: str | None,
+    ) -> str | None:
+        session = self.confirmation_sessions.current()
+        if session is None:
+            if session_id is not None or challenge_id is not None:
+                return "Essa confirmação não está mais ativa."
+            return None
+
+        normalized = self.confirmation_interpreter.normalize(message)
+        if re.search(
+            r"\b(?:o que voce vai fazer|o que vai fazer|qual e a acao|"
+            r"qual acao|qual e o alvo|qual alvo)\b",
+            normalized,
+        ):
+            return (
+                f"A ação pendente é {session.invocation.tool_name} sobre "
+                f"{session.invocation.target}. Ela ainda não foi executada."
+            )
+        if re.search(
+            r"\b(?:por que|porque|explique|detalhes|por qual motivo)\b",
+            normalized,
+        ):
+            return (
+                "Preciso confirmar porque essa ação foi classificada como "
+                "CRITICAL. Nada será executado até uma autorização válida."
+            )
+
+        interpreted = self.confirmation_interpreter.interpret_result(
+            message,
+            ConfirmationPurpose.SECURITY,
+        )
+        denied = (
+            interpreted.denied
+            or self.cancellation_interpreter.is_cancellation(message)
+        )
+        confirmed = interpreted.action_authorized and not denied
+        if not confirmed and not denied:
+            if self.turn_policy.classify(message) is TurnKind.ADVISORY:
+                return None
+            return (
+                "Ainda estou aguardando uma confirmação clara. "
+                "Diga sim para continuar ou cancelar para interromper."
+            )
+
+        decision, decided_session, grant = self.confirmation_sessions.decide(
+            confirmed=confirmed,
+            denied=denied,
+            session_id=session_id,
+            challenge_id=challenge_id,
+            grant_factory=self._grant_confirmation_session,
+        )
+        if decision is ConfirmationDecision.STALE:
+            return "Essa resposta não corresponde à confirmação atual."
+        if decision is ConfirmationDecision.DENIED:
+            return "Ação crítica cancelada."
+        if (
+            decision is not ConfirmationDecision.CONFIRMED
+            or decided_session is None
+            or grant is None
+        ):
+            return "Ainda estou aguardando sua confirmação."
+
+        invocation = decided_session.invocation
+        tool = self.tool_registry.get(invocation.tool_name)
+        arguments = dict(invocation.arguments)
+        if (
+            tool is None
+            or digest_arguments(arguments) != invocation.arguments_digest
+        ):
+            self._cleanup_confirmation_session(decided_session)
+            return "A ação confirmada não pôde ser revalidada e foi cancelada."
+        valid, _error = self.argument_validator.validate(tool, arguments)
+        if not valid:
+            self._cleanup_confirmation_session(decided_session)
+            return "A ação confirmada não pôde ser revalidada e foi cancelada."
+        result = self._execute_tool(
+            tool,
+            arguments,
+            grant,
+            invocation.interaction_id,
+        )
+        self._cleanup_confirmation_session(decided_session)
+        return result.content
+
+    def _grant_confirmation_session(
+        self,
+        session: ConfirmationSession,
+    ) -> AuthorizationGrant | None:
+        invocation = session.invocation
+        return self.tool_executor.safety_manager.grant_explicit_authorization(
+            invocation.tool_name,
+            invocation.target,
+            invocation.risk,
+            invocation.interaction_id,
+            session.id,
+            invocation.arguments_digest,
+        )
+
+    def _cleanup_confirmation_session(
+        self,
+        session: ConfirmationSession,
+    ) -> None:
+        invocation = session.invocation
+        self.pending_actions.clear_if_interaction(invocation.interaction_id)
+        self.tool_executor.safety_manager.invalidate_session(session.id)
 
     def _execute_compound_follow_up(
         self,

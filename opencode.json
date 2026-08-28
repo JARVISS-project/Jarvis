@@ -1,0 +1,56 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  "model": "openai/gpt-5.6-sol",
+
+  "instructions": [
+    "docs/JARVIS_STATE.md"
+  ],
+
+  "provider": {
+    "openai": {
+      "models": {
+        "gpt-5.6-sol": {
+          "options": {
+            "reasoningEffort": "medium",
+            "textVerbosity": "low",
+            "reasoningSummary": "auto"
+          },
+          "variants": {
+            "fast": {
+              "reasoningEffort": "low",
+              "textVerbosity": "low"
+            },
+            "deep": {
+              "reasoningEffort": "high",
+              "textVerbosity": "medium"
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "permission": {
+    "bash": {
+      "*": "allow",
+
+      "git status*": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+
+      "git add*": "ask",
+      "git commit*": "deny",
+      "git push*": "deny",
+      "git reset*": "deny",
+      "git restore*": "deny",
+      "git checkout*": "ask",
+      "git rebase*": "deny",
+
+      "rm *": "ask",
+      "Remove-Item *": "ask"
+    },
+
+    "external_directory": "ask"
+  }
+}

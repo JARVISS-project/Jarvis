@@ -128,3 +128,26 @@ def test_voice_mode_alias_switches_between_fast_and_quality(
     assert "fast" in fast
     assert "quality" in quality
     assert llm.calls == 0
+
+
+def test_desktop_config_is_opt_in_and_persistent(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("JARVIS_DESKTOP_READ", raising=False)
+    monkeypatch.delenv("JARVIS_DESKTOP_CONTROL", raising=False)
+    settings_path = tmp_path / "data" / "settings.json"
+    harness, memory, llm = build_config_harness(settings_path)
+
+    initial = harness.processar_mensagem("/config desktop")
+    read = harness.processar_mensagem("/config desktop read on")
+    control = harness.processar_mensagem("/config desktop control on")
+
+    saved = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert "Desktop read: DISABLED" in initial
+    assert "Desktop control: DISABLED" in initial
+    assert saved["desktop_read"] is True
+    assert saved["desktop_control"] is True
+    assert "Reinicie" in read
+    assert "Reinicie" in control
+    assert memory.get_history() == []
+    assert llm.calls == 0

@@ -59,18 +59,16 @@ def harness(
     )
 
 
-def test_high_target_confirmation_is_separate_from_risk(tmp_path: Path) -> None:
+def test_high_target_confirmation_is_the_only_confirmation(tmp_path: Path) -> None:
     target = tmp_path / "teste_seguranca.txt"
     target.write_text("x", encoding="utf-8")
-    confirmation = SequenceConfirmation([True, False])
+    confirmation = SequenceConfirmation([True])
     result = harness(tmp_path, confirmation).processar_mensagem(
         "apague teste segurança.txt"
     )
-    assert result == "A exclusão foi cancelada."
-    assert target.exists()
-    assert [call[0] for call in confirmation.calls] == [
-        "confirm_file_target", "delete_file"
-    ]
+    assert result == "concluído"
+    assert not target.exists()
+    assert [call[0] for call in confirmation.calls] == ["confirm_file_target"]
 
 
 def test_denied_candidate_never_reaches_risk_or_tool(tmp_path: Path) -> None:
@@ -85,12 +83,12 @@ def test_denied_candidate_never_reaches_risk_or_tool(tmp_path: Path) -> None:
     assert len(confirmation.calls) == 1
 
 
-def test_both_confirmations_are_required_before_deletion(tmp_path: Path) -> None:
+def test_target_confirmation_is_required_before_deletion(tmp_path: Path) -> None:
     target = tmp_path / "teste_seguranca.txt"
     target.write_text("x", encoding="utf-8")
-    confirmation = SequenceConfirmation([True, True])
+    confirmation = SequenceConfirmation([True])
     harness(tmp_path, confirmation).processar_mensagem(
         "apague teste segurança.txt"
     )
     assert not target.exists()
-    assert len(confirmation.calls) == 2
+    assert len(confirmation.calls) == 1

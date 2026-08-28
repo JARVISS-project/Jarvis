@@ -1,11 +1,14 @@
+from collections.abc import Callable
 from typing import Any
 
 from jarvis.security.audit import AuditLogger
 from jarvis.security.capabilities import CapabilityPolicy
 from jarvis.security.safety_manager import SafetyManager
 from jarvis.security.risk import RiskLevel
+from jarvis.security.confirmation_session import digest_arguments
 from jarvis.tools.base import Tool
 from jarvis.tools.execution_result import ToolExecutionResult
+from jarvis.tools.execution_observer import ToolExecutionObserver
 
 
 class ToolExecutor:
@@ -14,10 +17,14 @@ class ToolExecutor:
         safety_manager: SafetyManager,
         audit_logger: AuditLogger,
         capability_policy: CapabilityPolicy | None = None,
+        observer: ToolExecutionObserver | None = None,
+        confirmation_requester: Callable[..., ToolExecutionResult] | None = None,
     ) -> None:
         self.safety_manager = safety_manager
         self.audit_logger = audit_logger
         self.capability_policy = capability_policy
+        self.observer = observer
+        self.confirmation_requester = confirmation_requester
 
     def execute(self, tool: Tool, **kwargs: Any) -> str:
         """Execute a tool while preserving the public string result."""
@@ -26,16 +33,36 @@ class ToolExecutor:
     def execute_with_result(
         self,
         tool: Tool,
+        *,
+        _interaction_id: str | None = None,
         **kwargs: Any,
     ) -> ToolExecutionResult:
         target = "desconhecido"
         authorized = False
+        execution_started = False
 
         try:
             if self.capability_policy is not None:
                 self.capability_policy.require_tool(tool.name)
             target = tool.get_target(**kwargs)
             tool.preflight(**kwargs)
+            if (
+                self.confirmation_requester is not None
+                and self.safety_manager.policy.requires_confirmation(tool.risk)
+            ):
+                result = self.confirmation_requester(
+                    tool,
+                    target,
+                    dict(kwargs),
+                    _interaction_id,
+                )
+                self.audit_logger.log(
+                    tool_name=tool.name,
+                    target=target,
+                    authorized=False,
+                    status=result.status,
+                )
+                return result
             authorize_invocation = getattr(
                 self.safety_manager, "authorize_invocation", None
             )
@@ -67,14 +94,18 @@ class ToolExecutor:
                 )
                 return ToolExecutionResult(result, "denied", False)
 
+            self._notify_started(tool.name)
+            execution_started = True
             result = tool.execute(**kwargs)
+            execution_result = ToolExecutionResult(result, "success", True)
             self.audit_logger.log(
                 tool_name=tool.name,
                 target=target,
                 authorized=True,
                 status="success",
             )
-            return ToolExecutionResult(result, "success", True)
+            self._notify_finished(tool.name, execution_result)
+            return execution_result
 
         except PermissionError as error:
             result = f"Ação bloqueada por segurança: {error}"
@@ -84,7 +115,12 @@ class ToolExecutor:
                 authorized=authorized,
                 status="security_blocked",
             )
-            return ToolExecutionResult(result, "security_blocked", authorized)
+            execution_result = ToolExecutionResult(
+                result, "security_blocked", authorized
+            )
+            if execution_started:
+                self._notify_finished(tool.name, execution_result)
+            return execution_result
 
         except FileNotFoundError as error:
             result = f"Arquivo ou diretório não encontrado: {error}"
@@ -94,7 +130,10 @@ class ToolExecutor:
                 authorized=authorized,
                 status="not_found",
             )
-            return ToolExecutionResult(result, "not_found", authorized)
+            execution_result = ToolExecutionResult(result, "not_found", authorized)
+            if execution_started:
+                self._notify_finished(tool.name, execution_result)
+            return execution_result
 
         except Exception as error:
             result = f"Erro ao executar a Tool '{tool.name}': {error}"
@@ -104,7 +143,10 @@ class ToolExecutor:
                 authorized=authorized,
                 status="error",
             )
-            return ToolExecutionResult(result, "error", authorized)
+            execution_result = ToolExecutionResult(result, "error", authorized)
+            if execution_started:
+                self._notify_finished(tool.name, execution_result)
+            return execution_result
 
     def execute_with_grant(
         self,
@@ -115,13 +157,21 @@ class ToolExecutor:
     ) -> ToolExecutionResult:
         target = "desconhecido"
         authorized = False
+        execution_started = False
         try:
             if self.capability_policy is not None:
                 self.capability_policy.require_tool(tool.name)
             target = tool.get_target(**kwargs)
             tool.preflight(**kwargs)
             authorized = self.safety_manager.consume_grant(
-                grant, tool.name, target, interaction_id
+                grant,
+                tool.name,
+                target,
+                interaction_id,
+                getattr(grant, "session_id", None),
+                digest_arguments(kwargs)
+                if getattr(grant, "arguments_digest", None) is not None
+                else None,
             )
             if not authorized:
                 self.audit_logger.log(
@@ -130,22 +180,56 @@ class ToolExecutor:
                 return ToolExecutionResult(
                     "Ação não autorizada.", "denied", False
                 )
+            self._notify_started(tool.name)
+            execution_started = True
             result = tool.execute(**kwargs)
+            execution_result = ToolExecutionResult(result, "success", True)
             self.audit_logger.log(tool.name, target, True, "success")
-            return ToolExecutionResult(result, "success", True)
+            self._notify_finished(tool.name, execution_result)
+            return execution_result
         except PermissionError as error:
             self.audit_logger.log(
                 tool.name, target, authorized, "security_blocked"
             )
-            return ToolExecutionResult(
+            execution_result = ToolExecutionResult(
                 f"Ação bloqueada por segurança: {error}",
                 "security_blocked",
                 authorized,
             )
+            if execution_started:
+                self._notify_finished(tool.name, execution_result)
+            return execution_result
         except Exception as error:
             self.audit_logger.log(tool.name, target, authorized, "error")
-            return ToolExecutionResult(
+            execution_result = ToolExecutionResult(
                 f"Erro ao executar a Tool '{tool.name}': {error}",
                 "error",
                 authorized,
             )
+            if execution_started:
+                self._notify_finished(tool.name, execution_result)
+            return execution_result
+
+    def _notify_started(self, tool_name: str) -> None:
+        observer = self.observer
+        if observer is None:
+            return
+        try:
+            observer.started(tool_name)
+        except Exception:
+            # Observabilidade nunca deve alterar a autorização/execução.
+            return
+
+    def _notify_finished(
+        self,
+        tool_name: str,
+        result: ToolExecutionResult,
+    ) -> None:
+        observer = self.observer
+        if observer is None:
+            return
+        try:
+            observer.finished(tool_name, result)
+        except Exception:
+            # UI/telemetria quebrada não pode comprometer o Core.
+            return

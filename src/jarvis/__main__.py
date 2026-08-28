@@ -7,7 +7,10 @@ from jarvis.activation.openwakeword import OpenWakeWordDetector
 from jarvis.application.state import AgentStateBus
 from jarvis.application.state_ipc import LocalStateServer
 from jarvis.application.voice_bridge import VoiceStateBridge
+from jarvis.application.tool_execution_state import AgentToolExecutionObserver
 from jarvis.audio.input import PvRecorderAudioInput
+from jarvis.desktop.control import DesktopKillSwitch
+from jarvis.desktop.factory import build_desktop_service
 from jarvis.audio.utterance import UtteranceRecorder
 from jarvis.config import JarvisConfig
 from jarvis.context.file_reference_resolver import FileReferenceResolver
@@ -24,6 +27,7 @@ from jarvis.runtime.ambient_ui import (
     stop_spawned_ambient_ui,
 )
 from jarvis.runtime.cancellation import CancellationController
+from jarvis.runtime.desktop_kill_switch import WindowsDesktopKillSwitchListener
 from jarvis.security.audit import AuditLogger
 from jarvis.security.confirmation import ConfirmationProvider, VoiceConfirmation
 from jarvis.security.capabilities import Capability, CapabilityPolicy
@@ -37,6 +41,7 @@ from jarvis.speech.validator import TranscriptionValidator
 from jarvis.speech.context import SpeechContextBuilder
 from jarvis.tools.create_file import CreateFileTool
 from jarvis.tools.delete_file import DeleteFileTool
+from jarvis.tools.desktop import desktop_tools
 from jarvis.tools.edit_file import EditFileTool
 from jarvis.tools.executor import ToolExecutor
 from jarvis.tools.get_datetime import GetDateTimeTool
@@ -61,6 +66,8 @@ def build_harness(
     resource_manager: ResourceManager,
     confirmation: ConfirmationProvider | None = None,
     recent_context: RecentContext | None = None,
+    state_bus: AgentStateBus | None = None,
+    desktop_kill_switch: DesktopKillSwitch | None = None,
 ) -> Harness:
     llm = OllamaLLM(
         model=config.model_name,
@@ -74,6 +81,8 @@ def build_harness(
             Capability.FILESYSTEM_WRITE: config.filesystem_write_enabled,
             Capability.OBSIDIAN_READ: config.obsidian_read_enabled,
             Capability.OBSIDIAN_WRITE: config.obsidian_write_enabled,
+            Capability.DESKTOP_READ: config.desktop_read_enabled,
+            Capability.DESKTOP_CONTROL: config.desktop_control_enabled,
         }
     )
     audit_logger = AuditLogger(config.audit_log_path)
@@ -81,6 +90,11 @@ def build_harness(
         safety_manager=safety_manager,
         audit_logger=audit_logger,
         capability_policy=capability_policy,
+        observer=(
+            AgentToolExecutionObserver(state_bus)
+            if state_bus is not None
+            else None
+        ),
     )
     filesystem = FileSystemGuard(
         base_directory=config.filesystem_base_directory
@@ -106,6 +120,27 @@ def build_harness(
         tool_registry.register(EditFileTool(filesystem))
         tool_registry.register(MoveFileTool(filesystem))
         tool_registry.register(DeleteFileTool(filesystem))
+
+    desktop_service = None
+    if (
+        capability_policy.is_enabled(Capability.DESKTOP_READ)
+        or capability_policy.is_enabled(Capability.DESKTOP_CONTROL)
+    ):
+        desktop_service = build_desktop_service(
+            desktop_kill_switch or DesktopKillSwitch()
+        )
+    if desktop_service is not None:
+        for tool in desktop_tools(desktop_service):
+            capability = (
+                Capability.DESKTOP_CONTROL
+                if tool.name in {
+                    "desktop_focus_window",
+                    "desktop_open_application",
+                }
+                else Capability.DESKTOP_READ
+            )
+            if capability_policy.is_enabled(capability):
+                tool_registry.register(tool)
 
     note_reference_resolver = None
     obsidian_vault = None
@@ -172,6 +207,8 @@ def run_voice_mode(
     microphone_device_index: int | None = None,
     state_callback: Callable[[VoicePipelineState], None] | None = None,
     wake_word_threshold: float | None = None,
+    state_bus: AgentStateBus | None = None,
+    desktop_kill_switch: DesktopKillSwitch | None = None,
 ) -> None:
     resource_manager = ResourceManager()
     resource_manager.idle()
@@ -346,7 +383,12 @@ def run_voice_mode(
         )
 
     harness = build_harness(
-        config, resource_manager, confirmation, recent_context
+        config,
+        resource_manager,
+        confirmation,
+        recent_context,
+        state_bus,
+        desktop_kill_switch,
     )
     pipeline = VoicePipeline(
         listener=listener,
@@ -536,6 +578,24 @@ def _argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _start_desktop_kill_switch(
+    config: JarvisConfig,
+) -> tuple[DesktopKillSwitch, WindowsDesktopKillSwitchListener | None]:
+    kill_switch = DesktopKillSwitch()
+    if not config.desktop_control_enabled:
+        return kill_switch, None
+
+    listener = WindowsDesktopKillSwitchListener(kill_switch)
+    if listener.start():
+        print("Desktop control ativo. Kill switch: Ctrl+Alt+K.")
+    else:
+        print(
+            "Desktop control bloqueado: não foi possível registrar "
+            "o kill switch Ctrl+Alt+K."
+        )
+    return kill_switch, listener
+
+
 def main(argv: list[str] | None = None) -> None:
     args = _argument_parser().parse_args(argv)
     config = JarvisConfig()
@@ -580,9 +640,13 @@ def main(argv: list[str] | None = None) -> None:
                 "entre 0.0 e 1.0."
             )
 
+        desktop_kill_switch, desktop_kill_listener = (
+            _start_desktop_kill_switch(config)
+        )
         state_server = None
         ui_process = None
         state_callback = None
+        state_bus = None
         if args.ui:
             state_bus = AgentStateBus()
             state_server = LocalStateServer(
@@ -594,24 +658,42 @@ def main(argv: list[str] | None = None) -> None:
             ui_process = launch_ambient_ui(config.ambient_ui_endpoint_path)
 
         try:
-            run_voice_mode(
-                config=config,
-                model_path=args.wake_word_model_path,
-                microphone_device_index=args.microphone_device_index,
-                state_callback=state_callback,
-                wake_word_threshold=args.wake_word_threshold,
-            )
+            voice_arguments = {
+                "config": config,
+                "model_path": args.wake_word_model_path,
+                "microphone_device_index": args.microphone_device_index,
+                "state_callback": state_callback,
+                "wake_word_threshold": args.wake_word_threshold,
+            }
+            if state_bus is not None:
+                voice_arguments["state_bus"] = state_bus
+            if config.desktop_control_enabled:
+                voice_arguments["desktop_kill_switch"] = desktop_kill_switch
+            run_voice_mode(**voice_arguments)
         except RuntimeError as error:
             raise SystemExit(f"Erro no modo voice: {error}") from error
         finally:
             stop_spawned_ambient_ui(ui_process)
             if state_server is not None:
                 state_server.close()
+            if desktop_kill_listener is not None:
+                desktop_kill_listener.stop()
         return
 
+    desktop_kill_switch, desktop_kill_listener = (
+        _start_desktop_kill_switch(config)
+    )
     resource_manager = ResourceManager()
-    harness = build_harness(config, resource_manager)
-    harness.run()
+    harness = build_harness(
+        config,
+        resource_manager,
+        desktop_kill_switch=desktop_kill_switch,
+    )
+    try:
+        harness.run()
+    finally:
+        if desktop_kill_listener is not None:
+            desktop_kill_listener.stop()
 
 
 if __name__ == "__main__":

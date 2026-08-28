@@ -20,6 +20,8 @@ class AuthorizationGrant:
     created_at: datetime
     expires_at: datetime
     consumed: bool = False
+    session_id: str | None = None
+    arguments_digest: str | None = None
 
 
 class AuthorizationGrantStore:
@@ -40,6 +42,8 @@ class AuthorizationGrantStore:
         tool_name: str,
         target: str,
         interaction_id: str | None = None,
+        session_id: str | None = None,
+        arguments_digest: str | None = None,
     ) -> AuthorizationGrant:
         now = self._clock()
         grant = AuthorizationGrant(
@@ -49,6 +53,8 @@ class AuthorizationGrantStore:
             interaction_id=interaction_id or str(uuid4()),
             created_at=now,
             expires_at=now + timedelta(seconds=self.lifetime_seconds),
+            session_id=session_id,
+            arguments_digest=arguments_digest,
         )
         with self._lock:
             self._grants[grant.id] = grant
@@ -60,6 +66,8 @@ class AuthorizationGrantStore:
         tool_name: str,
         target: str,
         interaction_id: str | None = None,
+        session_id: str | None = None,
+        arguments_digest: str | None = None,
     ) -> bool:
         with self._lock:
             stored = self._grants.get(grant.id)
@@ -73,6 +81,8 @@ class AuthorizationGrantStore:
                     interaction_id is None
                     or grant.interaction_id == interaction_id
                 )
+                and grant.session_id == session_id
+                and grant.arguments_digest == arguments_digest
             )
             if not valid:
                 return False
@@ -85,3 +95,14 @@ class AuthorizationGrantStore:
             for grant in self._grants.values():
                 object.__setattr__(grant, "consumed", True)
             self._grants.clear()
+
+    def invalidate_session(self, session_id: str) -> None:
+        with self._lock:
+            matching = [
+                grant_id
+                for grant_id, grant in self._grants.items()
+                if grant.session_id == session_id
+            ]
+            for grant_id in matching:
+                grant = self._grants.pop(grant_id)
+                object.__setattr__(grant, "consumed", True)

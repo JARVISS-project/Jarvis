@@ -102,13 +102,13 @@ def make_harness_with_provider(
     ), llm
 
 
-def test_followup_fills_slot_without_llm_and_requires_two_confirmations(
+def test_followup_fills_slot_without_llm_and_confirms_target(
     tmp_path: Path,
 ) -> None:
     target = tmp_path / "teste_seguranca.txt"
     target.write_text("x", encoding="utf-8")
     harness, llm, confirmation, memory = make_harness(
-        tmp_path, [True, True]
+        tmp_path, [True]
     )
     assert "Qual arquivo" in harness.processar_mensagem("Apague algum arquivo")
     memory_count = memory.count()
@@ -117,7 +117,7 @@ def test_followup_fills_slot_without_llm_and_requires_two_confirmations(
     assert not target.exists()
     assert llm.calls == 1
     assert memory.count() == memory_count
-    assert confirmation.actions == ["confirm_file_target", "delete_file"]
+    assert confirmation.actions == ["confirm_file_target"]
 
 
 def test_pending_cancellation_does_not_call_llm_or_tool(tmp_path: Path) -> None:

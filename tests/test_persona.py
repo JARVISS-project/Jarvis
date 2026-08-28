@@ -8,6 +8,9 @@ def test_jarvis_persona_requests_natural_tool_result_composition() -> None:
     assert "dados brutos de uma Tool" in prompt
     assert "leia o conteúdo de modo fiel e natural" in prompt
     assert "várias ações explícitas" in prompt
+    assert "pedir opinião" in prompt
+    assert "Não finja sentimentos" in prompt
+    assert "iniciativa equilibrada" in prompt
     assert "'senhor' ocasionalmente" in prompt
 
 

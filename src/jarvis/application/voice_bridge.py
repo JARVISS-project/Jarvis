@@ -12,6 +12,11 @@ _VOICE_STATE_MAP = {
     VoicePipelineState.WAITING_FOLLOWUP: AgentState.WAITING_FOLLOWUP,
     VoicePipelineState.WAITING_REPAIR: AgentState.WAITING_REPAIR,
     VoicePipelineState.CONFIRMATION: AgentState.CONFIRMATION,
+    VoicePipelineState.REQUEST_CONFIRMATION: AgentState.CONFIRMATION,
+    VoicePipelineState.WAITING_CONFIRMATION: AgentState.CONFIRMATION,
+    VoicePipelineState.CONFIRMED: AgentState.PROCESSING,
+    VoicePipelineState.DENIED: AgentState.WAITING_WAKE,
+    VoicePipelineState.EXPIRED: AgentState.WAITING_WAKE,
 }
 
 

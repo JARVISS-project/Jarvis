@@ -11,3 +11,8 @@ class VoicePipelineState(Enum):
     WAITING_FOLLOWUP = "waiting_followup"
     WAITING_REPAIR = "waiting_repair"
     CONFIRMATION = "confirmation"
+    REQUEST_CONFIRMATION = "request_confirmation"
+    WAITING_CONFIRMATION = "waiting_confirmation"
+    CONFIRMED = "confirmed"
+    DENIED = "denied"
+    EXPIRED = "expired"

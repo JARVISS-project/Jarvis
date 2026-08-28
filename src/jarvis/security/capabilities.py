@@ -46,4 +46,8 @@ TOOL_CAPABILITIES = {
     "obsidian_create_note": Capability.OBSIDIAN_WRITE,
     "obsidian_append_note": Capability.OBSIDIAN_WRITE,
     "obsidian_delete_note": Capability.OBSIDIAN_WRITE,
+    "desktop_list_windows": Capability.DESKTOP_READ,
+    "desktop_list_applications": Capability.DESKTOP_READ,
+    "desktop_focus_window": Capability.DESKTOP_CONTROL,
+    "desktop_open_application": Capability.DESKTOP_CONTROL,
 }

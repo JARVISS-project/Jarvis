@@ -1,10 +1,13 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from jarvis.security.audit import AuditLogger
 from jarvis.security.filesystem import FileSystemGuard
+from jarvis.security.risk import RiskLevel
 from jarvis.security.safety_manager import SafetyManager
+from jarvis.tools.base import Tool
 from jarvis.tools.create_file import CreateFileTool
 from jarvis.tools.delete_file import DeleteFileTool
 from jarvis.tools.edit_file import EditFileTool
@@ -46,7 +49,7 @@ def test_create_authorized_creates_file(
     assert (tmp_path / "created.txt").read_text(encoding="utf-8") == "text"
 
 
-def test_create_denied_does_not_create_file(
+def test_create_medium_ignores_confirmation_input(
     tmp_path: Path,
     security_layer: tuple[FileSystemGuard, ToolExecutor, Path],
     monkeypatch: pytest.MonkeyPatch,
@@ -58,7 +61,7 @@ def test_create_denied_does_not_create_file(
         CreateFileTool(filesystem), path="denied.txt", content="text"
     )
 
-    assert not (tmp_path / "denied.txt").exists()
+    assert (tmp_path / "denied.txt").read_text(encoding="utf-8") == "text"
 
 
 def test_create_does_not_overwrite_existing_file(
@@ -131,7 +134,7 @@ def test_edit_authorized_updates_file(
     assert target.read_text(encoding="utf-8") == "after"
 
 
-def test_edit_denied_preserves_content(
+def test_edit_medium_ignores_confirmation_input(
     tmp_path: Path,
     security_layer: tuple[FileSystemGuard, ToolExecutor, Path],
     monkeypatch: pytest.MonkeyPatch,
@@ -143,7 +146,7 @@ def test_edit_denied_preserves_content(
 
     executor.execute(EditFileTool(filesystem), path="editable.txt", content="after")
 
-    assert target.read_text(encoding="utf-8") == "before"
+    assert target.read_text(encoding="utf-8") == "after"
 
 
 def test_edit_missing_file_is_not_created(
@@ -177,7 +180,7 @@ def test_move_authorized_moves_file(
     assert (tmp_path / "destination.txt").read_text(encoding="utf-8") == "content"
 
 
-def test_move_denied_preserves_source(
+def test_move_medium_ignores_confirmation_input(
     tmp_path: Path,
     security_layer: tuple[FileSystemGuard, ToolExecutor, Path],
     monkeypatch: pytest.MonkeyPatch,
@@ -191,8 +194,8 @@ def test_move_denied_preserves_source(
         MoveFileTool(filesystem), source="source.txt", destination="destination.txt"
     )
 
-    assert source.read_text(encoding="utf-8") == "content"
-    assert not (tmp_path / "destination.txt").exists()
+    assert not source.exists()
+    assert (tmp_path / "destination.txt").read_text(encoding="utf-8") == "content"
 
 
 def test_move_does_not_overwrite_destination(
@@ -233,7 +236,7 @@ def test_move_does_not_move_directory(
     assert not (tmp_path / "moved").exists()
 
 
-def test_delete_high_risk_requests_confirmation(
+def test_delete_high_risk_does_not_request_confirmation(
     tmp_path: Path,
     security_layer: tuple[FileSystemGuard, ToolExecutor, Path],
     monkeypatch: pytest.MonkeyPatch,
@@ -248,14 +251,13 @@ def test_delete_high_risk_requests_confirmation(
 
     executor.execute(DeleteFileTool(filesystem), path="delete.txt")
 
-    assert prompts == ["Autorizar? [s/N]: "]
-    assert target.exists()
+    assert prompts == []
+    assert not target.exists()
 
 
-@pytest.mark.parametrize(("answer", "should_exist"), [("s", False), ("n", True)])
-def test_delete_authorization_controls_deletion(
+@pytest.mark.parametrize("answer", ["s", "n"])
+def test_delete_high_ignores_confirmation_input(
     answer: str,
-    should_exist: bool,
     tmp_path: Path,
     security_layer: tuple[FileSystemGuard, ToolExecutor, Path],
     monkeypatch: pytest.MonkeyPatch,
@@ -267,7 +269,7 @@ def test_delete_authorization_controls_deletion(
 
     executor.execute(DeleteFileTool(filesystem), path="delete.txt")
 
-    assert target.exists() is should_exist
+    assert not target.exists()
 
 
 def test_delete_does_not_remove_directory(
@@ -305,7 +307,24 @@ def test_audit_records_allowed_denied_and_security_blocked_actions(
     authorize(monkeypatch, "s")
     executor.execute(CreateFileTool(filesystem), path="allowed.txt", content="safe")
     authorize(monkeypatch, "n")
-    executor.execute(CreateFileTool(filesystem), path="denied.txt", content="safe")
+
+    class CriticalTool(Tool):
+        name = "critical_test"
+        description = "Tool crítica usada para validar negação e audit."
+        risk = RiskLevel.CRITICAL
+        parameters: dict[str, Any] = {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        }
+
+        def get_target(self, **kwargs: Any) -> str:
+            return "critical:target"
+
+        def execute(self, **kwargs: Any) -> str:
+            return "executado"
+
+    executor.execute(CriticalTool())
     executor.execute(ReadFileTool(filesystem), path="../outside.txt")
 
     audit = audit_file.read_text(encoding="utf-8")

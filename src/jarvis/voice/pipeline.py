@@ -34,9 +34,21 @@ class _Harness(Protocol):
         mensagem: str,
         manage_runtime: bool = True,
         response_mode: str = "text",
+        confirmation_session_id: str | None = None,
+        confirmation_challenge_id: str | None = None,
     ) -> str: ...
 
     def warm_up_llm(self) -> None: ...
+
+    def has_pending_confirmation(self) -> bool: ...
+
+    def current_confirmation_context(self) -> tuple[str, str] | None: ...
+
+    def pop_confirmation_event(self) -> tuple[str, int, str] | None: ...
+
+    def cancel_pending_confirmation(self) -> bool: ...
+
+    def close_confirmation_sessions(self) -> None: ...
 
 
 class VoicePipeline:
@@ -198,6 +210,7 @@ class VoicePipeline:
         self.output("Assistente pronto.")
 
     def process_once(self) -> bool:
+        self._drain_confirmation_events()
         if self.listener.get_event() is None:
             return False
         detector = getattr(self.listener, "detector", None)
@@ -269,9 +282,13 @@ class VoicePipeline:
         finally:
             if not wake_state_reset:
                 self.listener.reset()
-            self.resource_manager.idle()
+            if self._has_pending_confirmation():
+                self.resource_manager.confirmation()
+                self._set_state(VoicePipelineState.WAITING_CONFIRMATION)
+            else:
+                self.resource_manager.idle()
+                self._set_state(VoicePipelineState.WAITING_WAKE)
             self.cancellation.clear()
-            self._set_state(VoicePipelineState.WAITING_WAKE)
 
     def _process_recording(
         self,
@@ -279,7 +296,10 @@ class VoicePipeline:
         announce: bool = True,
         empty_status: VoiceCaptureStatus = VoiceCaptureStatus.NO_SPEECH,
         profile: TranscriptionProfile | None = None,
+        confirmation_context: tuple[str, str] | None = None,
     ) -> VoiceCaptureResult:
+        if confirmation_context is None:
+            confirmation_context = self._confirmation_context()
         if announce:
             self._set_state(VoicePipelineState.LISTENING)
             self.output("Ouvindo...")
@@ -369,10 +389,12 @@ class VoicePipeline:
         self._debug(f"cancel intent={'YES' if cancelled else 'NO'}")
         if cancelled:
             self.cancellation.request_cancel()
+            self._cancel_pending_confirmation()
             self.output(f"Você [cancelamento]: {text}")
             self.output("Ação cancelada.")
             return VoiceCaptureResult(VoiceCaptureStatus.USER_CANCELLED)
         if self.conversation_end_interpreter.should_end(text):
+            self._cancel_pending_confirmation()
             self.output(f"Você: {text}")
             self._end_conversation = True
             farewell = self.conversation_end_interpreter.reply(text)
@@ -381,7 +403,7 @@ class VoicePipeline:
             return VoiceCaptureResult(
                 VoiceCaptureStatus.INTERRUPTED, spoke=spoke
             )
-        processed, spoke = self._process_text(text)
+        processed, spoke = self._process_text(text, confirmation_context)
         return VoiceCaptureResult(
             VoiceCaptureStatus.SUCCESS if processed
             else VoiceCaptureStatus.INTERRUPTED,
@@ -399,20 +421,42 @@ class VoicePipeline:
             else recorder.record()
         )
 
-    def _process_text(self, text: str) -> tuple[bool, bool]:
+    def _process_text(
+        self,
+        text: str,
+        confirmation_context: tuple[str, str] | None = None,
+    ) -> tuple[bool, bool]:
         self._set_state(VoicePipelineState.PROCESSING)
         self.output(f"Você: {text}")
         self._acknowledge(text)
         harness_started = self.monotonic_clock()
-        response = self.harness.processar_mensagem(
-            text,
-            manage_runtime=False,
-            response_mode="voice",
+        session_id = (
+            confirmation_context[0] if confirmation_context is not None else None
         )
+        challenge_id = (
+            confirmation_context[1] if confirmation_context is not None else None
+        )
+        harness_arguments = {
+            "manage_runtime": False,
+            "response_mode": "voice",
+        }
+        if session_id is not None and challenge_id is not None:
+            harness_arguments["confirmation_session_id"] = session_id
+            harness_arguments["confirmation_challenge_id"] = challenge_id
+        response = self.harness.processar_mensagem(text, **harness_arguments)
         self._last_harness_seconds = (
             self.monotonic_clock() - harness_started
         )
         self._last_response = response
+        confirmation_state = self._confirmation_state()
+        if confirmation_state == "waiting_confirmation":
+            self._set_state(VoicePipelineState.REQUEST_CONFIRMATION)
+        elif confirmation_state == "confirmed":
+            self._set_state(VoicePipelineState.CONFIRMED)
+        elif confirmation_state == "denied":
+            self._set_state(VoicePipelineState.DENIED)
+        elif confirmation_state == "expired":
+            self._set_state(VoicePipelineState.EXPIRED)
         self.output(f"Jarvis: {response}")
         spoke = self._speak_response(response)
         self._emit_latency_report(spoke=spoke)
@@ -478,7 +522,7 @@ class VoicePipeline:
         ):
             text = self._pending_barge_in_text
             self._pending_barge_in_text = None
-            _, spoke = self._process_text(text)
+            _, spoke = self._process_text(text, self._confirmation_context())
             wake_state_reset = wake_state_reset or spoke
         return wake_state_reset
 
@@ -507,6 +551,10 @@ class VoicePipeline:
         return "?" in self._last_response
 
     def _enter_waiting_wake(self, *, announce: bool) -> None:
+        if self._has_pending_confirmation():
+            self.resource_manager.confirmation()
+            self._set_state(VoicePipelineState.WAITING_CONFIRMATION)
+            return
         if self.state is VoicePipelineState.WAITING_WAKE and not announce:
             return
         self._set_state(VoicePipelineState.WAITING_WAKE)
@@ -524,14 +572,70 @@ class VoicePipeline:
             finally:
                 if self.text_to_speech is not None:
                     self.text_to_speech.close()
+                close_confirmations = getattr(
+                    self.harness, "close_confirmation_sessions", None
+                )
+                if callable(close_confirmations):
+                    close_confirmations()
                 self._closed = True
 
     def set_confirmation_state(self, state: VoicePipelineState) -> None:
         if state in {
             VoicePipelineState.SPEAKING,
             VoicePipelineState.CONFIRMATION,
+            VoicePipelineState.REQUEST_CONFIRMATION,
+            VoicePipelineState.WAITING_CONFIRMATION,
+            VoicePipelineState.CONFIRMED,
+            VoicePipelineState.DENIED,
+            VoicePipelineState.EXPIRED,
         }:
             self._set_state(state)
+
+    def _has_pending_confirmation(self) -> bool:
+        pending = getattr(self.harness, "has_pending_confirmation", None)
+        return bool(callable(pending) and pending())
+
+    def _confirmation_context(self) -> tuple[str, str] | None:
+        current = getattr(self.harness, "current_confirmation_context", None)
+        return current() if callable(current) else None
+
+    def _confirmation_state(self) -> str | None:
+        current = getattr(self.harness, "confirmation_state", None)
+        return current() if callable(current) else None
+
+    def _cancel_pending_confirmation(self) -> None:
+        cancel = getattr(self.harness, "cancel_pending_confirmation", None)
+        if callable(cancel):
+            cancel()
+
+    def _drain_confirmation_events(self) -> None:
+        pop_event = getattr(self.harness, "pop_confirmation_event", None)
+        if not callable(pop_event):
+            return
+        while True:
+            event = pop_event()
+            if event is None:
+                return
+            kind, reminder_index, session_id = event
+            current = self._confirmation_context()
+            if current is not None and current[0] != session_id:
+                continue
+            if kind == "reminder":
+                if current is None:
+                    continue
+                phrase = self.phrase_manager.confirmation_reminder(
+                    reminder_index
+                )
+                if phrase:
+                    self.output(f"Jarvis: {phrase}")
+                    self._speak_response(phrase)
+                self.resource_manager.confirmation()
+                self._set_state(VoicePipelineState.WAITING_CONFIRMATION)
+            elif kind == "expired":
+                self._set_state(VoicePipelineState.EXPIRED)
+                phrase = "A confirmação expirou. A ação não foi realizada."
+                self.output(f"Jarvis: {phrase}")
+                self._speak_response(phrase)
 
     def _speak_response(self, response: str) -> bool:
         if not self._tts_is_allowed():

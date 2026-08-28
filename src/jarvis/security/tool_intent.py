@@ -96,7 +96,7 @@ class ToolIntentGuard:
             return False
 
         normalized_message = self._normalize(user_message)
-        pattern = rf"(?<!\w){re.escape(normalized_target)}(?!\w)"
+        pattern = rf"(?<!\w){re.escape(normalized_target).replace(r'\ ', ' ')}(?!\w)"
         return re.search(pattern, normalized_message) is not None
 
     @staticmethod

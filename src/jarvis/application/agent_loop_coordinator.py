@@ -22,6 +22,7 @@ from jarvis.tools.validator import ToolArgumentValidator
 
 from jarvis.application.response_coordinator import ResponseCoordinator
 from jarvis.application.tool_execution_coordinator import ToolExecutionCoordinator
+from jarvis.application.turn_policy import TurnKind
 
 
 GenerateLLM = Callable[[list[dict[str, Any]], list[dict[str, Any]]], LLMResponse]
@@ -70,13 +71,20 @@ class AgentLoopCoordinator:
         self.generate_llm = generate_llm
         self.execute_tool = execute_tool
 
-    def process(self, message: str, response_mode: str = "text") -> str:
+    def process(
+        self,
+        message: str,
+        response_mode: str,
+        turn_kind: TurnKind,
+    ) -> str:
         active_context = self.context_router.state.active
-        available_tools = self.tool_selection_router.select(
-            message,
-            active_context,
-            self.tool_registry.list_tools(),
-        )
+        available_tools = []
+        if turn_kind is TurnKind.EFFECT_REQUEST:
+            available_tools = self.tool_selection_router.select(
+                message,
+                active_context,
+                self.tool_registry.list_tools(),
+            )
         available_tools.sort(
             key=lambda tool: not self.response_coordinator.tool_matches_context(
                 tool.name, active_context
@@ -88,12 +96,29 @@ class AgentLoopCoordinator:
         messages: list[dict[str, Any]] = self.response_coordinator.system_context(
             response_mode
         )
+        if turn_kind is TurnKind.ADVISORY:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "Este turno é consultivo. Converse, avalie ou planeje sem "
+                        "executar efeitos reais. Não alegue que realizou ações."
+                    ),
+                }
+            )
         messages.extend(self.memory.get_history())
         successful_tool_names: set[str] = set()
         tool_retry_used = False
 
         for _ in range(self.config.max_tool_iterations):
             response = self.generate_llm(messages, tools)
+            if turn_kind is TurnKind.ADVISORY and response.tool_calls:
+                final_response = (
+                    "Este turno é consultivo. Posso avaliar ou planejar isso, "
+                    "mas não vou executar ações sem um pedido explícito."
+                )
+                self.memory.add_assistant_message(final_response)
+                return final_response
             for tool_call in response.tool_calls:
                 self.response_coordinator.route_tool_call(message, tool_call)
             requested_tool_names = {
@@ -106,8 +131,11 @@ class AgentLoopCoordinator:
             messages.append(response.to_message())
 
             if not response.tool_calls:
-                action_requested = self.tool_selection_router.looks_like_action(
-                    message, self.context_router.state.active
+                action_requested = (
+                    turn_kind is TurnKind.EFFECT_REQUEST
+                    and self.tool_selection_router.looks_like_action(
+                        message, self.context_router.state.active
+                    )
                 )
                 if (
                     action_requested
@@ -143,6 +171,7 @@ class AgentLoopCoordinator:
                         response.content,
                         messages,
                         tool_executed=bool(successful_tool_names),
+                        allow_retry=turn_kind is TurnKind.EFFECT_REQUEST,
                     )
                 self.memory.add_assistant_message(final_response)
                 return final_response
@@ -317,6 +346,18 @@ class AgentLoopCoordinator:
         tool_result = execution_result.content
         if execution_result.status == "success":
             successful_tool_names.add(tool.name)
+        elif execution_result.status == "confirmation_required":
+            self.memory.add_assistant_message(tool_result)
+            return tool_result
+        elif (
+            tool.name in {
+                "desktop_focus_window",
+                "desktop_open_application",
+            }
+            and execution_result.status == "security_blocked"
+        ):
+            self.memory.add_assistant_message(tool_result)
+            return tool_result
         elif tool.name in {
             "obsidian_create_note",
             "obsidian_append_note",

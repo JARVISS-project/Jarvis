@@ -18,18 +18,21 @@ class ToolSelectionRouter:
         r"criar|apague|apaga|apagar|exclua|exclui|excluir|mova|move|mover|"
         r"rode|roda|execute|executa|teste|testa|verifique|verifica|cheque|"
         r"checa|status|arquivo|pasta|diretorio|nota|obsidian|vault|cofre|"
-        r"tool|tools|ferramenta|ferramentas)\b"
+        r"tool|tools|ferramenta|ferramentas|janela|janelas|aplicativo|"
+        r"aplicativos|programa|programas|desktop)\b"
     )
     _ACTION_VERBS = re.compile(
         r"\b(?:abra|abre|abrir|leia|le|ler|mostre|mostra|liste|lista|listar|"
         r"procure|procura|busque|busca|encontre|encontra|adicione|adiciona|"
         r"anote|anota|escreva|escreve|coloque|coloca|bote|bota|ponha|poe|"
         r"edite|edita|crie|cria|apague|apaga|exclua|exclui|mova|move|rode|"
-        r"roda|execute|executa|teste|testa|verifique|verifica|cheque|checa)\b"
+        r"roda|execute|executa|teste|testa|verifique|verifica|cheque|checa|"
+        r"foque|foca|focar|inicie|inicia|iniciar)\b"
     )
     _RESOURCE_WORDS = re.compile(
         r"\b(?:arquivo|arquivos|pasta|diretorio|nota|notas|obsidian|vault|"
-        r"cofre|tool|tools|ferramenta|ferramentas|runtime|sistema)\b"
+        r"cofre|tool|tools|ferramenta|ferramentas|runtime|sistema|janela|"
+        r"janelas|aplicativo|aplicativos|programa|programas|desktop)\b"
     )
     _PURE_CONVERSATION = re.compile(
         r"^(?:me explica|explique|o que e|o que sao|quem e|quem sao|"
@@ -42,6 +45,16 @@ class ToolSelectionRouter:
         "delete_file", "move_file",
     }
     UTILITIES = {"get_datetime", "get_runtime_info"}
+    DESKTOP = {
+        "desktop_list_windows",
+        "desktop_list_applications",
+        "desktop_focus_window",
+        "desktop_open_application",
+    }
+    _DESKTOP_REQUEST = re.compile(
+        r"\b(?:janela|janelas|aplicativo|aplicativos|programa|programas|"
+        r"desktop|notepad|calculadora|calculator|explorer)\b"
+    )
 
     def select(
         self,
@@ -55,6 +68,12 @@ class ToolSelectionRouter:
             and not self._ACTION_WORDS.search(normalized)
         ):
             return []
+
+        if self.is_desktop_request(message):
+            return [
+                tool for tool in available
+                if tool.name in self.DESKTOP or tool.name in self.UTILITIES
+            ]
 
         if active is ActiveContext.OBSIDIAN or re.search(
             r"\b(?:nota|notas|obsidian|vault|cofre)\b", normalized
@@ -75,6 +94,13 @@ class ToolSelectionRouter:
 
         # Unknown action: keep the full set rather than hiding a needed ability.
         return available
+
+    @classmethod
+    def is_desktop_request(cls, message: str) -> bool:
+        normalized = cls.normalize(message)
+        if re.search(r"\b(?:nota|notas|vault|cofre)\b", normalized):
+            return False
+        return cls._DESKTOP_REQUEST.search(normalized) is not None
 
 
     def looks_like_action(

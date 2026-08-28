@@ -36,6 +36,43 @@ def test_expired_and_invalidated_grants_are_rejected() -> None:
     assert not store.consume(invalidated, "delete_file", "a.txt")
 
 
+def test_session_grant_rejects_changed_arguments_and_scoped_invalidation() -> None:
+    store = AuthorizationGrantStore()
+    first = store.issue(
+        "critical_tool",
+        "target-a",
+        "interaction-a",
+        "session-a",
+        "digest-a",
+    )
+    second = store.issue(
+        "critical_tool",
+        "target-b",
+        "interaction-b",
+        "session-b",
+        "digest-b",
+    )
+
+    assert not store.consume(
+        first,
+        "critical_tool",
+        "target-a",
+        "interaction-a",
+        "session-a",
+        "changed-digest",
+    )
+    store.invalidate_session("session-a")
+    assert first.consumed
+    assert store.consume(
+        second,
+        "critical_tool",
+        "target-b",
+        "interaction-b",
+        "session-b",
+        "digest-b",
+    )
+
+
 class BooleanOnlySafetyManager:
     def authorize(self, action, target, risk):  # type: ignore[no-untyped-def]
         return True

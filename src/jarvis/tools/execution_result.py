@@ -10,6 +10,7 @@ ToolExecutionStatus = Literal[
     "security_blocked",
     "not_found",
     "error",
+    "confirmation_required",
 ]
 
 

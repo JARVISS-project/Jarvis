@@ -28,6 +28,8 @@ def _load_local_settings(path: Path) -> tuple[dict[str, Any], str | None]:
         "tts_reference_audio": str,
         "tts_piper_pace": str,
         "assistant_address_mode": str,
+        "desktop_read": bool,
+        "desktop_control": bool,
     }
     for key, expected_type in validators.items():
         current = value.get(key)
@@ -59,6 +61,8 @@ class JarvisConfig:
     filesystem_write_enabled: bool = True
     obsidian_read_enabled: bool = True
     obsidian_write_enabled: bool | None = None
+    desktop_read_enabled: bool = False
+    desktop_control_enabled: bool = False
     obsidian_search_max_results: int = 10
     obsidian_max_note_size_bytes: int = 1_000_000
     max_tool_iterations: int = 5
@@ -136,6 +140,10 @@ class JarvisConfig:
     conversation_question_timeout_seconds: float = 20.0
     conversation_followup_timeout_game_mode_seconds: float = 4.0
     pending_action_timeout_seconds: float = 30.0
+    confirmation_first_reminder_seconds: float = 25.0
+    confirmation_reminder_interval_seconds: float = 30.0
+    confirmation_max_reminders: int = 2
+    confirmation_session_timeout_seconds: float = 120.0
     # Full-duplex barge-in is experimental without acoustic echo cancellation.
     # Keep it disabled by default so Jarvis cannot transcribe its own speaker.
     barge_in_enabled: bool = field(
@@ -229,6 +237,26 @@ class JarvisConfig:
                 local_write if isinstance(local_write, bool) else False
             )
 
+        environment_desktop_read = os.getenv("JARVIS_DESKTOP_READ")
+        if environment_desktop_read is not None:
+            self.desktop_read_enabled = _environment_flag(
+                "JARVIS_DESKTOP_READ"
+            )
+        else:
+            local_desktop_read = settings.get("desktop_read")
+            if isinstance(local_desktop_read, bool):
+                self.desktop_read_enabled = local_desktop_read
+
+        environment_desktop_control = os.getenv("JARVIS_DESKTOP_CONTROL")
+        if environment_desktop_control is not None:
+            self.desktop_control_enabled = _environment_flag(
+                "JARVIS_DESKTOP_CONTROL"
+            )
+        else:
+            local_desktop_control = settings.get("desktop_control")
+            if isinstance(local_desktop_control, bool):
+                self.desktop_control_enabled = local_desktop_control
+
     def save_obsidian_settings(
         self,
         *,
@@ -251,6 +279,24 @@ class JarvisConfig:
             self.obsidian_enabled = True
         if write is not None and os.getenv("JARVIS_OBSIDIAN_WRITE") is None:
             self.obsidian_write_enabled = write
+
+
+    def save_desktop_settings(
+        self,
+        *,
+        read: bool | None = None,
+        control: bool | None = None,
+    ) -> None:
+        settings, _error = _load_local_settings(self.settings_path)
+        if read is not None:
+            settings["desktop_read"] = bool(read)
+        if control is not None:
+            settings["desktop_control"] = bool(control)
+        self._write_local_settings(settings)
+        if read is not None and os.getenv("JARVIS_DESKTOP_READ") is None:
+            self.desktop_read_enabled = bool(read)
+        if control is not None and os.getenv("JARVIS_DESKTOP_CONTROL") is None:
+            self.desktop_control_enabled = bool(control)
 
 
     def save_voice_settings(

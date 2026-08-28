@@ -47,7 +47,8 @@ class RecordingExecutor:
     def execute_with_result(
         self, tool: Any, **arguments: Any
     ) -> ToolExecutionResult:
-        self.calls.append((tool.name, arguments))
+        filtered = {k: v for k, v in arguments.items() if k != "_interaction_id"}
+        self.calls.append((tool.name, filtered))
         if tool.name == "obsidian_search_notes":
             content = (
                 "- Teste.md | score=3 | primeiro\n"

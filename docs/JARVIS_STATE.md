@@ -2,7 +2,7 @@
 
 > Documento vivo de continuidade técnica. O Git continua sendo a fonte de verdade do código; este arquivo registra decisões, arquitetura e marcos conhecidos.
 
-Última consolidação: **27/08/2026**
+Última consolidação: **28/08/2026**
 
 ## 1. Objetivo
 
@@ -37,6 +37,8 @@ Resposta
 ```
 
 Regra de grounding: o JARVIS não deve afirmar que criou, abriu, apagou, instalou, escreveu, listou ou concluiu uma ação real sem execução comprovada.
+
+Política de autonomia: `SAFE`, `LOW`, `MEDIUM` e `HIGH` são permitidos sem confirmação por risco. Somente `CRITICAL` exige confirmação explícita. Capabilities, guards, preflight, confirmação de identidade de alvo, kill switch e audit continuam independentes dessa fronteira.
 
 ## 3. Ambiente principal
 
@@ -96,9 +98,60 @@ Existe `ExecutionClaimGuard` para bloquear alegações de execução sem Tool re
 
 Princípio de UX: o usuário não deve precisar aprender frases rígidas de parser. O JARVIS deve interpretar variações naturais sem reduzir segurança.
 
+### Direção conversacional e goal-driven
+
+O JARVIS evolui de um agente predominantemente command-driven para um agente conversacional, orientado a objetivos e progressivamente proativo. O modelo pode conversar, avaliar alternativas, planejar, sugerir caminhos, assumir uma posição quando solicitado e discordar quando houver motivo concreto. Deve distinguir fatos, inferências e recomendações, sem fingir sentimentos, experiências pessoais ou conhecimento que não possui.
+
+A separação de responsabilidades permanece absoluta:
+
+```text
+LLM    → conversa, interpreta, avalia, planeja e sugere
+Policy → autoriza efeitos reais
+Tool   → executa
+Audit  → registra
+```
+
+Planejar ou sugerir não autoriza execução. A primeira fundação implementada é uma classificação determinística, anterior aos Fast Paths, entre `ADVISORY` e `EFFECT_REQUEST`. Turnos consultivos não recebem schemas de Tools, não acionam retry operacional e continuam usando uma única chamada ao LLM. Pedidos explícitos de efeito preservam o fluxo atual.
+
+Direção de iniciativa futura, independente de risco e capabilities:
+
+- `CONSERVATIVE`: responde ou executa somente o pedido;
+- `BALANCED`: responde e pode oferecer uma sugestão adicional relevante, sem executar a sugestão; é a direção padrão;
+- `PROACTIVE`: poderá tomar iniciativas somente dentro de capabilities e mandatos explicitamente autorizados.
+
+O nível de iniciativa nunca deve conceder autorização, elevar capability, ignorar confirmação, alterar risco ou contornar o kill switch.
+
+### Confirmação crítica (implementada)
+
+A sessão de confirmação crítica (`ConfirmationSessionManager`) está implementada em `src/jarvis/security/confirmation_session.py` e integrada ao `Harness` via `confirmation_sessions`. O fluxo segue o estado observável:
+
+```text
+REQUEST_CONFIRMATION → WAITING_CONFIRMATION
+                     → CONFIRMED | DENIED | EXPIRED
+```
+
+- Uma única sessão ativa por vez (fail-closed se já existir).
+- `PreparedInvocation` registra tool, alvo, argumentos (digest SHA-256), risco e `interaction_id`.
+- Reminders determinísticos, sem LLM: primeiro entre 20–30s, intervalo 30s, máx. 2 reminders, expiração ~120s (configurável).
+- `decide()` exige `session_id` e `challenge_id` coincidentes; respostas tardias/fora de contexto → `STALE`.
+- Concorrência: confirmação e expiração são *single winner* (RLock + Condition).
+- Limpeza atômica: `cleanup` callback remove grants e zera `_active` antes de notificar.
+- Scheduler em thread daemon; não bloqueia o runtime.
+- Testes: `tests/security/test_confirmation_session.py` (unitário) e `tests/integration/test_critical_confirmation_session.py` (integração).
+
+### Memória futura
+
+A evolução de memória deve separar:
+
+- semântica: fatos e preferências explicitamente autorizados, recuperados por relevância;
+- episódica: eventos resumidos, com provenance, sensibilidade e retenção limitada;
+- procedural: Skills estruturadas, sempre executadas pelo `ToolExecutor`.
+
+Memória nunca concede autorização e não deve ser recuperada integralmente em toda mensagem. Recuperação pesada e persistência episódica automática não fazem parte do primeiro sprint.
+
 ## 8. Obsidian
 
-A integração é local e usa o Vault diretamente, com guard próprio. Tools cobrem list/search/read/open/create/append/delete note. Operações destrutivas continuam sujeitas a risco e confirmação.
+A integração é local e usa o Vault diretamente, com guard próprio. Tools cobrem list/search/read/open/create/append/delete note. Operações destrutivas continuam sujeitas a risco, guards, capability e audit; confirmação por risco ocorre somente em `CRITICAL`.
 
 Ambiguidades de nome devem ser perguntadas, não adivinhadas.
 
@@ -145,6 +198,8 @@ Implementado:
 
 Estados visuais incluem `WAITING_WAKE`, `LISTENING`, `PROCESSING`, `SPEAKING`, `WAITING_FOLLOWUP`, `WAITING_REPAIR`, `CONFIRMATION`, `EXECUTING` e `ERROR`.
 
+A partir da fundação de Desktop Automation, `EXECUTING` deixou de existir apenas no modo de demonstração: um observador do `ToolExecutor` publica esse estado **somente depois da autorização e imediatamente antes da execução real**. Ao terminar, volta para `PROCESSING`; exceções de runtime publicam `ERROR`. O observador recebe somente o nome da Tool e o resultado estruturado, sem argumentos/alvos sensíveis.
+
 ### Indicadores visuais ainda não são telemetria
 
 Textos como:
@@ -189,12 +244,59 @@ O `Harness` continua como maestro, dono do ciclo de vida, latência, trace e cha
 
 A decomposição atual já é suficiente para impedir que Desktop Automation, Vision e Browser precisem entrar como blocos gigantes no Harness. Antes desses subsistemas, ainda vale revisar as fronteiras públicas dos coordenadores e reduzir wrappers privados gradualmente, sem quebrar comportamento.
 
-## 13. Testes
+## 13. Desktop Automation Foundation
 
-Marco conhecido após o segundo sprint de decomposição do Harness:
+O primeiro estágio de Desktop Automation foi adicionado em módulo próprio, sem voltar a crescer o `Harness`. As capabilities `DESKTOP_READ` e `DESKTOP_CONTROL` já existiam e agora possuem Tools reais, ambas **desabilitadas por padrão** na configuração.
+
+Arquitetura:
 
 ```text
-623 passed
+LLM / Intent
+  ↓
+Desktop Tool
+  ↓
+ToolExecutor
+  ↓
+CapabilityPolicy
+  ↓
+SafetyManager / confirmação
+  ↓
+DesktopService
+  ↓
+WindowsDesktopBackend
+```
+
+Tools atuais:
+
+- `desktop_list_windows` — LOW / `DESKTOP_READ`;
+- `desktop_list_applications` — SAFE / `DESKTOP_READ`;
+- `desktop_focus_window` — MEDIUM / `DESKTOP_CONTROL`;
+- `desktop_open_application` — MEDIUM / `DESKTOP_CONTROL`.
+
+Abertura de aplicativo usa catálogo explícito. O LLM não fornece executável, argumentos, shell ou PowerShell. Catálogo inicial: `notepad`, `calculator`, `explorer`. Depois do lançamento, o backend verifica dentro de um prazo limitado se um processo com identidade definida no catálogo está em execução; sem essa evidência, a Tool retorna erro. Essa pós-condição comprova o estado em execução depois da solicitação, sem alegar causalidade quando o aplicativo já estava aberto. Resolução de janela prefere título exato e só aceita match parcial quando é único; ambiguidades falham em vez de escolher arbitrariamente.
+
+Pedidos explícitos de janela, como “foca a janela do Obsidian”, priorizam Desktop em vez da integração de notas. Depois do kill switch, as Tools de controle permanecem roteáveis e devolvem diretamente o bloqueio estruturado, sem depender de paráfrase do LLM.
+
+Controle possui `DesktopKillSwitch` fora do LLM. No Windows, quando `desktop_control` está habilitado, o runtime registra **Ctrl+Alt+K** por Win32. Falha no registro aciona o kill switch e deixa o controle fail-closed. Uma vez acionado, o LLM não possui Tool para resetá-lo; o rearmamento normal é feito reiniciando o runtime.
+
+As ações atuais (`focus/open`) são curtas. Qualquer sequência futura de mouse/teclado deverá consultar o kill switch entre passos; não será aceitável ter uma automação longa que só verifique cancelamento antes de começar.
+
+Configuração local:
+
+```text
+/config desktop
+/config desktop read on|off
+/config desktop control on|off
+```
+
+Ainda não implementado neste estágio: mouse/teclado arbitrários, screenshots, Vision, automação de navegador ou execução de comandos.
+
+## 14. Testes
+
+Marco conhecido após a revisão de autonomia e hardening de Desktop Automation:
+
+```text
+687 passed, 1 skipped
 compileall OK
 ```
 
@@ -207,25 +309,25 @@ git status
 python -m pytest
 ```
 
-## 14. Arquivos de continuidade
+## 15. Arquivos de continuidade
 
 - `AGENTS.md`: regras do repositório; deve existir na raiz.
 - `docs/JARVIS_STATE.md`: documento vivo oficial de estado.
 - patches, dumps e arquivos locais de recovery na raiz devem permanecer ignorados pelo Git.
 
-## 15. Próximas prioridades
+## 16. Próximas prioridades
 
-1. validar o V9 no PC principal e consolidar no Git quando autorizado;
-2. melhorar confiabilidade conversacional, grounding e contexto;
-3. evoluir memória pessoal persistente com autorização clara;
-4. transformar indicadores decorativos da HUD em telemetria real;
-5. iniciar Desktop Tools em módulo próprio, sem acoplar ao Harness;
-6. visão e verificação pós-ação;
+1. validar `desktop read/control` e o kill switch no Windows real;
+2. adicionar contexto/referência natural de janelas sem reduzir ambiguidade segura;
+3. só então introduzir mouse/teclado com limites, cancelamento e verificação pós-ação;
+4. evoluir memória pessoal persistente com autorização clara;
+5. transformar indicadores decorativos da HUD em telemetria real;
+6. Vision para percepção e verificação da tela;
 7. browser agent;
 8. startup automático e background runtime;
 9. acesso remoto seguro.
 
-## 16. Regras para continuidade
+## 17. Regras para continuidade
 
 Antes de alterar código:
 

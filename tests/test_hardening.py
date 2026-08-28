@@ -9,6 +9,7 @@ from jarvis.llm.types import LLMResponse, ToolCallRequest
 from jarvis.memory.conversation import ConversationMemory
 from jarvis.security.filesystem import FileSystemGuard
 from jarvis.security.authorization import AuthorizationGrantStore
+from jarvis.security.policy import SecurityPolicy
 from jarvis.tools.delete_file import DeleteFileTool
 from jarvis.tools.execution_result import ToolExecutionResult
 from jarvis.tools.executor import ToolExecutor
@@ -39,7 +40,8 @@ class RecordingExecutor:
         tool: Any,
         **kwargs: Any,
     ) -> ToolExecutionResult:
-        self.calls.append((tool.name, kwargs))
+        filtered = {k: v for k, v in kwargs.items() if k != "_interaction_id"}
+        self.calls.append((tool.name, filtered))
         return self.result
 
 
@@ -48,6 +50,7 @@ class RecordingSafetyManager:
         self.authorized = authorized
         self.calls: list[tuple[str, str, Any]] = []
         self.grants = AuthorizationGrantStore()
+        self.policy = SecurityPolicy()
 
     def authorize(self, action: str, target: str, risk: Any) -> bool:
         self.calls.append((action, target, risk))
