@@ -83,6 +83,11 @@ def test_critical_action_waits_allows_questions_and_then_executes(
     assert "ALTO RISCO" in prompt.upper()
     assert tool.executions == []
 
+    assert harness.processar_mensagem("sim") == (
+        "Essa resposta não corresponde à confirmação atual."
+    )
+    assert tool.executions == []
+
     explanation = harness.processar_mensagem("Por que precisa confirmar?")
     assert "CRITICAL" in explanation
     assert harness.current_confirmation_context() == context
@@ -103,7 +108,11 @@ def test_denial_and_stale_confirmation_never_execute(tmp_path: Path) -> None:
     harness.processar_mensagem("Execute a ação crítica em target-a.")
     context = harness.current_confirmation_context()
     assert context is not None
-    assert harness.processar_mensagem("deixa pra lá") == "Ação crítica cancelada."
+    assert harness.processar_mensagem(
+        "deixa pra lá",
+        confirmation_session_id=context[0],
+        confirmation_challenge_id=context[1],
+    ) == "Ação crítica cancelada."
     assert tool.executions == []
 
     harness.processar_mensagem("Execute a ação crítica em target-a.")

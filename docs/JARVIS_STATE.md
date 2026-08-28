@@ -271,15 +271,30 @@ Tools atuais:
 - `desktop_list_windows` — LOW / `DESKTOP_READ`;
 - `desktop_list_applications` — SAFE / `DESKTOP_READ`;
 - `desktop_focus_window` — MEDIUM / `DESKTOP_CONTROL`;
-- `desktop_open_application` — MEDIUM / `DESKTOP_CONTROL`.
+- `desktop_open_application` — MEDIUM / `DESKTOP_CONTROL`;
+- `desktop_move_pointer_to_window` — MEDIUM / `DESKTOP_CONTROL`;
+- `desktop_press_escape` — MEDIUM / `DESKTOP_CONTROL`;
+- `desktop_close_window` — HIGH / `DESKTOP_CONTROL`.
 
-Abertura de aplicativo usa catálogo explícito. O LLM não fornece executável, argumentos, shell ou PowerShell. Catálogo inicial: `notepad`, `calculator`, `explorer`. Depois do lançamento, o backend verifica dentro de um prazo limitado se um processo com identidade definida no catálogo está em execução; sem essa evidência, a Tool retorna erro. Essa pós-condição comprova o estado em execução depois da solicitação, sem alegar causalidade quando o aplicativo já estava aberto. Resolução de janela prefere título exato e só aceita match parcial quando é único; ambiguidades falham em vez de escolher arbitrariamente.
+Abertura de aplicativo usa catálogo explícito. O LLM não fornece executável, argumentos, shell ou PowerShell. Catálogo inicial: `notepad`, `calculator`, `explorer`. Depois do lançamento, o backend exige, dentro de um prazo limitado, processo com identidade definida no catálogo e janela de topo visível ligada a esse processo e a uma classe Win32 permitida. Processo isolado ou janela de infraestrutura do shell não comprovam sucesso. Classes atuais: `Notepad`, `Windows.UI.Core.CoreWindow`/`ApplicationFrameWindow` e `CabinetWClass`; `Progman` não é aceito como evidência do Explorer. Sem as evidências, a Tool retorna erro; quando existem, a resposta informa apenas que a solicitação foi enviada e o estado visível foi verificado, sem alegar causalidade quando o aplicativo já estava aberto. Resolução de janela prefere título exato e só aceita match parcial quando é único; ambiguidades falham em vez de escolher arbitrariamente.
 
-Pedidos explícitos de janela, como “foca a janela do Obsidian”, priorizam Desktop em vez da integração de notas. Depois do kill switch, as Tools de controle permanecem roteáveis e devolvem diretamente o bloqueio estruturado, sem depender de paráfrase do LLM.
+Pedidos explícitos de janela, como “foca a janela do Obsidian”, priorizam Desktop em vez da integração de notas. Um matcher pequeno cobre também formas naturais como “vai pro Obsidian”, “coloca o VS Code em foco” e “traz a calculadora pra frente”, encaminhando a Tool pelo fluxo normal de capability, policy, safety e audit sem chamada adicional ao LLM. Depois do kill switch, as Tools de controle permanecem roteáveis e devolvem diretamente o bloqueio estruturado, sem depender de paráfrase do LLM.
+
+Referências como “traz ela de volta”, “foca nela” e “volta pra ela” usam somente a última consulta de janela que terminou com foco bem-sucedido. O contexto é efêmero, não autoriza a ação e não preserva um handle: a janela é resolvida novamente pelo título em cada pedido. Ausência de contexto, janela desaparecida ou novas ambiguidades falham sem adivinhação.
 
 Controle possui `DesktopKillSwitch` fora do LLM. No Windows, quando `desktop_control` está habilitado, o runtime registra **Ctrl+Alt+K** por Win32. Falha no registro aciona o kill switch e deixa o controle fail-closed. Uma vez acionado, o LLM não possui Tool para resetá-lo; o rearmamento normal é feito reiniciando o runtime.
 
-As ações atuais (`focus/open`) são curtas. Qualquer sequência futura de mouse/teclado deverá consultar o kill switch entre passos; não será aceitável ter uma automação longa que só verifique cancelamento antes de começar.
+As ações iniciais (`focus/open`) são curtas. Qualquer sequência de mouse/teclado deve consultar o kill switch entre passos; não é aceitável ter uma automação que só verifique cancelamento antes de começar.
+
+A fundação limitada de input não aceita coordenadas, cliques, texto, repetição, modificadores ou tecla escolhida pelo LLM. `desktop_move_pointer_to_window` restaura/foca uma janela inequívoca, calcula seu centro pelo retângulo Win32 e verifica a posição final do cursor. `desktop_press_escape` foca e verifica a janela, envia somente key-down/key-up de Escape via `SendInput`, libera a tecla em `finally` e verifica novamente o foreground. O kill switch é consultado entre as etapas; se disparar após key-down, key-up ainda é emitido para evitar tecla presa e nenhuma etapa adicional é executada.
+
+`desktop_close_window` envia somente `WM_CLOSE` para uma janela inequívoca. Não usa `TerminateProcess`, não descarta alterações e não responde diálogos de salvamento. Se o handle desaparecer dentro do prazo, informa fechamento verificado; se continuar válido, informa apenas que a solicitação foi enviada e que a janela pode estar aguardando confirmação do aplicativo.
+
+O estado visual `EXECUTING` é publicado somente após autorização e imediatamente antes da execução real. Sucesso restaura `PROCESSING`; erro de runtime ou recurso não encontrado durante a execução publica `ERROR`. O observador recebe somente o nome da Tool e o resultado estruturado, sem argumentos ou alvos sensíveis.
+
+Teste de integração automatizado cobre `VoicePipeline` após STT, `Harness`, routing, `ToolExecutor`, capability, audit, `AgentStateBus` e IPC loopback da UI para as Tools limitadas de input. Os comandos determinísticos de centro do ponteiro e Escape usam `llm_calls=0`. Sucesso publica `EXECUTING -> PROCESSING`; falha de pós-verificação publica `EXECUTING -> ERROR` e não chama o LLM para reescrever o erro. O IPC não recebe detalhe, título ou argumentos. Esse teste não substitui aceite manual com microfone, TTS e processo Qt reais.
+
+Falhas de abertura distinguem processo ausente de processo sem janela visível permitida. Foreground lock e janela ainda minimizada possuem mensagens específicas; nenhuma delas habilita bypass do Windows.
 
 Configuração local:
 
@@ -289,18 +304,55 @@ Configuração local:
 /config desktop control on|off
 ```
 
-Ainda não implementado neste estágio: mouse/teclado arbitrários, screenshots, Vision, automação de navegador ou execução de comandos.
+Ainda não implementado neste estágio: coordenadas arbitrárias, clique, digitação de texto, atalhos genéricos, persistência/exposição de screenshots, interpretação visual multimodal, automação de navegador ou execução de comandos.
+
+Validação no Windows real em 28/08/2026:
+
+- `calculator`, `notepad` e `explorer` apresentaram processo e janela com classe esperada;
+- foco real do Explorer foi aceito e executado;
+- duplicidade de título da Calculadora foi recusada em vez de escolher uma janela;
+- pressionamento físico de Ctrl+Alt+K acionou o listener e uma tentativa subsequente de mover o ponteiro retornou `security_blocked` sem alterar a posição;
+- ponteiro foi movido para o centro restaurado do Explorer e a posição final foi verificada;
+- Escape foi aceito pelo `SendInput` em um Notepad colocado em foreground pelo usuário, com foreground final verificado;
+- foreground lock do Windows continua sendo respeitado; o JARVIS não usa bypass quando `SetForegroundWindow` é recusado.
+
+Aceite live com `python -m jarvis --voice --ui`:
+
+- wake word, STT, Piper, Ollama, HUD e kill switch iniciaram no runtime completo;
+- movimento para o centro do Explorer e “mova novamente” executaram deterministicamente com verificação;
+- Escape canônico no Notepad executou e verificou foreground;
+- fechamento cooperativo do Notepad executou por voz e verificou a ausência da janela;
+- variantes STT observadas (`movam`, `centro da tela`, `botão Escape`, artigos e preposições) foram incorporadas ao matcher pequeno;
+- pedido de Escape sem janela agora solicita alvo explícito em vez de inferir;
+- alegações sem Tool como “Escape pressionada”, “ponteiro na janela” e “botão visível” foram adicionadas ao grounding;
+- `av 18.1.0` foi bloqueado por Windows Application Control no `.venv`; `av 16.1.0` carregou corretamente e o extra `voice` passou a declarar `av>=11,<17`.
+
+### Vision Foundation read-only
+
+A capability `VISION` permanece desabilitada por padrão e independente de `DESKTOP_READ`/`DESKTOP_CONTROL`. Configuração local: `/config vision on|off` ou `JARVIS_VISION`.
+
+`vision_observe_screen_change` é MEDIUM, não recebe argumentos e usa Pillow somente para captura local em memória. O serviço valida formato RGB, consistência do buffer e limite de 33.177.600 pixels, serializa observações concorrentes e mantém apenas fingerprint SHA-256 interno da última captura. A Tool retorna somente `baseline`, `changed` ou `unchanged` e dimensões; pixels e digest não entram em resposta, audit ou IPC e nenhum arquivo de imagem é criado.
+
+O routing é determinístico (`llm_calls=0`). Capability é verificada pelo `ToolExecutor` e novamente no `VisionService`. Testes cobrem bloqueio antes da captura, frames inválidos, limite, privacidade do resultado, audit com alvo fixo, registro condicional da Tool e ausência de raw output.
+
+Validação real do backend observou uma área multi-monitor de `3840x3240`; duas capturas produziram baseline/mudança e o diretório temporário continha somente banco e audit, sem screenshot.
+
+Quando `VISION` está habilitada, o `ToolExecutor` acrescenta verificação visual opcional às Tools Desktop somente depois da autorização: captura baseline, executa a Tool e captura o pós-estado. A baseline usa token UUID single-use, digest da identidade lógica do alvo e expiração de 10 segundos; mismatch, expiração, replay ou falha da Tool cancelam/invalidam o token. Falha do verificador não bloqueia, autoriza, promove nem transforma o resultado da Tool.
+
+O sinal interno `visual_change` contém somente `changed`, `unchanged` ou `None`. Ele não altera a resposta ao usuário, status, grounding, audit ou IPC. Mudança visual é evidência adicional temporal, nunca prova semântica de que a ação causou o estado observado. A identidade atual deriva do alvo lógico resolvido; binding futuro a handle/processo preparado ainda é necessário para eliminar a janela de TOCTOU entre preflight e execução.
+
+Validação Win32 real com Explorer em foreground produziu Tool `success`, posição verificada e `visual_change=changed`. Uma tentativa anterior bloqueada pelo foreground lock cancelou a baseline e não gerou sinal visual falso.
 
 ## 14. Testes
 
 Marco conhecido após a revisão de autonomia e hardening de Desktop Automation:
 
 ```text
-687 passed, 1 skipped
+766 passed, 1 skipped
 compileall OK
 ```
 
-Esse resultado no ambiente de análise usou stubs somente para permitir imports de dependências externas ausentes; não substitui teste real de voz, Ollama ou Qt no PC principal.
+A suíte usa fakes nas fronteiras externas e não substitui teste real de voz, Ollama ou Qt. As validações Win32 reais conhecidas estão registradas na seção de Desktop Automation.
 
 Sempre validar no PC principal:
 
@@ -317,15 +369,32 @@ python -m pytest
 
 ## 16. Próximas prioridades
 
-1. validar `desktop read/control` e o kill switch no Windows real;
-2. adicionar contexto/referência natural de janelas sem reduzir ambiguidade segura;
-3. só então introduzir mouse/teclado com limites, cancelamento e verificação pós-ação;
+Próximo sprint recomendado: **Vision Target-Bound Verification**, mantendo clique e texto bloqueados.
+
+1. preparar e vincular handle/processo da janela uma única vez para preflight, ação e pós-verificação;
+2. reduzir comparação de tela inteira para região da janela preparada, sem persistir pixels;
+3. manter mudança visual como sinal adicional, nunca autorização ou prova semântica isolada;
 4. evoluir memória pessoal persistente com autorização clara;
 5. transformar indicadores decorativos da HUD em telemetria real;
 6. Vision para percepção e verificação da tela;
 7. browser agent;
 8. startup automático e background runtime;
 9. acesso remoto seguro.
+
+### Fase futura: Voice & Persona Evolution
+
+Esta fase permanece no roadmap e não faz parte do sprint atual de Desktop Reliability + Agent Autonomy.
+
+- Evoluir a personalidade do JARVIS para uma identidade mais elegante, inteligente, confiante e natural, com humor seco e sarcasmo moderado e contextual.
+- Permitir opiniões fundamentadas e discordância quando houver motivo concreto, sem humor em situações críticas, erros graves ou alertas.
+- Manter personalidade e engine de TTS como responsabilidades separadas.
+- Criar futuramente `SpeechStyle`, ou mecanismo equivalente, para adaptar ritmo e expressividade ao contexto.
+- Antes de substituir qualquer engine existente, executar benchmark local de TTS e clonagem autorizada, comparando inicialmente Chatterbox Multilingual e Qwen3-TTS local.
+- Preservar Piper como fallback rápido e offline; não treinar modelo do zero inicialmente e priorizar clonagem zero-shot/local.
+- Usar um conjunto fixo de frases para medir naturalidade, sarcasmo, execução, alerta e conversa.
+- Medir qualidade, latência, VRAM e estabilidade no hardware atual.
+- Cachear frases frequentes, como wake acknowledgement e confirmações curtas.
+- Não remover o pipeline de voz atual antes de existir comparação objetiva e teste real.
 
 ## 17. Regras para continuidade
 

@@ -30,6 +30,7 @@ def _load_local_settings(path: Path) -> tuple[dict[str, Any], str | None]:
         "assistant_address_mode": str,
         "desktop_read": bool,
         "desktop_control": bool,
+        "vision": bool,
     }
     for key, expected_type in validators.items():
         current = value.get(key)
@@ -63,6 +64,7 @@ class JarvisConfig:
     obsidian_write_enabled: bool | None = None
     desktop_read_enabled: bool = False
     desktop_control_enabled: bool = False
+    vision_enabled: bool = False
     obsidian_search_max_results: int = 10
     obsidian_max_note_size_bytes: int = 1_000_000
     max_tool_iterations: int = 5
@@ -257,6 +259,14 @@ class JarvisConfig:
             if isinstance(local_desktop_control, bool):
                 self.desktop_control_enabled = local_desktop_control
 
+        environment_vision = os.getenv("JARVIS_VISION")
+        if environment_vision is not None:
+            self.vision_enabled = _environment_flag("JARVIS_VISION")
+        else:
+            local_vision = settings.get("vision")
+            if isinstance(local_vision, bool):
+                self.vision_enabled = local_vision
+
     def save_obsidian_settings(
         self,
         *,
@@ -297,6 +307,13 @@ class JarvisConfig:
             self.desktop_read_enabled = bool(read)
         if control is not None and os.getenv("JARVIS_DESKTOP_CONTROL") is None:
             self.desktop_control_enabled = bool(control)
+
+    def save_vision_settings(self, *, enabled: bool) -> None:
+        settings, _error = _load_local_settings(self.settings_path)
+        settings["vision"] = bool(enabled)
+        self._write_local_settings(settings)
+        if os.getenv("JARVIS_VISION") is None:
+            self.vision_enabled = bool(enabled)
 
 
     def save_voice_settings(

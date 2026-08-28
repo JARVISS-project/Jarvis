@@ -194,11 +194,8 @@ class ConfirmationSessionManager:
             if session is None:
                 return ConfirmationDecision.STALE, None, None
             if (
-                session_id is not None
-                and session.id != session_id
-            ) or (
-                challenge_id is not None
-                and session.challenge_id != challenge_id
+                session_id != session.id
+                or challenge_id != session.challenge_id
             ):
                 return ConfirmationDecision.STALE, session, None
             if denied:

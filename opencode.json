@@ -7,6 +7,12 @@
     "docs/JARVIS_STATE.md"
   ],
 
+  "compaction": {
+    "auto": true,
+    "prune": true,
+    "reserved": 12000
+  },
+
   "provider": {
     "openai": {
       "models": {

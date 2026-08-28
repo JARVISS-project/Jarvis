@@ -8,6 +8,7 @@ Requires-Dist: ollama
 Provides-Extra: dev
 Requires-Dist: pytest; extra == "dev"
 Provides-Extra: voice
+Requires-Dist: av<17,>=11; extra == "voice"
 Requires-Dist: faster-whisper; extra == "voice"
 Requires-Dist: openwakeword; extra == "voice"
 Requires-Dist: pvrecorder; extra == "voice"
@@ -20,6 +21,8 @@ Requires-Dist: piper-tts<2,>=1.6; extra == "fast-voice"
 Requires-Dist: sounddevice>=0.5; extra == "fast-voice"
 Provides-Extra: ui
 Requires-Dist: PySide6<7,>=6.8; extra == "ui"
+Provides-Extra: vision
+Requires-Dist: Pillow<13,>=10; extra == "vision"
 
 # Jarvis
 
@@ -60,6 +63,20 @@ Dentro do Jarvis:
 /config voice pace calm
 ```
 
+Para comparar ritmos sem alterar `data/settings.json`, use um override apenas
+na execução atual. `natural` é o ponto de partida recomendado para o Razo:
+
+```powershell
+python -m jarvis --voice --ui --tts-pace natural
+python -m jarvis --voice --ui --tts-pace calm
+python -m jarvis --voice --ui --tts-pace fast
+```
+
+Os perfis priorizam uma cadência mais calma para a voz Razo (`fast=1.00`,
+`natural=1.18`, `calm=1.30`). O perfil `natural` continua sendo o padrão; use
+`fast` quando preferir respostas mais ágeis e `calm` quando quiser uma fala
+deliberadamente mais pausada.
+
 ### Chatterbox neural
 
 ```powershell
@@ -95,23 +112,101 @@ explicações detalhadas ou pedidos explícitos de aprofundamento podem ser maio
 ```
 
 
-## Presença por voz e interface ambiente
+## Presença por voz e Ambient HUD
 
-Ao detectar a wake word no modo de voz, o Jarvis pode confirmar presença com
-frases curtas rotativas como `Oi, tô aqui.`, `Diga.` e `Estou ouvindo.` sem
-chamar o LLM. O microfone de comando só é aberto depois que essa fala termina,
-mantendo o modo half-duplex que evita o Jarvis transcrever a própria voz.
+A chamada cotidiana é **`Jarvis`**. O detector continua usando o modelo local
+`hey_jarvis` do openWakeWord, que também pode reconhecer a forma curta, embora
+ela possa exigir calibração de sensibilidade. O threshold pode ser testado sem
+alterar código:
 
-O `VoicePipeline` também expõe mudanças de estado por callback (`LISTENING`,
-`PROCESSING`, `SPEAKING` etc.). Essa é a base para a futura Ambient UI/orb:
-a interface poderá reagir aos estados sem acoplar o Core a PySide/Qt.
+```powershell
+python -m jarvis --voice --wake-word-threshold 0.45
+```
 
-## Fast Paths e ações compostas
+Ao detectar a wake word, o Jarvis pode confirmar presença com frases curtas
+rotativas como `Oi, tô aqui.`, `Diga.` e `Estou ouvindo.` sem chamar o LLM. O
+microfone de comando só é aberto depois que essa fala termina, mantendo o modo
+half-duplex que evita o Jarvis transcrever a própria voz.
+
+A Ambient HUD pode acompanhar o Voice Runtime em um **processo separado**:
+
+```powershell
+python -m jarvis --voice --ui
+```
+
+O Core publica apenas snapshots de estado (`LISTENING`, `PROCESSING`,
+`SPEAKING`, `CONFIRMATION` etc.) por um canal TCP somente em loopback. A UI não
+possui canal de comandos de volta para o Core e detalhes contextuais não são
+serializados nesse transporte. Fechar a HUD não encerra o Voice Runtime. Enquanto
+o runtime continuar aberto, a interface pode ser iniciada novamente com:
+
+```powershell
+python -m jarvis.ui --live
+```
+
+O modo visual isolado continua disponível para desenvolvimento:
+
+```powershell
+python -m jarvis.ui
+```
+
+## Desktop Automation — fundação segura
+
+A automação de desktop é **opt-in**. Leitura e controle começam desabilitados
+para que a instalação padrão não ganhe capacidade de observar ou alterar a área
+de trabalho sem configuração explícita.
+
+```text
+/config desktop
+/config desktop read on
+/config desktop control on
+```
+
+Reinicie o Jarvis depois de alterar essas opções. No Windows, o primeiro estágio
+expõe apenas quatro Tools:
+
+- `desktop_list_windows`: lista títulos de janelas visíveis;
+- `desktop_list_applications`: lista o catálogo permitido;
+- `desktop_focus_window`: traz uma janela inequívoca para primeiro plano;
+- `desktop_open_application`: abre somente executáveis presentes na allowlist.
+
+O catálogo inicial contém `notepad`, `calculator` e `explorer`. O LLM escolhe
+um **nome do catálogo**, nunca um path, argumento, comando PowerShell ou shell.
+Foco e abertura são `MEDIUM` e executam sem confirmação por risco. A abertura
+só é reportada como solicitada com o aplicativo em execução depois que o backend
+observa um processo cuja identidade também está definida na allowlist.
+
+Quando `desktop control` está habilitado, o runtime tenta registrar um kill
+switch global em **Ctrl+Alt+K**. Se o hotkey não puder ser registrado, o
+controle fica bloqueado (fail-closed). Depois de acionado, novas ações de
+controle permanecem bloqueadas até reiniciar o Jarvis. O kill switch não é
+exposto como Tool e o LLM não pode rearmá-lo.
+As ações atuais são curtas/atômicas; quando mouse e teclado entrarem, sequências
+longas deverão consultar o kill switch entre cada passo para permitir interrupção
+real durante a automação.
+
+Ainda **não** existem neste estágio mouse/teclado arbitrários, screenshot,
+Vision ou shell irrestrito. Essas capacidades entram somente depois de validar
+esta fundação no PC principal.
+
+Com `--ui`, o `ToolExecutor` também publica `EXECUTING` quando a mutação real
+começa e volta para `PROCESSING` ao concluir; erros reais de execução publicam
+`ERROR`. O observador não recebe argumentos ou conteúdo da Tool.
+
+## Fast Paths, linguagem natural e grounding
 
 Intenções determinísticas como data/hora podem ser resolvidas sem uma rodada do
-LLM. Pedidos explícitos de abrir e ler a mesma nota do Obsidian também possuem
-um caminho composto determinístico, continuando a executar cada Tool pelo
-executor/política normal.
+LLM. Pedidos comuns do Obsidian aceitam variações de fala como `leia ela`,
+`leia a Jarvis Tool`, `lista minhas anotações` e `dentro de X coloque Y e depois
+leia`, continuando a executar cada Tool pelo executor/política normal. Inventário
+de Skills por voz também é lido diretamente do `SkillStore`, sem o LLM inventar
+capacidades que não estejam realmente registradas.
+
+Quando um pedido parece exigir uma ação real e a primeira resposta do modelo não
+contém Tool calls, o Harness permite uma segunda tentativa orientada em vez de
+exigir que o usuário repita uma frase exata. Um guard de grounding rejeita
+alegações como `criei`, `abri`, `listei` ou `encontrei` quando nenhuma Tool foi
+executada com sucesso na interação atual.
 
 ## Skills — memória procedural
 
@@ -140,7 +235,8 @@ Jarvis, aprenda esse procedimento como Ler nota de teste
 
 A Skill não armazena grants nem reduz risco. Ao executá-la novamente, cada Tool
 passa pelo `ToolExecutor`, `CapabilityPolicy`, `SafetyManager` e confirmação
-aplicável. Uma ação HIGH continua HIGH mesmo depois de aprendida.
+aplicável. `SAFE`, `LOW`, `MEDIUM` e `HIGH` não pedem confirmação por risco;
+somente `CRITICAL` exige autorização explícita.
 
 Quando o Obsidian está configurado com escrita habilitada, o Jarvis pode gerar
 um espelho em `Jarvis/Skills/`, criando nós úteis no Graph View.

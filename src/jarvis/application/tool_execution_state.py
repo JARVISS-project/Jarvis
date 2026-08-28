@@ -17,7 +17,7 @@ class AgentToolExecutionObserver:
     def finished(self, tool_name: str, result: ToolExecutionResult) -> None:
         state = (
             AgentState.ERROR
-            if result.status == "error"
+            if result.status in {"error", "not_found"}
             else AgentState.PROCESSING
         )
         self.state_bus.publish(state, source="tool_executor")

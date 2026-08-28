@@ -54,6 +54,37 @@ def test_session_transitions_and_binding() -> None:
     assert manager.current() is None
 
 
+def test_session_requires_complete_confirmation_context() -> None:
+    manager = ConfirmationSessionManager(start_scheduler=False)
+    session = request(manager)
+    assert session is not None
+    grant_calls = 0
+
+    def grant_factory(_session):  # type: ignore[no-untyped-def]
+        nonlocal grant_calls
+        grant_calls += 1
+        return "grant"
+
+    for session_id, challenge_id in (
+        (None, None),
+        (session.id, None),
+        (None, session.challenge_id),
+    ):
+        decision, decided_session, grant = manager.decide(
+            confirmed=True,
+            denied=False,
+            session_id=session_id,
+            challenge_id=challenge_id,
+            grant_factory=grant_factory,
+        )
+        assert decision is ConfirmationDecision.STALE
+        assert decided_session == session
+        assert grant is None
+
+    assert grant_calls == 0
+    assert manager.current() == session
+
+
 def test_denial_and_expiration_run_cleanup() -> None:
     now = [0.0]
     cleaned: list[str] = []

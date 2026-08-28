@@ -126,6 +126,29 @@ def test_agent_loop_returns_desktop_security_block_without_llm_rewrite():
     assert memory.get_history()[-1]["content"] == blocked.content
 
 
+def test_agent_loop_returns_desktop_verification_error_without_llm_rewrite():
+    coordinator, memory, _calls = make_coordinator(action=True, response="")
+    failed = ToolExecutionResult(
+        'Erro ao executar a Tool: não foi possível verificar "calculator".',
+        "error",
+        True,
+    )
+
+    result = coordinator._handle_execution_result(
+        "Abra a calculadora.",
+        SimpleNamespace(
+            name="desktop_open_application",
+            risk=RiskLevel.MEDIUM,
+        ),
+        {"application": "calculator"},
+        failed,
+        set(),
+    )
+
+    assert result == failed.content
+    assert memory.get_history()[-1]["content"] == failed.content
+
+
 def test_advisory_turn_uses_one_llm_call_without_tools_or_action_retry():
     coordinator, _memory, calls = make_coordinator(
         action=True,

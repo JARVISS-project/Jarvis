@@ -9,6 +9,7 @@ from jarvis.security.confirmation_session import digest_arguments
 from jarvis.tools.base import Tool
 from jarvis.tools.execution_result import ToolExecutionResult
 from jarvis.tools.execution_observer import ToolExecutionObserver
+from jarvis.tools.execution_verifier import ToolExecutionVerifier
 
 
 class ToolExecutor:
@@ -19,12 +20,14 @@ class ToolExecutor:
         capability_policy: CapabilityPolicy | None = None,
         observer: ToolExecutionObserver | None = None,
         confirmation_requester: Callable[..., ToolExecutionResult] | None = None,
+        verifier: ToolExecutionVerifier | None = None,
     ) -> None:
         self.safety_manager = safety_manager
         self.audit_logger = audit_logger
         self.capability_policy = capability_policy
         self.observer = observer
         self.confirmation_requester = confirmation_requester
+        self.verifier = verifier
 
     def execute(self, tool: Tool, **kwargs: Any) -> str:
         """Execute a tool while preserving the public string result."""
@@ -96,8 +99,23 @@ class ToolExecutor:
 
             self._notify_started(tool.name)
             execution_started = True
-            result = tool.execute(**kwargs)
-            execution_result = ToolExecutionResult(result, "success", True)
+            verification_token = self._begin_verification(tool.name, target)
+            try:
+                result = tool.execute(**kwargs)
+            except Exception:
+                self._cancel_verification(verification_token)
+                raise
+            visual_change = self._finish_verification(
+                verification_token,
+                tool.name,
+                target,
+            )
+            execution_result = ToolExecutionResult(
+                result,
+                "success",
+                True,
+                visual_change,
+            )
             self.audit_logger.log(
                 tool_name=tool.name,
                 target=target,
@@ -182,8 +200,23 @@ class ToolExecutor:
                 )
             self._notify_started(tool.name)
             execution_started = True
-            result = tool.execute(**kwargs)
-            execution_result = ToolExecutionResult(result, "success", True)
+            verification_token = self._begin_verification(tool.name, target)
+            try:
+                result = tool.execute(**kwargs)
+            except Exception:
+                self._cancel_verification(verification_token)
+                raise
+            visual_change = self._finish_verification(
+                verification_token,
+                tool.name,
+                target,
+            )
+            execution_result = ToolExecutionResult(
+                result,
+                "success",
+                True,
+                visual_change,
+            )
             self.audit_logger.log(tool.name, target, True, "success")
             self._notify_finished(tool.name, execution_result)
             return execution_result
@@ -218,6 +251,40 @@ class ToolExecutor:
             observer.started(tool_name)
         except Exception:
             # Observabilidade nunca deve alterar a autorização/execução.
+            return
+
+    def _begin_verification(self, tool_name: str, target: str):  # type: ignore[no-untyped-def]
+        verifier = self.verifier
+        if verifier is None:
+            return None
+        try:
+            return verifier.before(tool_name, target)
+        except Exception:
+            return None
+
+    def _finish_verification(
+        self,
+        token,  # type: ignore[no-untyped-def]
+        tool_name: str,
+        target: str,
+    ) -> str | None:
+        verifier = self.verifier
+        if verifier is None or token is None:
+            return None
+        try:
+            result = verifier.after(token, tool_name, target)
+            return result if result in {"changed", "unchanged"} else None
+        except Exception:
+            self._cancel_verification(token)
+            return None
+
+    def _cancel_verification(self, token) -> None:  # type: ignore[no-untyped-def]
+        verifier = self.verifier
+        if verifier is None or token is None:
+            return
+        try:
+            verifier.cancel(token)
+        except Exception:
             return
 
     def _notify_finished(

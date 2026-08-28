@@ -141,7 +141,132 @@ class DesktopOpenApplicationTool(Tool):
         )
         return (
             f'Solicitação de abertura enviada; aplicativo "{application.name}" '
-            "verificado em execução."
+            "verificado em execução com janela visível."
+        )
+
+
+class DesktopMovePointerToWindowTool(Tool):
+    name = "desktop_move_pointer_to_window"
+    description = (
+        "Move o ponteiro somente para o centro de uma janela aberta e "
+        "inequívoca. Não aceita coordenadas nem realiza cliques."
+    )
+    risk = RiskLevel.MEDIUM
+    parameters = {
+        "type": "object",
+        "properties": {
+            "title": {
+                "type": "string",
+                "description": "Título ou trecho inequívoco da janela aberta.",
+            }
+        },
+        "required": ["title"],
+        "additionalProperties": False,
+    }
+
+    def __init__(self, service: DesktopService) -> None:
+        self.service = service
+
+    def get_target(self, **kwargs: Any) -> str:
+        self.service.kill_switch.require_available()
+        window = self.service.resolve_window(str(kwargs["title"]))
+        return f"janela:{window.title}"
+
+    def preflight(self, **kwargs: Any) -> None:
+        self.service.kill_switch.require_available()
+        self.service.resolve_window(str(kwargs["title"]))
+
+    def execute(self, **kwargs: Any) -> str:
+        window = self.service.move_pointer_to_window_center(
+            str(kwargs["title"])
+        )
+        return (
+            f'Ponteiro movido para o centro da janela "{window.title}"; '
+            "posição verificada."
+        )
+
+
+class DesktopPressEscapeTool(Tool):
+    name = "desktop_press_escape"
+    description = (
+        "Envia somente a tecla Escape para uma janela aberta e inequívoca. "
+        "Não aceita outras teclas, texto, repetição ou modificadores."
+    )
+    risk = RiskLevel.MEDIUM
+    parameters = {
+        "type": "object",
+        "properties": {
+            "title": {
+                "type": "string",
+                "description": "Título ou trecho inequívoco da janela aberta.",
+            }
+        },
+        "required": ["title"],
+        "additionalProperties": False,
+    }
+
+    def __init__(self, service: DesktopService) -> None:
+        self.service = service
+
+    def get_target(self, **kwargs: Any) -> str:
+        self.service.kill_switch.require_available()
+        window = self.service.resolve_window(str(kwargs["title"]))
+        return f"janela:{window.title}"
+
+    def preflight(self, **kwargs: Any) -> None:
+        self.service.kill_switch.require_available()
+        self.service.resolve_window(str(kwargs["title"]))
+
+    def execute(self, **kwargs: Any) -> str:
+        window = self.service.press_escape(str(kwargs["title"]))
+        return (
+            f'Escape enviado para a janela "{window.title}"; '
+            "janela em primeiro plano verificada."
+        )
+
+
+class DesktopCloseWindowTool(Tool):
+    name = "desktop_close_window"
+    description = (
+        "Solicita fechamento cooperativo de uma janela aberta e inequívoca. "
+        "Não força processo nem responde diálogos de salvamento."
+    )
+    risk = RiskLevel.HIGH
+    parameters = {
+        "type": "object",
+        "properties": {
+            "title": {
+                "type": "string",
+                "description": "Título ou trecho inequívoco da janela aberta.",
+            }
+        },
+        "required": ["title"],
+        "additionalProperties": False,
+    }
+
+    def __init__(self, service: DesktopService) -> None:
+        self.service = service
+
+    def get_target(self, **kwargs: Any) -> str:
+        self.service.kill_switch.require_available()
+        window = self.service.resolve_window(str(kwargs["title"]))
+        return f"janela:{window.title}"
+
+    def preflight(self, **kwargs: Any) -> None:
+        self.service.kill_switch.require_available()
+        self.service.resolve_window(str(kwargs["title"]))
+
+    def execute(self, **kwargs: Any) -> str:
+        result = self.service.close_window(str(kwargs["title"]))
+        if result.closed:
+            return (
+                f'Janela "{result.window.title}" fechada; '
+                "ausência verificada."
+            )
+        return (
+            f'Solicitação de fechamento enviada para "{result.window.title}", '
+            "mas a janela continua aberta e pode estar aguardando confirmação "
+            "de salvamento."
         )
 
 
@@ -151,4 +276,7 @@ def desktop_tools(service: DesktopService) -> list[Tool]:
         DesktopListApplicationsTool(service),
         DesktopFocusWindowTool(service),
         DesktopOpenApplicationTool(service),
+        DesktopMovePointerToWindowTool(service),
+        DesktopPressEscapeTool(service),
+        DesktopCloseWindowTool(service),
     ]

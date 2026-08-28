@@ -196,8 +196,9 @@ class FasterWhisperSTT(SpeechToText):
                     from faster_whisper import WhisperModel
                 except ImportError as error:
                     raise RuntimeError(
-                        "Speech-to-Text não instalado. "
-                        "Instale o extra 'voice'."
+                        "Speech-to-Text não pôde ser carregado. "
+                        "Verifique o extra 'voice', dependências nativas e "
+                        f"a política de controle de aplicativos: {error}."
                     ) from error
                 self._model_factory = WhisperModel
 

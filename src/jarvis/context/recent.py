@@ -21,6 +21,7 @@ class RecentContext:
             "last_entities",
             "last_references",
             "last_search_query",
+            "last_desktop_window",
         }
     )
 

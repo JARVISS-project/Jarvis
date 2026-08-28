@@ -353,8 +353,12 @@ class AgentLoopCoordinator:
             tool.name in {
                 "desktop_focus_window",
                 "desktop_open_application",
+                "desktop_move_pointer_to_window",
+                "desktop_press_escape",
+                "desktop_close_window",
+                "vision_observe_screen_change",
             }
-            and execution_result.status == "security_blocked"
+            and execution_result.status != "success"
         ):
             self.memory.add_assistant_message(tool_result)
             return tool_result

@@ -182,6 +182,18 @@ class ToolExecutionCoordinator:
             "delete_file", "move_file",
         }:
             self.context_router.state.active = ActiveContext.FILESYSTEM
+        if tool_name in {
+            "desktop_focus_window",
+            "desktop_move_pointer_to_window",
+            "desktop_press_escape",
+        }:
+            title = arguments.get("title")
+            if isinstance(title, str) and title.strip():
+                self.recent_context.set(
+                    "last_desktop_window",
+                    title.strip(),
+                )
+            return
         if tool_name in {"obsidian_list_notes", "obsidian_search_notes"}:
             query = arguments.get("query")
             if isinstance(query, str) and query.strip():

@@ -49,10 +49,16 @@ class DesktopApplicationCatalog:
                         f"Processo de verificação inválido para "
                         f"'{application.name}'."
                     )
+            for window_class in application.window_classes:
+                if not re.fullmatch(r"[A-Za-z0-9._-]+", window_class):
+                    raise ValueError(
+                        f"Classe de janela inválida para '{application.name}'."
+                    )
             self._applications[key] = DesktopApplication(
                 application.name,
                 executable,
                 tuple(process_names),
+                tuple(application.window_classes),
             )
 
         self._aliases: dict[str, str] = {}
@@ -96,15 +102,22 @@ def windows_default_catalog() -> DesktopApplicationCatalog:
     system32 = windows_directory / "System32"
     applications = [
         DesktopApplication(
-            "notepad", system32 / "notepad.exe", ("notepad.exe",)
+            "notepad",
+            system32 / "notepad.exe",
+            ("notepad.exe",),
+            ("Notepad",),
         ),
         DesktopApplication(
             "calculator",
             system32 / "calc.exe",
             ("CalculatorApp.exe", "calc.exe"),
+            ("Windows.UI.Core.CoreWindow", "ApplicationFrameWindow"),
         ),
         DesktopApplication(
-            "explorer", windows_directory / "explorer.exe", ("explorer.exe",)
+            "explorer",
+            windows_directory / "explorer.exe",
+            ("explorer.exe",),
+            ("CabinetWClass",),
         ),
     ]
     aliases = {

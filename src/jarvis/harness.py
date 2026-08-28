@@ -256,13 +256,26 @@ class Harness:
 
         try:
             while True:
+                confirmation_context = self.current_confirmation_context()
                 mensagem = input("Você: ")
 
                 if mensagem.lower() == "sair":
                     print("Jarvis: Até mais.")
                     break
 
-                resposta = self.processar_mensagem(mensagem)
+                resposta = self.processar_mensagem(
+                    mensagem,
+                    confirmation_session_id=(
+                        confirmation_context[0]
+                        if confirmation_context is not None
+                        else None
+                    ),
+                    confirmation_challenge_id=(
+                        confirmation_context[1]
+                        if confirmation_context is not None
+                        else None
+                    ),
+                )
                 print(f"Jarvis: {resposta}")
         finally:
             self.close_confirmation_sessions()
@@ -624,6 +637,24 @@ class Harness:
             return (
                 f"Desktop {setting} {state}. Reinicie o Jarvis para aplicar."
             )
+
+        if normalized.casefold() == "/config vision":
+            state = "ENABLED" if self.config.vision_enabled else "DISABLED"
+            return f"Vision read-only: {state}"
+
+        vision_match = re.fullmatch(
+            r"/config\s+vision\s+(on|off)",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if vision_match is not None:
+            enabled = vision_match.group(1).casefold() == "on"
+            try:
+                self.config.save_vision_settings(enabled=enabled)
+            except OSError as error:
+                return f"Não foi possível salvar a configuração: {error}."
+            state = "habilitada" if enabled else "desabilitada"
+            return f"Vision read-only {state}. Reinicie o Jarvis para aplicar."
 
         if normalized.casefold() == "/config voice":
             reference = self.config.tts_reference_audio_path
@@ -1093,6 +1124,69 @@ class Harness:
         )
 
     def _fast_path_response(self, message: str) -> str | None:
+        last_window = self.recent_context.get("last_desktop_window")
+        desktop_action = self.tool_selection_router.desktop_action(
+            message,
+            last_window if isinstance(last_window, str) else None,
+        )
+        if desktop_action is not None:
+            tool_name, arguments = desktop_action
+            tool = self.tool_registry.get(tool_name)
+            if tool is None:
+                if self.tool_selection_router.is_desktop_reference(message):
+                    response = (
+                        "O controle de desktop não está disponível nesta execução."
+                    )
+                    self.memory.add_user_message(message)
+                    self.memory.add_assistant_message(response)
+                    return response
+            else:
+                self.memory.add_user_message(message)
+                result = self._execute_tool(tool, arguments)
+                if result.status == "success":
+                    self._remember_operational_context(
+                        tool.name,
+                        arguments,
+                        result.content,
+                    )
+                self.memory.add_assistant_message(result.content)
+                return result.content
+        if self.tool_selection_router.is_desktop_reference(message):
+            response = (
+                "Não tenho uma janela recente inequívoca para essa referência. "
+                "Diga o título da janela que deseja focar."
+            )
+            self.memory.add_user_message(message)
+            self.memory.add_assistant_message(response)
+            return response
+
+        if self.tool_selection_router.is_incomplete_desktop_input(message):
+            response = (
+                "Diga em qual janela devo pressionar Escape; não vou "
+                "inferir o alvo."
+            )
+            self.memory.add_user_message(message)
+            self.memory.add_assistant_message(response)
+            return response
+
+        if self.tool_selection_router.is_vision_request(message):
+            tool = self.tool_registry.get("vision_observe_screen_change")
+            if tool is None:
+                response = "Vision read-only não está disponível nesta execução."
+                self.memory.add_user_message(message)
+                self.memory.add_assistant_message(response)
+                return response
+            self.memory.add_user_message(message)
+            result = self._execute_tool(tool, {})
+            if result.status == "success":
+                self._remember_operational_context(
+                    tool.name,
+                    {},
+                    result.content,
+                )
+            self.memory.add_assistant_message(result.content)
+            return result.content
+
         match = self.fast_path_router.match(message)
         if match is None:
             return None

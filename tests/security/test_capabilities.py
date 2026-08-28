@@ -51,3 +51,19 @@ def test_desktop_tools_are_mapped_to_separate_capabilities() -> None:
         TOOL_CAPABILITIES["desktop_open_application"]
         is Capability.DESKTOP_CONTROL
     )
+    assert (
+        TOOL_CAPABILITIES["desktop_move_pointer_to_window"]
+        is Capability.DESKTOP_CONTROL
+    )
+    assert (
+        TOOL_CAPABILITIES["desktop_press_escape"]
+        is Capability.DESKTOP_CONTROL
+    )
+    assert (
+        TOOL_CAPABILITIES["desktop_close_window"]
+        is Capability.DESKTOP_CONTROL
+    )
+    assert (
+        TOOL_CAPABILITIES["vision_observe_screen_change"]
+        is Capability.VISION
+    )

@@ -8,7 +8,11 @@ from collections.abc import Callable
 from jarvis.desktop.backend import DesktopBackend
 from jarvis.desktop.catalog import DesktopApplicationCatalog
 from jarvis.desktop.control import DesktopKillSwitch
-from jarvis.desktop.models import DesktopApplication, DesktopWindow
+from jarvis.desktop.models import (
+    DesktopApplication,
+    DesktopWindow,
+    WindowCloseResult,
+)
 
 
 def _normalize(value: str) -> str:
@@ -92,10 +96,87 @@ class DesktopService:
         self.backend.launch_application(application.executable)
         deadline = self.monotonic() + self.verification_timeout
         while True:
-            if self.backend.is_application_running(application.process_names):
+            process_running = self.backend.is_application_running(
+                application.process_names
+            )
+            window_visible = (
+                self.backend.has_application_window(
+                    application.process_names,
+                    application.window_classes,
+                )
+                if process_running
+                else False
+            )
+            if process_running and window_visible:
                 return application
             if self.monotonic() >= deadline:
+                detail = (
+                    "o processo esperado apareceu, mas nenhuma janela visível "
+                    "permitida foi encontrada"
+                    if process_running
+                    else "o processo esperado não apareceu"
+                )
                 raise RuntimeError(
-                    f'Não foi possível verificar a abertura de "{application.name}".'
+                    f'Não foi possível verificar a abertura de "{application.name}": '
+                    f"{detail}."
                 )
             self.sleep(self.verification_interval)
+
+    def move_pointer_to_window_center(
+        self,
+        query: str,
+    ) -> DesktopWindow:
+        self.kill_switch.require_available()
+        window = self.resolve_window(query)
+        self.kill_switch.require_available()
+        self.backend.focus_window(window.handle)
+        self.kill_switch.require_available()
+        if self.backend.foreground_window() != window.handle:
+            raise RuntimeError("A janela alvo não ficou em primeiro plano.")
+        rectangle = self.backend.window_rectangle(window.handle)
+        if rectangle.right <= rectangle.left or rectangle.bottom <= rectangle.top:
+            raise RuntimeError("A janela não possui limites utilizáveis.")
+        x = rectangle.left + (rectangle.right - rectangle.left) // 2
+        y = rectangle.top + (rectangle.bottom - rectangle.top) // 2
+        self.kill_switch.require_available()
+        self.backend.move_pointer(x, y)
+        self.kill_switch.require_available()
+        if self.backend.pointer_position() != (x, y):
+            raise RuntimeError("Não foi possível verificar a posição do ponteiro.")
+        return window
+
+    def press_escape(self, query: str) -> DesktopWindow:
+        self.kill_switch.require_available()
+        window = self.resolve_window(query)
+        self.kill_switch.require_available()
+        self.backend.focus_window(window.handle)
+        self.kill_switch.require_available()
+        if self.backend.foreground_window() != window.handle:
+            raise RuntimeError("A janela alvo não ficou em primeiro plano.")
+        self.kill_switch.require_available()
+        escape_pressed = False
+        try:
+            self.backend.set_escape_pressed(True)
+            escape_pressed = True
+            self.kill_switch.require_available()
+        finally:
+            if escape_pressed:
+                self.backend.set_escape_pressed(False)
+        self.kill_switch.require_available()
+        if self.backend.foreground_window() != window.handle:
+            raise RuntimeError(
+                "Não foi possível verificar a janela após enviar Escape."
+            )
+        return window
+
+    def close_window(self, query: str) -> WindowCloseResult:
+        self.kill_switch.require_available()
+        window = self.resolve_window(query)
+        self.kill_switch.require_available()
+        self.backend.request_window_close(window.handle)
+        deadline = self.monotonic() + self.verification_timeout
+        while self.backend.window_exists(window.handle):
+            if self.monotonic() >= deadline:
+                return WindowCloseResult(window, closed=False)
+            self.sleep(self.verification_interval)
+        return WindowCloseResult(window, closed=True)

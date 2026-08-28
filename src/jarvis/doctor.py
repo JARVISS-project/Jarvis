@@ -81,6 +81,11 @@ class JarvisDoctor:
                 "Desktop control",
                 "ENABLED" if self.config.desktop_control_enabled else "DISABLED",
             ),
+            (
+                "Vision",
+                "ENABLED" if self.config.vision_enabled else "DISABLED",
+            ),
+            ("Vision backend", self._optional_status("PIL")),
             ("Tools registered", "YES" if tools_registered else "NO"),
             ("Skills", self._skills_status()),
         ]

@@ -54,3 +54,19 @@ def test_catalog_derives_process_identity_from_executable(tmp_path: Path) -> Non
     )
 
     assert catalog.resolve("notepad").process_names == ("notepad.exe",)
+
+
+def test_catalog_rejects_invalid_window_class(tmp_path: Path) -> None:
+    executable = tmp_path / "notepad.exe"
+
+    with pytest.raises(ValueError, match="Classe de janela inválida"):
+        DesktopApplicationCatalog(
+            [
+                DesktopApplication(
+                    "notepad",
+                    executable,
+                    ("notepad.exe",),
+                    ("Notepad class with spaces",),
+                )
+            ]
+        )

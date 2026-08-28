@@ -26,13 +26,22 @@ class ExecutionClaimGuard:
         r"apaguei|exclui|deletei|movi|renomeei|li|listei|procurei|busquei|"
         r"encontrei|localizei|verifiquei|confirmei|executei|rodei|testei|"
         r"instalei|desinstalei|baixei|salvei|iniciei|encerrei|organizei|"
-        r"reorganizei|formatei|estruturei|corrigi|atualizei)\b"
+        r"reorganizei|formatei|estruturei|corrigi|atualizei|foquei|"
+        r"focalizei|trouxe|pressionei|observei|capturei|fechei)\b"
     )
     _RESULT_CLAIM = re.compile(
         r"\b(?:essas|estes|esses|aqui)\s+(?:sao|estao)\s+(?:as|os)\s+"
         r"(?:notas|arquivos|resultados)\b"
         r"|\bagora\s+(?:esta|ficou)\s+(?:mais\s+)?"
         r"(?:limpa|limpo|organizada|organizado|estruturada|estruturado)\b"
+        r"|\b(?:o|a)\s+(?:aplicativo|programa|janela)\s+(?:esta|ficou)\s+"
+        r"(?:aberto|aberta|em\s+foco|em\s+primeiro\s+plano|em\s+execucao)\b"
+        r"|\bo\s+ponteiro\s+(?:esta|ficou)\s+(?:agora\s+)?"
+        r"(?:posicionado\s+)?(?:no\s+centro|na\s+janela)\b"
+        r"|\bescape\s+(?:foi\s+enviado|foi\s+pressionad[oa]|pressionad[oa])\b"
+        r"|\ba\s+janela(?:\s+[a-z0-9]+){0,8}\s+esta\s+aberta\b"
+        r"|\bo\s+botao(?:\s+de)?\s+escape\s+esta\s+visivel\b"
+        r"|\ba\s+tela\s+(?:mudou|nao\s+mudou|foi\s+alterada)\b"
     )
 
     def validate(

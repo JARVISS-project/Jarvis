@@ -51,6 +51,7 @@ from jarvis.tools.move_file import MoveFileTool
 from jarvis.tools.obsidian import obsidian_tools
 from jarvis.tools.read_file import ReadFileTool
 from jarvis.tools.registry import ToolRegistry
+from jarvis.tools.vision import VisionObserveScreenChangeTool
 from jarvis.tts.chatterbox import ChatterboxTTS
 from jarvis.tts.piper import PiperTTS
 from jarvis.tts.piper_setup import setup_piper_voice
@@ -59,6 +60,9 @@ from jarvis.voice.pipeline import VoicePipeline
 from jarvis.voice.state import VoicePipelineState
 from jarvis.voice.barge_in import BargeInController
 from jarvis.voice.audio_session import VoiceAudioSession
+from jarvis.vision.pillow_backend import PillowVisionBackend
+from jarvis.vision.execution_verifier import VisionToolExecutionVerifier
+from jarvis.vision.service import VisionService
 
 
 def build_harness(
@@ -83,9 +87,15 @@ def build_harness(
             Capability.OBSIDIAN_WRITE: config.obsidian_write_enabled,
             Capability.DESKTOP_READ: config.desktop_read_enabled,
             Capability.DESKTOP_CONTROL: config.desktop_control_enabled,
+            Capability.VISION: config.vision_enabled,
         }
     )
     audit_logger = AuditLogger(config.audit_log_path)
+    vision_service = (
+        VisionService(PillowVisionBackend(), capability_policy)
+        if capability_policy.is_enabled(Capability.VISION)
+        else None
+    )
     tool_executor = ToolExecutor(
         safety_manager=safety_manager,
         audit_logger=audit_logger,
@@ -93,6 +103,11 @@ def build_harness(
         observer=(
             AgentToolExecutionObserver(state_bus)
             if state_bus is not None
+            else None
+        ),
+        verifier=(
+            VisionToolExecutionVerifier(vision_service)
+            if vision_service is not None
             else None
         ),
     )
@@ -136,11 +151,19 @@ def build_harness(
                 if tool.name in {
                     "desktop_focus_window",
                     "desktop_open_application",
+                    "desktop_move_pointer_to_window",
+                    "desktop_press_escape",
+                    "desktop_close_window",
                 }
                 else Capability.DESKTOP_READ
             )
             if capability_policy.is_enabled(capability):
                 tool_registry.register(tool)
+
+    if vision_service is not None:
+        tool_registry.register(
+            VisionObserveScreenChangeTool(vision_service)
+        )
 
     note_reference_resolver = None
     obsidian_vault = None

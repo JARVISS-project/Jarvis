@@ -32,3 +32,10 @@ def test_advisory_turns_are_detected_without_llm(message: str) -> None:
 )
 def test_explicit_effect_requests_remain_operational(message: str) -> None:
     assert TurnPolicy().classify(message) is TurnKind.EFFECT_REQUEST
+
+
+def test_screen_comparison_is_effect_and_conceptual_comparison_is_advisory() -> None:
+    policy = TurnPolicy()
+
+    assert policy.classify("Compare a tela agora.") is TurnKind.EFFECT_REQUEST
+    assert policy.classify("Compare Python e Rust.") is TurnKind.ADVISORY

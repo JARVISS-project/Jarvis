@@ -12,6 +12,7 @@ def test_config_defaults_match_current_application(
     monkeypatch.delenv("JARVIS_TTS_PROVIDER", raising=False)
     monkeypatch.delenv("JARVIS_TTS_REFERENCE_AUDIO", raising=False)
     monkeypatch.delenv("JARVIS_ASSISTANT_ADDRESS_MODE", raising=False)
+    monkeypatch.delenv("JARVIS_VISION", raising=False)
     config = JarvisConfig(settings_path=tmp_path / "missing.json")
 
     assert config.model_name == "qwen3:4b-instruct-2507-q4_K_M"
@@ -25,6 +26,7 @@ def test_config_defaults_match_current_application(
     assert config.filesystem_write_enabled is True
     assert config.obsidian_read_enabled is True
     assert config.obsidian_write_enabled is False
+    assert config.vision_enabled is False
     assert config.max_tool_iterations == 5
     assert config.ollama_keep_alive_normal == "5m"
     assert config.ollama_keep_alive_game_mode == "30s"

@@ -31,6 +31,7 @@ def test_doctor_is_local_safe_and_outside_conversation() -> None:
     assert "Runtime" in report
     assert "STT" in report
     assert "Obsidian" in report
+    assert "Vision" in report
     assert llm.calls == 0
     assert memory.get_history() == []
     assert "token" not in report.casefold()

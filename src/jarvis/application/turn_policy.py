@@ -28,11 +28,16 @@ class TurnPolicy:
         r"mova|execute|rode|foque|inicie|adicione|escreva|anote|faca|faz|"
         r"coloque)\b"
     )
+    _EXPLICIT_VISUAL_EFFECT = re.compile(
+        r"^(?:observe|observa|verifique|verifica|capture|captura|"
+        r"compare|compara)\s+(?:se\s+)?(?:a\s+)?tela\b"
+    )
 
     def classify(self, message: str) -> TurnKind:
         normalized = self.normalize(message)
         if (
-            self._EXPLICIT_FOLLOWUP_EFFECT.search(normalized)
+            self._EXPLICIT_VISUAL_EFFECT.search(normalized)
+            or self._EXPLICIT_FOLLOWUP_EFFECT.search(normalized)
             or self._has_sentence_effect(message)
         ):
             return TurnKind.EFFECT_REQUEST

@@ -12,6 +12,7 @@ ToolExecutionStatus = Literal[
     "error",
     "confirmation_required",
 ]
+VisualChangeStatus = Literal["changed", "unchanged"]
 
 
 @dataclass(frozen=True)
@@ -21,3 +22,4 @@ class ToolExecutionResult:
     content: str
     status: ToolExecutionStatus
     authorized: bool
+    visual_change: VisualChangeStatus | None = None

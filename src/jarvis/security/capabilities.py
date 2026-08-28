@@ -50,4 +50,8 @@ TOOL_CAPABILITIES = {
     "desktop_list_applications": Capability.DESKTOP_READ,
     "desktop_focus_window": Capability.DESKTOP_CONTROL,
     "desktop_open_application": Capability.DESKTOP_CONTROL,
+    "desktop_move_pointer_to_window": Capability.DESKTOP_CONTROL,
+    "desktop_press_escape": Capability.DESKTOP_CONTROL,
+    "desktop_close_window": Capability.DESKTOP_CONTROL,
+    "vision_observe_screen_change": Capability.VISION,
 }

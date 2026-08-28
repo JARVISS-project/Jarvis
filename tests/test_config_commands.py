@@ -151,3 +151,19 @@ def test_desktop_config_is_opt_in_and_persistent(
     assert "Reinicie" in control
     assert memory.get_history() == []
     assert llm.calls == 0
+
+
+def test_vision_config_is_opt_in_and_persistent(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("JARVIS_VISION", raising=False)
+    settings_path = tmp_path / "data" / "settings.json"
+    harness, memory, llm = build_config_harness(settings_path)
+
+    initial = harness.processar_mensagem("/config vision")
+    enabled = harness.processar_mensagem("/config vision on")
+
+    saved = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert "Vision read-only: DISABLED" in initial
+    assert saved["vision"] is True
+    assert "Reinicie" in enabled
+    assert memory.get_history() == []
+    assert llm.calls == 0

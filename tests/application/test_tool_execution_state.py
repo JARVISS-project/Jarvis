@@ -12,10 +12,11 @@ def test_tool_execution_observer_publishes_executing_then_processing() -> None:
     observer.started("read_file")
     observer.finished(
         "read_file",
-        ToolExecutionResult("ok", "success", True),
+        ToolExecutionResult("ok", "success", True, "changed"),
     )
 
     assert seen == [AgentState.EXECUTING, AgentState.PROCESSING]
+    assert bus.snapshot.detail is None
 
 
 def test_tool_execution_observer_publishes_error_for_runtime_error() -> None:
@@ -26,6 +27,19 @@ def test_tool_execution_observer_publishes_error_for_runtime_error() -> None:
     observer.finished(
         "desktop_focus_window",
         ToolExecutionResult("erro", "error", True),
+    )
+
+    assert bus.snapshot.state is AgentState.ERROR
+
+
+def test_tool_execution_observer_publishes_error_for_runtime_not_found() -> None:
+    bus = AgentStateBus(AgentState.PROCESSING)
+    observer = AgentToolExecutionObserver(bus)
+
+    observer.started("desktop_open_application")
+    observer.finished(
+        "desktop_open_application",
+        ToolExecutionResult("não encontrado", "not_found", True),
     )
 
     assert bus.snapshot.state is AgentState.ERROR
