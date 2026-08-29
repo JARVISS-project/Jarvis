@@ -205,6 +205,21 @@ def test_waiting_idle_does_not_run_tts() -> None:
     assert tts.spoken == []
 
 
+def test_stop_request_unblocks_idle_listener_without_starting_new_turn() -> None:
+    listener = FakeListener([None])
+    stt = FakeSpeechToText()
+    harness = FakeHarness()
+    pipeline = make_pipeline(
+        ResourceManager(), listener, FakeRecorder([1]), stt, harness, []
+    )
+
+    pipeline.request_stop()
+
+    assert listener.closed is True
+    assert stt.calls == []
+    assert harness.calls == []
+
+
 def test_wake_word_captures_audio_transcribes_and_delegates_to_harness() -> None:
     manager = ResourceManager()
     recorder = FakeRecorder([1, 2, 3])

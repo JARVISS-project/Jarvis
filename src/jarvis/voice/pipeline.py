@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from threading import Event
 import time
 from typing import Protocol
 
@@ -157,6 +158,7 @@ class VoicePipeline:
         self._last_response = ""
         self._end_conversation = False
         self._closed = False
+        self._stop_requested = Event()
         self._current_turn_started_at: float | None = None
         self._current_stt_seconds = 0.0
         self._last_tts_total_seconds = 0.0
@@ -168,11 +170,14 @@ class VoicePipeline:
             self._warm_up_llm()
             self.listener.start()
             self._enter_waiting_wake(announce=True)
-            while True:
+            while not self._stop_requested.is_set() and not self._closed:
                 if self.process_once():
                     self._enter_waiting_wake(announce=True)
         except KeyboardInterrupt:
             self.output("Modo voice encerrado.")
+        except Exception:
+            if not self._stop_requested.is_set():
+                raise
         finally:
             self.close()
 
@@ -578,6 +583,12 @@ class VoicePipeline:
                 if callable(close_confirmations):
                     close_confirmations()
                 self._closed = True
+
+    def request_stop(self) -> None:
+        """Stops accepting turns and unblocks an idle wake-word wait."""
+        self._stop_requested.set()
+        if self.state is VoicePipelineState.WAITING_WAKE:
+            self.listener.close()
 
     def set_confirmation_state(self, state: VoicePipelineState) -> None:
         if state in {

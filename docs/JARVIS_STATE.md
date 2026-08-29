@@ -376,10 +376,10 @@ Memória nunca concede autorização: `consent_given` controla apenas inclusão 
 
 ## 14. Testes
 
-Marco conhecido após a conclusão do Web Control Center Foundation:
+Marco conhecido após a conclusão de Google Integration Foundation:
 
 ```text
-943 passed, 1 skipped
+1004 passed, 1 skipped
 compileall OK
 git diff --check OK
 ```
@@ -401,10 +401,10 @@ python -m pytest
 
 ## 16. Próximas prioridades
 
-Próximo sprint recomendado: **startup automático e background runtime**.
+Próximo sprint recomendado: **Google Calendar Read-only Foundation**, somente após decisão explícita de sprint.
 
-1. startup automático e background runtime;
-2. Google Integration Foundation, somente após decisão explícita de sprint.
+1. Google Calendar Read-only Foundation;
+2. hardening futuro de recovery/supervisão, sem restart infinito.
 
 ## 17. Control Center Foundation (concluído)
 
@@ -665,11 +665,104 @@ git diff --check OK
 Control Center TypeScript → WebSocket → Gateway → RemoteCorePort → Core fake OK
 ```
 
+## Startup & Background Runtime Foundation (concluído)
+
+O JARVIS possui agora um runtime composto explícito para execução interativa ou sem console permanente na sessão do usuário Windows:
+
+```text
+RuntimeLifecycle
+    ├── Core / Harness único
+    ├── Voice opcional
+    ├── Remote Gateway opcional
+    ├── Ambient UI opcional
+    ├── health local
+    └── cleanup reverso
+```
+
+- `--background` apenas desacopla o processo; não habilita Voice, Remote ou UI. No Windows, o processo filho oficial usa `pythonw.exe`, `CREATE_NO_WINDOW` e a mesma instalação Python.
+- As combinações `Core`, `Core + Voice`, `Core + Remote`, `Core + UI` e combinações entre elas permanecem independentes. `Remote + Voice` compartilha o mesmo Harness, ToolExecutor, ConfirmationSession e serviços; não existe segundo Core.
+- Turnos Voice e Remote são serializados no Harness para proteger memória conversacional, PendingAction, confirmações, trace e telemetria compartilhados.
+- O lifecycle observável segue `STARTING → RUNNING → STOPPING → STOPPED`. Falha parcial executa rollback em ordem reversa; falha de health/logging não concede autorização nem impede cleanup.
+- Shutdown para primeiro novas conexões Remote, drena trabalhos em andamento, solicita parada cooperativa do Voice, fecha Harness/ConfirmationSession, IPC/UI, Kill Switch listener e demais recursos. Operações em andamento não são terminadas à força.
+- Single-instance usa mutex Win32 `Local\\JARVIS.Runtime` como autoridade. `data/runtime/instance.json` é somente metadata local; após crash, o kernel libera o mutex e a nova instância substitui metadata stale. Em outras plataformas, o fallback verifica PID antes de recuperar lock stale.
+- Health local fica em `data/runtime/runtime-status.json` e inclui estado, PID local, uptime, capacidades iniciadas e erro agregado seguro de startup. Não é publicado automaticamente pelo Remote.
+- `--runtime-status` consulta health local e `--runtime-stop` grava uma solicitação cooperativa vinculada ao `instance_id` atual.
+- Logging técnico usa `logs/runtime.log`, rotação por tamanho (1 MB, três backups) e redação de tokens, Authorization Bearer e pairing codes inclusive em tracebacks. Não registra prompts, chat, memórias ou argumentos de Tools. O Audit permanece separado e autoritativo para ações operacionais.
+- Autostart explícito usa `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`, adequado à sessão interativa necessária por Voice, UI, Desktop e Vision. Comandos: `--startup install|remove|status`; capacidades podem ser preservadas com `--voice`, `--remote` e `--ui` (ou aliases `--startup-*`). O comando armazenado não contém tokens ou credenciais.
+- Windows Service não é a arquitetura adotada nesta fundação porque isolaria capacidades interativas da sessão do usuário.
+
+Validação real no Windows em 29/08/2026:
+
+- Core-only iniciou por `python -m jarvis --background`, sem console permanente, e health retornou PID/uptime/capacidade `core`;
+- Remote-only iniciou com `--background --remote --remote-port 0`, sem habilitar Voice ou UI;
+- uma segunda instância foi recusada sem encerrar a existente;
+- `--runtime-stop` encerrou Core-only e Remote-only cooperativamente e o status voltou a inativo;
+- autostart completou `install → status → remove → status` no registro do usuário atual;
+- `966 passed, 1 skipped`; `compileall` e `git diff --check` passaram.
+
+Limitações deliberadas:
+
+- não há supervisor nem restart automático neste sprint;
+- health e stop são locais e baseados em arquivo, ainda sem exposição no Web Control Center;
+- falha do processo da Ambient UI depois do startup não reinicia a UI automaticamente;
+- aceite live completo de Voice + UI + Remote com microfone/TTS/Ollama continua sendo validação manual separada; a fundação automatizada usa fakes nas fronteiras pesadas.
+
 ## 20. Google Workspace Integration
 
-> Planejamento de integração ao ecossistema Google através de APIs oficiais. Não implementar neste sprint; registrado para continuidade do roadmap.
+### Google Integration Foundation (concluído)
 
-...
+A fundação de autenticação Google Workspace foi implementada sem adicionar Tools ou autoridade operacional:
+
+```text
+CLI local
+    ↓
+GoogleAuthManager
+    ├── OAuthFlowClient (google-auth-oauthlib)
+    ├── LoopbackOAuthReceiver (127.0.0.1)
+    ├── ProtectedFileCredentialStore
+    │       ↓
+    │   Windows DPAPI / usuário atual
+    └── CredentialHandle interno
+```
+
+- `src/jarvis/integrations/google/` contém contratos, modelos agregados, erros tipados, OAuth adapter, callback loopback, storage, scopes, operação interprocesso e factory. Não referencia Harness, ToolExecutor, ToolRegistry ou LLM.
+- O fluxo usa client OAuth do tipo Desktop app, navegador do sistema, callback HTTP em `127.0.0.1` com porta efêmera, PKCE S256, `state` aleatório validado com comparação constante, timeout e cancelamento. Callback com state incorreto é ignorado até callback válido ou expiração.
+- O listener aceita somente `/oauth2/callback`, limita o request e aplica timeout também ao socket aceito para impedir bloqueio por request local incompleto. Nenhum authorization code é ecoado na página de sucesso.
+- A compatibilidade oficial do SDK preserva o redirect HTTP loopback, mas entrega ao parser oauthlib uma cópia HTTPS da URL recebida, como `InstalledAppFlow.run_local_server`; a troca real de token continua em endpoint Google HTTPS.
+- O scope solicitado nesta fase é somente `openid`. E-mail, profile, Calendar, Drive, Docs, Sheets e Gmail não são solicitados. `CALENDAR_READONLY_SCOPE` está apenas nomeado para o próximo sprint e não entra em `AUTHENTICATION_SCOPES`.
+- Nenhuma capability Google ou Tool foi criada. Estar conectado significa somente credencial disponível; não concede Policy, Safety, risco, confirmação ou execução.
+- O storage de produção usa DPAPI do usuário Windows com UI proibida e blob atômico em `data/google/credentials.bin`. Access token não é persistido. Refresh token, client metadata necessária e scopes ficam somente dentro do blob DPAPI; modelos sensíveis omitem esses campos de `repr`.
+- Connect/status/disconnect são serializados entre processos pelo mutex Win32 `Local\\JARVIS.GoogleOAuth`. Crash libera o mutex pelo kernel.
+- Refresh é automático no restore. `invalid_grant` passa para `revoked`; falha de rede passa para `error`; corrupção de storage falha fechada. Scope ausente nunca retorna `connected`.
+- Disconnect marca primeiro a credencial como revogação pendente e não utilizável, tenta revogação remota e remove o blob após confirmação. Se a rede falhar, mantém somente o blob DPAPI em quarentena para retry; nova conexão não pode sobrescrevê-lo.
+- CLI local: `--google connect --google-client-config <arquivo>`, `--google status` e `--google disconnect`. O caminho também pode vir de `JARVIS_GOOGLE_CLIENT_CONFIG`; tokens, secrets e authorization code nunca são argumentos.
+- Dependências ficam no extra opcional `google`: `google-auth` e `google-auth-oauthlib`. Imports são lazy e não afetam startup sem integração Google.
+- Logs técnicos redigem access/refresh/auth token, client secret e authorization code. A fundação não envia credenciais ao Audit, telemetry, Control Center, prompt, trace ou IPC.
+
+Validação automatizada em 29/08/2026:
+
+```text
+1004 passed, 1 skipped
+compileall OK
+git diff --check OK
+```
+
+Os testes cobrem consentimento, state inválido, negação, timeout, cancelamento, callback loopback real, cliente lento, PKCE S256 no SDK oficial, refresh, revogação, network failure, scopes, corrupção, DPAPI real, operação interprocesso, idempotência, quarentena e ausência de secrets em logs/Audit/CLI.
+
+Aceite real no Windows em 29/08/2026:
+
+- consentimento explícito no navegador concluiu com `Google conectado`;
+- um novo processo executou `--google status`, restaurou o material DPAPI, renovou o access token e retornou conectado;
+- `--google disconnect` confirmou revogação e removeu a credencial local;
+- status final retornou desconectado e `data/google/credentials.bin` não existia;
+- nenhum token, authorization code, client secret ou identidade da conta foi exibido ou registrado.
+
+Limitações deliberadas:
+
+- ainda não há Calendar, Drive, Docs, Sheets ou Gmail funcional;
+- não existe identidade de conta exposta, Control Center Google ou gestão remota;
+- o storage seguro de produção desta fase é Windows/DPAPI; outros sistemas falham fechados;
+- erro de revogação remota exige retry de `disconnect` ou revisão manual das permissões da conta Google.
 
 ## 21. Regras para continuidade
 

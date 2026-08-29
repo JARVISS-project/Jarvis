@@ -119,6 +119,7 @@ class LocalStateServer:
     def start(self) -> StateEndpoint:
         if self.endpoint is not None:
             return self.endpoint
+        self._stop_event.clear()
 
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

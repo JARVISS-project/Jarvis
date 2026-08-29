@@ -1,1 +1,1 @@
-"""Integrações locais opcionais do Jarvis."""
+"""Integrações externas do JARVIS."""

@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import re
 import shlex
+import threading
 import time
 
 from jarvis.security.authorization import AuthorizationGrant
@@ -268,6 +269,7 @@ skill_mirror: ObsidianSkillMirror | None = None,
             self.control_center_bus,
         )
         self._latency_turn_started_at: float | None = None
+        self._turn_lock = threading.RLock()
 
     def run(self) -> None:
         print("Jarvis iniciado.")
@@ -300,6 +302,23 @@ skill_mirror: ObsidianSkillMirror | None = None,
             self.close_confirmation_sessions()
 
     def processar_mensagem(
+        self,
+        mensagem: str,
+        manage_runtime: bool = True,
+        response_mode: str = "text",
+        confirmation_session_id: str | None = None,
+        confirmation_challenge_id: str | None = None,
+    ) -> str:
+        with self._turn_lock:
+            return self._processar_mensagem_serialized(
+                mensagem,
+                manage_runtime=manage_runtime,
+                response_mode=response_mode,
+                confirmation_session_id=confirmation_session_id,
+                confirmation_challenge_id=confirmation_challenge_id,
+            )
+
+    def _processar_mensagem_serialized(
         self,
         mensagem: str,
         manage_runtime: bool = True,

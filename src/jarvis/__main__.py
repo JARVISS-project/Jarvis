@@ -269,7 +269,7 @@ def build_harness(
     )
 
 
-def run_voice_mode(
+def build_voice_pipeline(
     config: JarvisConfig,
     model_path: Path | None = None,
     microphone_device_index: int | None = None,
@@ -278,8 +278,12 @@ def run_voice_mode(
     state_bus: AgentStateBus | None = None,
     desktop_kill_switch: DesktopKillSwitch | None = None,
     telemetry_bus: TelemetryBus | None = None,
-) -> None:
-    resource_manager = ResourceManager()
+    resource_manager: ResourceManager | None = None,
+    harness_builder: Callable[
+        [ConfirmationProvider | None, RecentContext], Harness
+    ] | None = None,
+) -> VoicePipeline:
+    resource_manager = resource_manager or ResourceManager()
     resource_manager.idle()
     cancellation = CancellationController()
     recent_context = RecentContext()
@@ -451,14 +455,18 @@ def run_voice_mode(
             end_silence_seconds=config.voice_end_silence_seconds,
         )
 
-    harness = build_harness(
-        config,
-        resource_manager,
-        confirmation,
-        recent_context,
-        state_bus,
-        desktop_kill_switch,
-        telemetry_bus,
+    harness = (
+        harness_builder(confirmation, recent_context)
+        if harness_builder is not None
+        else build_harness(
+            config,
+            resource_manager,
+            confirmation,
+            recent_context,
+            state_bus,
+            desktop_kill_switch,
+            telemetry_bus,
+        )
     )
     pipeline = VoicePipeline(
         listener=listener,
@@ -539,6 +547,29 @@ def run_voice_mode(
         )
         if callable(confirmation_state_callback):
             confirmation.bind_state_callback(confirmation_state_callback)
+    return pipeline
+
+
+def run_voice_mode(
+    config: JarvisConfig,
+    model_path: Path | None = None,
+    microphone_device_index: int | None = None,
+    state_callback: Callable[[VoicePipelineState], None] | None = None,
+    wake_word_threshold: float | None = None,
+    state_bus: AgentStateBus | None = None,
+    desktop_kill_switch: DesktopKillSwitch | None = None,
+    telemetry_bus: TelemetryBus | None = None,
+) -> None:
+    pipeline = build_voice_pipeline(
+        config=config,
+        model_path=model_path,
+        microphone_device_index=microphone_device_index,
+        state_callback=state_callback,
+        wake_word_threshold=wake_word_threshold,
+        state_bus=state_bus,
+        desktop_kill_switch=desktop_kill_switch,
+        telemetry_bus=telemetry_bus,
+    )
     pipeline.run()
 
 
@@ -1729,6 +1760,12 @@ def _run_remote_gateway(args, config: JarvisConfig) -> None:
         if desktop_kill_listener is not None:
             desktop_kill_listener.stop()
         harness.close()
+
+
+def main(argv: list[str] | None = None) -> None:
+    from jarvis.runtime.cli import main as runtime_main
+
+    runtime_main(argv)
 
 
 if __name__ == "__main__":

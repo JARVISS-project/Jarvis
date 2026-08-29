@@ -165,7 +165,9 @@ class RemoteGateway:
             threads = tuple(self._client_threads)
         for thread in threads:
             if thread is not threading.current_thread():
-                thread.join(timeout=2.0)
+                # In-flight Core work, including CRITICAL Tools, is drained.
+                # Closing transports stops new intake without killing the turn.
+                thread.join()
         self.bridge.stop()
         self._audit_event("gateway", "server", True, "stopped")
 

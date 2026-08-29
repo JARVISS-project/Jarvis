@@ -42,6 +42,10 @@ vision = [
 browser = [
     "playwright>=1.40,<2",
 ]
+google = [
+    "google-auth>=2.35,<3",
+    "google-auth-oauthlib>=1.2,<2",
+]
 
 [project.scripts]
 jarvis = "jarvis.__main__:main"

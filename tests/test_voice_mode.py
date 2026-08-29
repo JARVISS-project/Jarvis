@@ -5,9 +5,10 @@ import pytest
 
 from jarvis import __main__ as main_module
 from jarvis.config import JarvisConfig
+from jarvis.runtime import cli as runtime_cli
 
 
-def test_voice_mode_does_not_construct_llm_or_tool_executor(
+def test_voice_flag_selects_managed_runtime_without_constructing_early(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[Path | None, int | None]] = []
@@ -15,21 +16,12 @@ def test_voice_mode_does_not_construct_llm_or_tool_executor(
     def fail_if_constructed(*_args: Any, **_kwargs: Any) -> None:
         raise AssertionError("Componente pesado não deve ser criado")
 
-    def fake_voice_mode(
-        config: Any,
-        model_path: Path | None,
-        microphone_device_index: int | None,
-        state_callback: Any = None,
-        wake_word_threshold: float | None = None,
-        desktop_kill_switch: Any = None,
-    ) -> None:
-        assert state_callback is None
-        assert wake_word_threshold is None
-        calls.append((model_path, microphone_device_index))
+    def fake_runtime(args: Any, _config: Any) -> None:
+        calls.append((args.wake_word_model_path, args.microphone_device_index))
 
     monkeypatch.setattr(main_module, "OllamaLLM", fail_if_constructed)
     monkeypatch.setattr(main_module, "ToolExecutor", fail_if_constructed)
-    monkeypatch.setattr(main_module, "run_voice_mode", fake_voice_mode)
+    monkeypatch.setattr(runtime_cli, "_run_managed_runtime", fake_runtime)
 
     main_module.main(
         [
@@ -54,6 +46,9 @@ def test_traditional_cli_still_starts_harness(
 
         def run(self) -> None:
             harness_runs.append(True)
+
+        def close(self) -> None:
+            pass
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
@@ -270,61 +265,21 @@ def test_voice_threshold_override_is_forwarded_to_detector(
     assert detector_arguments["threshold"] == 0.43
 
 
-def test_ui_flag_starts_live_state_channel_without_coupling_ui_to_voice(
+def test_ui_flag_is_independent_from_voice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    events: list[str] = []
     captured: dict[str, Any] = {}
-    process = object()
 
-    class FakeStateServer:
-        def __init__(
-            self,
-            _state_bus: Any,
-            *,
-            endpoint_path: Path,
-            telemetry_bus: Any = None,
-        ) -> None:
-            captured["endpoint_path"] = endpoint_path
-            captured["server_telemetry_bus"] = telemetry_bus
+    def fake_runtime(args: Any, _config: Any) -> None:
+        captured.update(vars(args))
 
-        def start(self) -> None:
-            events.append("server-start")
-
-        def close(self) -> None:
-            events.append("server-close")
-
-    def fake_launch(endpoint_path: Path) -> object:
-        captured["launch_path"] = endpoint_path
-        events.append("ui-launch")
-        return process
-
-    def fake_stop(value: object) -> None:
-        assert value is process
-        events.append("ui-stop")
-
-    def fake_voice_mode(**kwargs: Any) -> None:
-        captured.update(kwargs)
-        events.append("voice-run")
-        assert callable(kwargs["state_callback"])
-
-    monkeypatch.setattr(main_module, "LocalStateServer", FakeStateServer)
-    monkeypatch.setattr(main_module, "launch_ambient_ui", fake_launch)
-    monkeypatch.setattr(main_module, "stop_spawned_ambient_ui", fake_stop)
-    monkeypatch.setattr(main_module, "run_voice_mode", fake_voice_mode)
+    monkeypatch.setattr(runtime_cli, "_run_managed_runtime", fake_runtime)
 
     main_module.main(["--ui"])
 
-    assert captured["endpoint_path"] == Path("data/runtime/ambient-ui.json")
-    assert captured["launch_path"] == Path("data/runtime/ambient-ui.json")
-    assert captured["server_telemetry_bus"] is captured["telemetry_bus"]
-    assert events == [
-        "server-start",
-        "ui-launch",
-        "voice-run",
-        "ui-stop",
-        "server-close",
-    ]
+    assert captured["ui"] is True
+    assert captured["voice"] is False
+    assert captured["remote"] is False
 
 
 def test_invalid_wake_word_threshold_fails_before_voice_runtime(
@@ -347,10 +302,10 @@ def test_tts_pace_cli_override_is_session_only_and_reaches_voice_runtime(
 ) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_voice_mode(**kwargs: Any) -> None:
-        captured.update(kwargs)
+    def fake_runtime(_args: Any, config: JarvisConfig) -> None:
+        captured["config"] = config
 
-    monkeypatch.setattr(main_module, "run_voice_mode", fake_voice_mode)
+    monkeypatch.setattr(runtime_cli, "_run_managed_runtime", fake_runtime)
 
     main_module.main(["--voice", "--tts-pace", "natural"])
 
