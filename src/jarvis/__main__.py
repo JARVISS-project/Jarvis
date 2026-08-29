@@ -707,6 +707,22 @@ def _argument_parser() -> argparse.ArgumentParser:
         help="Porta para o Remote Gateway (padrão: 8766).",
     )
     parser.add_argument(
+        "--remote-transport",
+        choices=("tcp", "websocket"),
+        default="tcp",
+        help="Transporte remoto (padrão: tcp).",
+    )
+    parser.add_argument(
+        "--remote-websocket-origin",
+        action="append",
+        default=[],
+        metavar="ORIGIN",
+        help=(
+            "Origin HTTP exata permitida no WebSocket; pode ser repetida. "
+            "Sem esta opção, somente clientes sem Origin são aceitos."
+        ),
+    )
+    parser.add_argument(
         "--remote-allow-lan",
         action="store_true",
         help="Permite conexões de rede local (LAN). ATENÇÃO: Exponha apenas em rede confiável ou com TLS/VPN.",
@@ -1598,6 +1614,12 @@ def _run_remote_gateway(args, config: JarvisConfig) -> None:
     from jarvis.application.telemetry import TelemetryBus
     from jarvis.security.audit import AuditLogger
     from jarvis.remote.core_port import HarnessRemoteCorePort
+    from jarvis.remote.websocket_transport import WebSocketTransportServer
+
+    if args.remote_transport != "websocket" and args.remote_websocket_origin:
+        raise ValueError(
+            "--remote-websocket-origin requer --remote-transport websocket"
+        )
 
     # Aviso se expor LAN
     if args.remote_allow_lan and args.remote_host != "127.0.0.1":
@@ -1627,6 +1649,17 @@ def _run_remote_gateway(args, config: JarvisConfig) -> None:
         desktop_kill_switch=desktop_kill_switch,
     )
 
+    transport_server = None
+    if args.remote_transport == "websocket":
+        transport_server = WebSocketTransportServer(
+            host=args.remote_host,
+            port=args.remote_port,
+            certfile=str(args.remote_cert) if args.remote_cert else None,
+            keyfile=str(args.remote_key) if args.remote_key else None,
+            allow_lan=args.remote_allow_lan,
+            allowed_origins=args.remote_websocket_origin,
+        )
+
     # Remote Gateway
     gateway = RemoteGateway(
         core_port=HarnessRemoteCorePort(harness),
@@ -1638,6 +1671,7 @@ def _run_remote_gateway(args, config: JarvisConfig) -> None:
         certfile=str(args.remote_cert) if args.remote_cert else None,
         keyfile=str(args.remote_key) if args.remote_key else None,
         allow_lan=args.remote_allow_lan,
+        transport_server=transport_server,
     )
 
     # Voice mode (opcional)
@@ -1657,7 +1691,16 @@ def _run_remote_gateway(args, config: JarvisConfig) -> None:
             voice_arguments["desktop_kill_switch"] = desktop_kill_switch
         voice_context = voice_arguments
 
-    print(f"Remote Gateway iniciado em {args.remote_host}:{args.remote_port}")
+    scheme = "wss" if args.remote_cert and args.remote_key else "ws"
+    endpoint = (
+        f"{scheme}://{args.remote_host}:{args.remote_port}"
+        if args.remote_transport == "websocket"
+        else f"{args.remote_host}:{args.remote_port}"
+    )
+    print(
+        f"Remote Gateway iniciado em {endpoint} "
+        f"({args.remote_transport})"
+    )
     if args.remote_allow_lan:
         print("Modo LAN habilitado - conexões de rede local permitidas")
     if args.remote_cert and args.remote_key:

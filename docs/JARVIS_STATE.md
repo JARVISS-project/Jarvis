@@ -376,15 +376,15 @@ Memória nunca concede autorização: `consent_given` controla apenas inclusão 
 
 ## 14. Testes
 
-Marco conhecido após a conclusão do Remote Gateway Hardening:
+Marco conhecido após a conclusão do WebSocket Transport Foundation:
 
 ```text
-919 passed, 1 skipped
+936 passed, 1 skipped
 compileall OK
 git diff --check OK
 ```
 
-A suíte usa fakes nas fronteiras externas e não substitui teste real de voz, Ollama ou Qt. O Remote Gateway possui integração TCP loopback real automatizada; as validações Win32 reais conhecidas estão registradas nas seções de Desktop Automation, Vision e Control Center.
+A suíte usa fakes nas fronteiras externas e não substitui teste real de voz, Ollama ou Qt. O Remote Gateway possui integrações TCP e WebSocket loopback reais automatizadas; as validações Win32 reais conhecidas estão registradas nas seções de Desktop Automation, Vision e Control Center.
 
 Sempre validar no PC principal:
 
@@ -576,6 +576,46 @@ total: 919 passed, 1 skipped
 compileall OK
 git diff --check OK
 TCP loopback smoke test OK
+```
+
+## WebSocket Transport Foundation (concluído)
+
+O Gateway remoto agora aceita WebSocket como transporte alternativo sem criar um segundo protocolo ou caminho operacional:
+
+```text
+Remote Protocol tipado
+    ↓
+TransportServer / TransportConnection
+    ├── TCP / NDJSON
+    └── WebSocket
+            ↓
+       RemoteGateway
+            ↓
+       RemoteCorePort
+```
+
+- `WebSocketTransportServer` e `WebSocketTransportConnection` adaptam frames para os mesmos `BaseMessage`, `ReceiveResult` e `ReceiveStatus` usados pelo TCP.
+- Pairing, autenticação por token, sessões, permissões, rate limiting, chat, ping lógico, confirmação, revogação, audit e cleanup continuam implementados uma única vez no `RemoteGateway` e no `RemoteGatewayBridge`.
+- `RemoteCorePort` permanece como única fronteira operacional com o Core. O transporte WebSocket não referencia `Harness`, Tools, `ToolExecutor`, `ToolRegistry` ou grants.
+- O limite lógico permanece em 64 KiB. `websockets` aplica `max_size` durante a recepção; payload excedente encerra a conexão com código 1009 antes de chegar ao protocolo. Mensagens malformadas seguem o mesmo estado `INVALID` e fechamento fail-closed do TCP.
+- Compressão WebSocket e ping automático ficam desabilitados. O ping lógico tipado existente permanece como mecanismo do protocolo remoto.
+- Por padrão, somente clientes sem header `Origin` são aceitos. Navegadores exigem allowlist exata configurada por uma ou mais ocorrências de `--remote-websocket-origin`; páginas com origem não listada são recusadas no handshake.
+- TLS reutiliza `--remote-cert` e `--remote-key`, produzindo WSS. Exposição fora de loopback continua exigindo `--remote-allow-lan`.
+- Seleção de runtime: `--remote-transport tcp|websocket`; TCP continua sendo o padrão.
+- Lifecycle é reiniciável e idempotente. Stop, desconexão, frame inválido, oversize e revogação removem a sessão e os senders associados; desconexão durante confirmação nega a sessão original através do Core.
+- Reconnect usa o mesmo `device_id` e token inicial; o token em claro não é reenviado.
+- React e Web Control Center continuam fora deste sprint.
+
+Testes WebSocket usam sockets loopback reais e cobrem lifecycle/restart, Origin, pairing submission, autenticação, chat, ping, confirmação com IDs originais, reconnect, revogação externa, malformed, oversize, cleanup, Kill Switch preservado por resposta do Core e equivalência observável TCP/WebSocket.
+
+Validação em 29/08/2026:
+
+```text
+tests/remote: 68 passed
+total: 936 passed, 1 skipped
+compileall OK
+git diff --check OK
+TCP/WebSocket loopback real OK
 ```
 
 ## 20. Google Workspace Integration

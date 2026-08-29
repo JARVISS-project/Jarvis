@@ -12,6 +12,7 @@ def test_gateway_side_has_no_tool_execution_or_artificial_grant_path() -> None:
         "protocol.py",
         "sessions.py",
         "transport.py",
+        "websocket_transport.py",
     ]
     source = "\n".join(
         (REMOTE_PATH / filename).read_text(encoding="utf-8")

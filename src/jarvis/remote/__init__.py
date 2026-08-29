@@ -48,6 +48,10 @@ from jarvis.remote.sessions import (
     RateLimiter,
     SessionManager,
 )
+from jarvis.remote.websocket_transport import (
+    WebSocketTransportConnection,
+    WebSocketTransportServer,
+)
 
 __all__ = [
     # Auth
@@ -96,4 +100,7 @@ __all__ = [
     "RemoteSession",
     "RateLimiter",
     "SessionManager",
+    # WebSocket transport
+    "WebSocketTransportConnection",
+    "WebSocketTransportServer",
 ]
