@@ -16,6 +16,7 @@ from jarvis.remote.core_port import (
     HarnessRemoteCorePort,
     RemoteConfirmation,
     RemoteCorePort,
+    RemoteSecuritySnapshot,
 )
 from jarvis.remote.gateway import RemoteGateway
 from jarvis.remote.protocol import (
@@ -26,6 +27,7 @@ from jarvis.remote.protocol import (
     ChatResponse,
     StateSubscribe,
     TelemetrySubscribe,
+    SecuritySubscribe,
     ConfirmationRequest,
     ConfirmationRespond,
     Error,
@@ -39,6 +41,7 @@ from jarvis.remote.protocol import (
     DeviceRevoked,
     StateUpdate,
     TelemetryUpdate,
+    SecurityUpdate,
     parse_message,
     serialize_message,
     MAX_MESSAGE_SIZE,
@@ -70,6 +73,7 @@ __all__ = [
     "HarnessRemoteCorePort",
     "RemoteConfirmation",
     "RemoteCorePort",
+    "RemoteSecuritySnapshot",
     # Gateway
     "RemoteGateway",
     # Protocol
@@ -80,6 +84,7 @@ __all__ = [
     "ChatResponse",
     "StateSubscribe",
     "TelemetrySubscribe",
+    "SecuritySubscribe",
     "ConfirmationRequest",
     "ConfirmationRespond",
     "Error",
@@ -93,6 +98,7 @@ __all__ = [
     "DeviceRevoked",
     "StateUpdate",
     "TelemetryUpdate",
+    "SecurityUpdate",
     "parse_message",
     "serialize_message",
     "MAX_MESSAGE_SIZE",

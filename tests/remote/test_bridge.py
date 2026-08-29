@@ -3,7 +3,7 @@ from pathlib import Path
 from jarvis.application.state import AgentState, AgentStateBus
 from jarvis.application.telemetry import TelemetryBus
 from jarvis.remote.bridge import RemoteGatewayBridge
-from jarvis.remote.core_port import RemoteConfirmation
+from jarvis.remote.core_port import RemoteConfirmation, RemoteSecuritySnapshot
 from jarvis.remote.protocol import (
     ChatMessage,
     ChatResponse,
@@ -12,6 +12,8 @@ from jarvis.remote.protocol import (
     Error,
     StateSubscribe,
     StateUpdate,
+    SecuritySubscribe,
+    SecurityUpdate,
 )
 from jarvis.security.audit import AuditLogger
 
@@ -22,6 +24,10 @@ class FakeCorePort:
         self.chat_calls = []
         self.confirmation_calls = []
         self.create_confirmation = False
+        self.security = RemoteSecuritySnapshot(
+            kill_switch_tripped=False,
+            capabilities=(("vision", True),),
+        )
 
     def process_chat(self, text: str) -> str:
         self.chat_calls.append(text)
@@ -45,6 +51,9 @@ class FakeCorePort:
 
     def current_confirmation(self):
         return self.confirmation
+
+    def current_security(self):
+        return self.security
 
 
 def make_bridge(tmp_path: Path):
@@ -153,3 +162,21 @@ def test_state_subscription_never_exposes_snapshot_detail(tmp_path: Path) -> Non
     update = next(item for item in sent if isinstance(item, StateUpdate))
     assert update.state.value == "executing"
     assert not hasattr(update, "detail")
+
+
+def test_security_subscription_exposes_only_aggregate_snapshot(tmp_path: Path) -> None:
+    bridge, core, _state_bus, sent = make_bridge(tmp_path)
+    try:
+        bridge.handle_message(
+            "remote-session",
+            SecuritySubscribe(request_id="security"),
+        )
+    finally:
+        bridge.stop()
+
+    update = next(item for item in sent if isinstance(item, SecurityUpdate))
+    assert update.request_id == "security"
+    assert update.kill_switch_tripped is False
+    assert update.capabilities == {"vision": True}
+    assert not hasattr(update, "reason")
+    assert not hasattr(update, "reset")

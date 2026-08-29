@@ -8,7 +8,11 @@ from typing import Callable
 
 from jarvis.application.state import AgentStateBus, StateSnapshot
 from jarvis.application.telemetry import TelemetryBus, TelemetrySnapshot
-from jarvis.remote.core_port import RemoteConfirmation, RemoteCorePort
+from jarvis.remote.core_port import (
+    RemoteConfirmation,
+    RemoteCorePort,
+    RemoteSecuritySnapshot,
+)
 from jarvis.remote.protocol import (
     AgentState,
     BaseMessage,
@@ -17,6 +21,8 @@ from jarvis.remote.protocol import (
     ConfirmationRequest,
     ConfirmationRespond,
     Error,
+    SecuritySubscribe,
+    SecurityUpdate,
     StateSubscribe,
     StateUpdate,
     TelemetrySubscribe,
@@ -54,7 +60,10 @@ class RemoteGatewayBridge:
         self._pending_confirmations: dict[str, PendingRemoteConfirmation] = {}
         self._state_subscribers: set[str] = set()
         self._telemetry_subscribers: set[str] = set()
+        self._security_subscribers: set[str] = set()
         self._session_senders: dict[str, MessageSender] = {}
+        self._security_snapshot: RemoteSecuritySnapshot | None = None
+        self._security_sequence = 0
         self._unsubscribe_state: Callable[[], None] | None = None
         self._unsubscribe_telemetry: Callable[[], None] | None = None
         self._stop_event = threading.Event()
@@ -92,6 +101,8 @@ class RemoteGatewayBridge:
                 self._handle_state_subscribe(session_id, message)
             elif isinstance(message, TelemetrySubscribe):
                 self._handle_telemetry_subscribe(session_id, message)
+            elif isinstance(message, SecuritySubscribe):
+                self._handle_security_subscribe(session_id, message)
             elif isinstance(message, ConfirmationRespond):
                 self._handle_confirmation_response(session_id, message)
             else:
@@ -221,6 +232,50 @@ class RemoteGatewayBridge:
                 message.request_id,
             )
 
+    def _handle_security_subscribe(
+        self,
+        session_id: str,
+        message: SecuritySubscribe,
+    ) -> None:
+        with self._lock:
+            if message.subscribe:
+                self._security_subscribers.add(session_id)
+            else:
+                self._security_subscribers.discard(session_id)
+        if not message.subscribe:
+            return
+        snapshot = self._core_port.current_security()
+        sequence, _changed = self._record_security_snapshot(snapshot)
+        self._send_security(session_id, snapshot, sequence, message.request_id)
+
+    def _record_security_snapshot(
+        self,
+        snapshot: RemoteSecuritySnapshot,
+    ) -> tuple[int, bool]:
+        with self._lock:
+            changed = snapshot != self._security_snapshot
+            if changed:
+                self._security_snapshot = snapshot
+                self._security_sequence += 1
+            return self._security_sequence, changed
+
+    def _send_security(
+        self,
+        session_id: str,
+        snapshot: RemoteSecuritySnapshot,
+        sequence: int,
+        request_id: str | None = None,
+    ) -> None:
+        self._send(
+            session_id,
+            SecurityUpdate(
+                sequence=sequence,
+                kill_switch_tripped=snapshot.kill_switch_tripped,
+                capabilities=dict(snapshot.capabilities),
+                request_id=request_id,
+            ),
+        )
+
     def _on_state_change(self, snapshot: StateSnapshot) -> None:
         with self._lock:
             subscribers = tuple(self._state_subscribers)
@@ -303,6 +358,18 @@ class RemoteGatewayBridge:
                             reminder_count=current.reminder_count,
                         )
                     self._send_confirmation(pending.remote_session_id, current)
+            with self._lock:
+                security_subscribers = tuple(self._security_subscribers)
+            if security_subscribers:
+                try:
+                    security = self._core_port.current_security()
+                except Exception:
+                    self._audit_event("security_watch", "core", False, "error")
+                    continue
+                sequence, changed = self._record_security_snapshot(security)
+                if changed:
+                    for session_id in security_subscribers:
+                        self._send_security(session_id, security, sequence)
 
     def _send_confirmation(
         self,
@@ -333,6 +400,7 @@ class RemoteGatewayBridge:
         with self._lock:
             self._state_subscribers.discard(session_id)
             self._telemetry_subscribers.discard(session_id)
+            self._security_subscribers.discard(session_id)
             self._session_senders.pop(session_id, None)
             pending = [
                 value
@@ -375,7 +443,10 @@ class RemoteGatewayBridge:
             self._pending_confirmations.clear()
             self._state_subscribers.clear()
             self._telemetry_subscribers.clear()
+            self._security_subscribers.clear()
             self._session_senders.clear()
+            self._security_snapshot = None
+            self._security_sequence = 0
 
     close = stop
 

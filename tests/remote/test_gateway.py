@@ -5,7 +5,7 @@ import time
 from jarvis.application.state import AgentStateBus
 from jarvis.application.telemetry import TelemetryBus
 from jarvis.remote.auth import DeviceRegistry, PairingManager
-from jarvis.remote.core_port import RemoteConfirmation
+from jarvis.remote.core_port import RemoteConfirmation, RemoteSecuritySnapshot
 from jarvis.remote.gateway import RemoteGateway
 from jarvis.remote.protocol import (
     AuthPair,
@@ -55,6 +55,9 @@ class FakeCorePort:
 
     def current_confirmation(self):
         return self.confirmation
+
+    def current_security(self):
+        return RemoteSecuritySnapshot(False, (("vision", True),))
 
 
 def start_gateway(tmp_path: Path, core: FakeCorePort):

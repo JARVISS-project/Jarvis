@@ -7,6 +7,7 @@ import threading
 from typing import Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from jarvis.desktop.control import DesktopKillSwitch
     from jarvis.harness import Harness
 
 
@@ -20,6 +21,12 @@ class RemoteConfirmation:
     prompt_text: str
     expires_at: float
     reminder_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteSecuritySnapshot:
+    kill_switch_tripped: bool
+    capabilities: tuple[tuple[str, bool], ...]
 
 
 class RemoteCorePort(Protocol):
@@ -37,12 +44,19 @@ class RemoteCorePort(Protocol):
 
     def current_confirmation(self) -> RemoteConfirmation | None: ...
 
+    def current_security(self) -> RemoteSecuritySnapshot: ...
+
 
 class HarnessRemoteCorePort:
     """Adapta o Harness sem expor Tools, executor ou grants ao Gateway."""
 
-    def __init__(self, harness: Harness) -> None:
+    def __init__(
+        self,
+        harness: Harness,
+        desktop_kill_switch: DesktopKillSwitch | None = None,
+    ) -> None:
         self.__harness = harness
+        self.__desktop_kill_switch = desktop_kill_switch
         self.__lock = threading.RLock()
 
     def process_chat(self, text: str) -> str:
@@ -79,4 +93,25 @@ class HarnessRemoteCorePort:
                 prompt_text=session.prompt_text,
                 expires_at=session.expires_at,
                 reminder_count=session.reminder_count,
+            )
+
+    def current_security(self) -> RemoteSecuritySnapshot:
+        with self.__lock:
+            config = self.__harness.config
+            return RemoteSecuritySnapshot(
+                kill_switch_tripped=(
+                    self.__desktop_kill_switch.is_tripped
+                    if self.__desktop_kill_switch is not None
+                    else False
+                ),
+                capabilities=(
+                    ("browser", bool(config.browser_enabled)),
+                    ("desktop_control", bool(config.desktop_control_enabled)),
+                    ("desktop_read", bool(config.desktop_read_enabled)),
+                    ("filesystem_read", bool(config.filesystem_read_enabled)),
+                    ("filesystem_write", bool(config.filesystem_write_enabled)),
+                    ("obsidian_read", bool(config.obsidian_read_enabled)),
+                    ("obsidian_write", bool(config.obsidian_write_enabled)),
+                    ("vision", bool(config.vision_enabled)),
+                ),
             )

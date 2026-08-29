@@ -33,6 +33,7 @@ from jarvis.remote.protocol import (
     Error,
     Ping,
     Pong,
+    SecuritySubscribe,
     StateSubscribe,
     TelemetrySubscribe,
 )
@@ -291,6 +292,8 @@ class RemoteGateway:
             self._update_subscription(client, "state", message.subscribe)
         elif isinstance(message, TelemetrySubscribe):
             self._update_subscription(client, "telemetry", message.subscribe)
+        elif isinstance(message, SecuritySubscribe):
+            self._update_subscription(client, "security", message.subscribe)
 
     @staticmethod
     def _required_permission(message: BaseMessage) -> str | None:
@@ -300,6 +303,8 @@ class RemoteGateway:
             return "state"
         if isinstance(message, TelemetrySubscribe):
             return "telemetry"
+        if isinstance(message, SecuritySubscribe):
+            return "state"
         if isinstance(message, ConfirmationRespond):
             return "confirmation"
         return None

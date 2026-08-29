@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from jarvis.remote.core_port import HarnessRemoteCorePort
+from jarvis.desktop.control import DesktopKillSwitch
 from jarvis.security.risk import RiskLevel
 
 
@@ -8,6 +9,16 @@ class FakeHarness:
     def __init__(self) -> None:
         self.calls = []
         self.confirmation_sessions = SimpleNamespace(current=lambda: None)
+        self.config = SimpleNamespace(
+            browser_enabled=True,
+            desktop_control_enabled=True,
+            desktop_read_enabled=True,
+            filesystem_read_enabled=True,
+            filesystem_write_enabled=False,
+            obsidian_read_enabled=True,
+            obsidian_write_enabled=False,
+            vision_enabled=True,
+        )
 
     def processar_mensagem(self, text, **kwargs):
         self.calls.append((text, kwargs))
@@ -74,3 +85,29 @@ def test_core_port_exposes_only_sanitized_confirmation_snapshot() -> None:
     assert snapshot.risk == "CRITICAL"
     assert not hasattr(snapshot, "arguments")
     assert not hasattr(snapshot, "grant")
+
+
+def test_core_port_exposes_only_aggregate_security_state() -> None:
+    harness = FakeHarness()
+    kill_switch = DesktopKillSwitch()
+    kill_switch.trip("private local reason")
+    port = HarnessRemoteCorePort(  # type: ignore[arg-type]
+        harness,
+        kill_switch,
+    )
+
+    snapshot = port.current_security()
+
+    assert snapshot.kill_switch_tripped is True
+    assert dict(snapshot.capabilities) == {
+        "browser": True,
+        "desktop_control": True,
+        "desktop_read": True,
+        "filesystem_read": True,
+        "filesystem_write": False,
+        "obsidian_read": True,
+        "obsidian_write": False,
+        "vision": True,
+    }
+    assert "private local reason" not in repr(snapshot)
+    assert not hasattr(snapshot, "reset")

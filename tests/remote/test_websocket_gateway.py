@@ -10,7 +10,7 @@ from websockets.sync.client import connect as websocket_connect
 from jarvis.application.state import AgentStateBus
 from jarvis.application.telemetry import TelemetryBus
 from jarvis.remote.auth import DeviceRegistry, PairingManager
-from jarvis.remote.core_port import RemoteConfirmation
+from jarvis.remote.core_port import RemoteConfirmation, RemoteSecuritySnapshot
 from jarvis.remote.gateway import RemoteGateway
 from jarvis.remote.protocol import (
     AuthPair,
@@ -27,6 +27,8 @@ from jarvis.remote.protocol import (
     MAX_MESSAGE_SIZE,
     Ping,
     Pong,
+    SecuritySubscribe,
+    SecurityUpdate,
     parse_message,
     serialize_message,
 )
@@ -41,6 +43,19 @@ class FakeCorePort:
         self.confirmation_calls: list[tuple[bool, str, str]] = []
         self.confirmation: RemoteConfirmation | None = None
         self.create_confirmation = False
+        self.security = RemoteSecuritySnapshot(
+            kill_switch_tripped=False,
+            capabilities=(
+                ("browser", False),
+                ("desktop_control", False),
+                ("desktop_read", True),
+                ("filesystem_read", True),
+                ("filesystem_write", False),
+                ("obsidian_read", True),
+                ("obsidian_write", False),
+                ("vision", True),
+            ),
+        )
 
     def process_chat(self, text: str) -> str:
         self.chat_calls.append(text)
@@ -70,6 +85,9 @@ class FakeCorePort:
 
     def current_confirmation(self) -> RemoteConfirmation | None:
         return self.confirmation
+
+    def current_security(self) -> RemoteSecuritySnapshot:
+        return self.security
 
 
 class WebSocketClient:
@@ -355,6 +373,38 @@ def test_websocket_preserves_core_security_block_result(tmp_path: Path) -> None:
 
         assert isinstance(response, ChatResponse)
         assert response.text == "security_blocked: kill switch acionado"
+    finally:
+        client.close()
+        gateway.stop()
+
+
+def test_websocket_security_subscription_is_read_only_and_updates(
+    tmp_path: Path,
+) -> None:
+    core = FakeCorePort()
+    gateway, _registry_path, pairing_path, endpoint = start_gateway(tmp_path, core)
+    assert isinstance(endpoint, str)
+    client = WebSocketClient(endpoint)
+    try:
+        pair(client, pairing_path)
+        client.send(SecuritySubscribe(request_id="security"))
+        initial = client.receive()
+
+        assert isinstance(initial, SecurityUpdate)
+        assert initial.request_id == "security"
+        assert initial.kill_switch_tripped is False
+        assert not hasattr(initial, "reason")
+        assert not hasattr(initial, "reset")
+
+        core.security = RemoteSecuritySnapshot(
+            kill_switch_tripped=True,
+            capabilities=core.security.capabilities,
+        )
+        changed = client.receive()
+
+        assert isinstance(changed, SecurityUpdate)
+        assert changed.kill_switch_tripped is True
+        assert changed.sequence > initial.sequence
     finally:
         client.close()
         gateway.stop()

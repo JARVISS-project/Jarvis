@@ -11,6 +11,8 @@ from jarvis.remote.protocol import (
     MAX_MESSAGE_SIZE,
     MessageType,
     ProtocolError,
+    SecuritySubscribe,
+    SecurityUpdate,
     StateUpdate,
     TelemetryUpdate,
     parse_message,
@@ -40,6 +42,21 @@ from jarvis.remote.protocol import (
             audit_events=2,
             audit_write_ok=True,
         ),
+        SecuritySubscribe(),
+        SecurityUpdate(
+            sequence=2,
+            kill_switch_tripped=False,
+            capabilities={
+                "browser": False,
+                "desktop_control": False,
+                "desktop_read": True,
+                "filesystem_read": True,
+                "filesystem_write": False,
+                "obsidian_read": True,
+                "obsidian_write": False,
+                "vision": True,
+            },
+        ),
     ],
 )
 def test_protocol_round_trip_preserves_typed_message(message) -> None:
@@ -65,6 +82,13 @@ def test_message_type_is_not_constructor_controlled() -> None:
         {"type": "chat.message", "text": "ok", "extra": True},
         {"type": "chat.message", "text": 3},
         {"type": "state.subscribe", "subscribe": 1},
+        {"type": "security.subscribe", "subscribe": 1},
+        {
+            "type": "security.update",
+            "sequence": 1,
+            "kill_switch_tripped": False,
+            "capabilities": {"vision": True},
+        },
         {
             "type": "confirmation.respond",
             "session_id": "s",

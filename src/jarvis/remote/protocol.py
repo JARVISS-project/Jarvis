@@ -13,6 +13,18 @@ MAX_MESSAGE_SIZE = 64 * 1024
 MAX_CHAT_LENGTH = 8 * 1024
 MAX_ID_LENGTH = 128
 MAX_SHORT_TEXT_LENGTH = 256
+REMOTE_CAPABILITIES = frozenset(
+    {
+        "browser",
+        "desktop_control",
+        "desktop_read",
+        "filesystem_read",
+        "filesystem_write",
+        "obsidian_read",
+        "obsidian_write",
+        "vision",
+    }
+)
 
 
 class ProtocolError(ValueError):
@@ -37,6 +49,8 @@ class MessageType(Enum):
     AUTH_FAILED = "auth.failed"
     DEVICE_PAIRED = "device.paired"
     DEVICE_REVOKED = "device.revoked"
+    SECURITY_SUBSCRIBE = "security.subscribe"
+    SECURITY_UPDATE = "security.update"
 
 
 class AgentState(Enum):
@@ -95,6 +109,15 @@ class StateSubscribe(BaseMessage):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TelemetrySubscribe(BaseMessage):
     type: ClassVar[MessageType] = MessageType.TELEMETRY_SUBSCRIBE
+    subscribe: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**super().to_dict(), "subscribe": self.subscribe}
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SecuritySubscribe(BaseMessage):
+    type: ClassVar[MessageType] = MessageType.SECURITY_SUBSCRIBE
     subscribe: bool = True
 
     def to_dict(self) -> dict[str, Any]:
@@ -204,6 +227,22 @@ class TelemetryUpdate(BaseMessage):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class SecurityUpdate(BaseMessage):
+    type: ClassVar[MessageType] = MessageType.SECURITY_UPDATE
+    sequence: int
+    kill_switch_tripped: bool
+    capabilities: dict[str, bool]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            **super().to_dict(),
+            "sequence": self.sequence,
+            "kill_switch_tripped": self.kill_switch_tripped,
+            "capabilities": dict(self.capabilities),
+        }
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ConfirmationRequest(BaseMessage):
     type: ClassVar[MessageType] = MessageType.CONFIRMATION_REQUEST
     session_id: str
@@ -290,6 +329,7 @@ Message = (
     ChatMessage
     | StateSubscribe
     | TelemetrySubscribe
+    | SecuritySubscribe
     | ConfirmationRespond
     | Ping
     | AuthPair
@@ -297,6 +337,7 @@ Message = (
     | ChatResponse
     | StateUpdate
     | TelemetryUpdate
+    | SecurityUpdate
     | ConfirmationRequest
     | Error
     | Pong
@@ -312,6 +353,7 @@ MESSAGE_FIELDS: dict[MessageType, tuple[type[BaseMessage], set[str], set[str]]] 
     MessageType.CHAT_MESSAGE: (ChatMessage, {"text"}, {"text"}),
     MessageType.STATE_SUBSCRIBE: (StateSubscribe, {"subscribe"}, set()),
     MessageType.TELEMETRY_SUBSCRIBE: (TelemetrySubscribe, {"subscribe"}, set()),
+    MessageType.SECURITY_SUBSCRIBE: (SecuritySubscribe, {"subscribe"}, set()),
     MessageType.CONFIRMATION_RESPOND: (
         ConfirmationRespond,
         {"session_id", "challenge_id", "confirmed"},
@@ -344,6 +386,11 @@ MESSAGE_FIELDS: dict[MessageType, tuple[type[BaseMessage], set[str], set[str]]] 
             "sequence", "has_completed_turn", "turn_ms", "llm_ms", "llm_calls",
             "tool_ms", "tool_calls", "audit_events", "audit_write_ok",
         },
+    ),
+    MessageType.SECURITY_UPDATE: (
+        SecurityUpdate,
+        {"sequence", "kill_switch_tripped", "capabilities"},
+        {"sequence", "kill_switch_tripped", "capabilities"},
     ),
     MessageType.CONFIRMATION_REQUEST: (
         ConfirmationRequest,
@@ -413,6 +460,11 @@ def _construct(data: dict[str, Any], message_type: MessageType, request_id: str 
         if not isinstance(subscribe, bool):
             raise ProtocolError("Campo inválido: subscribe")
         return TelemetrySubscribe(subscribe=subscribe, **common)
+    if message_type is MessageType.SECURITY_SUBSCRIBE:
+        subscribe = data.get("subscribe", True)
+        if not isinstance(subscribe, bool):
+            raise ProtocolError("Campo inválido: subscribe")
+        return SecuritySubscribe(subscribe=subscribe, **common)
     if message_type is MessageType.CONFIRMATION_RESPOND:
         confirmed = data["confirmed"]
         if not isinstance(confirmed, bool):
@@ -468,6 +520,23 @@ def _construct(data: dict[str, Any], message_type: MessageType, request_id: str 
             tool_calls=_integer(data, "tool_calls"),
             audit_events=_integer(data, "audit_events"),
             audit_write_ok=audit_ok,
+            **common,
+        )
+    if message_type is MessageType.SECURITY_UPDATE:
+        kill_switch_tripped = data["kill_switch_tripped"]
+        capabilities = data["capabilities"]
+        if not isinstance(kill_switch_tripped, bool):
+            raise ProtocolError("Estado do kill switch inválido")
+        if (
+            not isinstance(capabilities, dict)
+            or set(capabilities) != REMOTE_CAPABILITIES
+            or not all(isinstance(value, bool) for value in capabilities.values())
+        ):
+            raise ProtocolError("Capabilities inválidas")
+        return SecurityUpdate(
+            sequence=_integer(data, "sequence"),
+            kill_switch_tripped=kill_switch_tripped,
+            capabilities=dict(capabilities),
             **common,
         )
     if message_type is MessageType.CONFIRMATION_REQUEST:

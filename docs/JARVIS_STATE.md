@@ -376,15 +376,15 @@ Memória nunca concede autorização: `consent_given` controla apenas inclusão 
 
 ## 14. Testes
 
-Marco conhecido após a conclusão do WebSocket Transport Foundation:
+Marco conhecido após a conclusão do Web Control Center Foundation:
 
 ```text
-936 passed, 1 skipped
+943 passed, 1 skipped
 compileall OK
 git diff --check OK
 ```
 
-A suíte usa fakes nas fronteiras externas e não substitui teste real de voz, Ollama ou Qt. O Remote Gateway possui integrações TCP e WebSocket loopback reais automatizadas; as validações Win32 reais conhecidas estão registradas nas seções de Desktop Automation, Vision e Control Center.
+A suíte usa fakes nas fronteiras externas e não substitui teste real de voz, Ollama ou Qt. O Remote Gateway possui integrações TCP e WebSocket loopback reais automatizadas; o Web Control Center possui smoke live com cliente TypeScript, Gateway e Core fake pela `RemoteCorePort`. As validações Win32 reais conhecidas estão registradas nas seções de Desktop Automation, Vision e Control Center.
 
 Sempre validar no PC principal:
 
@@ -401,11 +401,10 @@ python -m pytest
 
 ## 16. Próximas prioridades
 
-Próximo sprint recomendado: **Web Control Center Foundation**, sem autoridade operacional no frontend.
+Próximo sprint recomendado: **startup automático e background runtime**.
 
-1. Web Control Center Foundation;
-2. startup automático e background runtime;
-3. Google Integration Foundation, somente após decisão explícita de sprint.
+1. startup automático e background runtime;
+2. Google Integration Foundation, somente após decisão explícita de sprint.
 
 ## 17. Control Center Foundation (concluído)
 
@@ -616,6 +615,54 @@ total: 936 passed, 1 skipped
 compileall OK
 git diff --check OK
 TCP/WebSocket loopback real OK
+```
+
+## Web Control Center Foundation (concluído)
+
+Foi criada uma aplicação independente em `web-control-center/`, separada da Ambient UI:
+
+```text
+Ambient UI         = presença rápida e local
+Web Control Center = conversa e observabilidade
+
+Web Control Center
+        ↓ WebSocket
+Remote Gateway
+        ↓
+RemoteCorePort
+        ↓
+JARVIS Core
+```
+
+- Stack: React, TypeScript e Vite, sem backend adicional.
+- Navegação inicial: `Chat`, `Overview`, `Activity`, `Security` e `Settings`.
+- O frontend conecta diretamente ao transporte WebSocket existente e usa o mesmo protocolo lógico tipado, autenticação, sessões, rate limiting, confirmação e Core do cliente TCP.
+- Chat usa somente `chat.message` / `chat.response`; não existe LLM ou agente no frontend. O histórico permanece apenas na memória da sessão da página.
+- Estado e telemetria reutilizam `state.subscribe`, `telemetry.subscribe`, `state.update` e `telemetry.update` com descarte de sequências regressivas.
+- Activity é derivada somente de eventos permitidos e não contém texto do chat, target de confirmação, argumentos, paths, memórias, tokens, handles, PIDs ou screenshots.
+- Confirmação crítica exibe o pedido do Core e devolve exatamente os `session_id` e `challenge_id` recebidos. O frontend não cria, reinterpreta ou concede confirmação.
+- Reconnect usa backoff até 30 segundos e para após oito tentativas. Desconexão manual, erro de protocolo e revogação interrompem reconnect; revogação também remove a credencial local.
+- Pairing code é informado pelo usuário, nunca criado remotamente e apagado do formulário imediatamente após envio.
+- Token não entra em React state, Web Storage, logs ou mensagens visíveis. Na V1 ele é cifrado com AES-GCM por chave Web Crypto não extraível persistida no IndexedDB. Isso melhora proteção em repouso, mas não protege contra comprometimento da própria origem/XSS; Origin exata, dependências e conteúdo servido continuam sendo fronteiras de segurança.
+- A opção “Forget this browser” remove somente a cópia local. Revogação real continua sendo comando local no host JARVIS.
+- Mensagens recebidas usam schema fechado no TypeScript e limite UTF-8 de 64 KiB. Capabilities devem corresponder à allowlist fixa do protocolo.
+- O protocolo ganhou somente a extensão read-only `security.subscribe` / `security.update`. `RemoteCorePort.current_security()` retorna booleano agregado do Kill Switch e oito capabilities booleanas; motivo do Kill Switch, reset, Policy, Safety, grants e objetos internos não são expostos.
+- Kill Switch permanece no Core e não possui controle remoto. Capabilities são somente leitura e não podem ser alteradas pela UI.
+- O frontend não referencia nem acessa `Harness`, `ToolExecutor`, `ToolRegistry`, `SafetyManager`, grants, filesystem, processos ou backend Desktop.
+- O Vite local exige que a origem exata, por exemplo `http://127.0.0.1:5173`, seja permitida no Gateway por `--remote-websocket-origin`.
+- Google Workspace, Vision streaming, screenshots, Desktop direto, editor de Memory, Browser Agent UI, mobile, Internet pública e backup permaneceram fora do sprint.
+
+Validação em 29/08/2026:
+
+```text
+frontend: 15 passed, 1 live test skipped por padrão
+frontend live smoke: 1 passed
+npm run build: OK
+tests/remote: 75 passed
+total Python: 943 passed, 1 skipped
+compileall OK
+git diff --check OK
+Control Center TypeScript → WebSocket → Gateway → RemoteCorePort → Core fake OK
 ```
 
 ## 20. Google Workspace Integration

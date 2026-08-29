@@ -1662,7 +1662,7 @@ def _run_remote_gateway(args, config: JarvisConfig) -> None:
 
     # Remote Gateway
     gateway = RemoteGateway(
-        core_port=HarnessRemoteCorePort(harness),
+        core_port=HarnessRemoteCorePort(harness, desktop_kill_switch),
         state_bus=state_bus,
         telemetry_bus=telemetry_bus,
         audit=audit_logger,
