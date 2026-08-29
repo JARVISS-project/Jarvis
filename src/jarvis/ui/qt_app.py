@@ -32,11 +32,18 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSystemTrayIcon,
+    QTabWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from jarvis.application.state import AgentState, AgentStateBus, StateSnapshot
+from jarvis.application.telemetry import (
+    TelemetryBus,
+    TelemetrySnapshot,
+)
+from jarvis.ui.control_center_model import ControlCenterBus, ControlCenterSnapshot
 from jarvis.ui.debug import AmbientUIDebugController
 from jarvis.ui.hud_model import HUDProfile, label_for, profile_for
 from jarvis.ui.layout import (
@@ -49,6 +56,7 @@ from jarvis.ui.layout import (
     collapsed_window_size,
     expanded_window_width,
 )
+from jarvis.ui.telemetry_model import format_telemetry
 
 
 # Azul/ciano permanece a identidade principal. Tons de atenção aparecem somente
@@ -70,6 +78,20 @@ class _StateRelay(QObject):
     snapshot_received = Signal(object)
 
     def relay(self, snapshot: StateSnapshot) -> None:
+        self.snapshot_received.emit(snapshot)
+
+
+class _TelemetryRelay(QObject):
+    snapshot_received = Signal(object)
+
+    def relay(self, snapshot: TelemetrySnapshot) -> None:
+        self.snapshot_received.emit(snapshot)
+
+
+class _ControlCenterRelay(QObject):
+    snapshot_received = Signal(object)
+
+    def relay(self, snapshot: ControlCenterSnapshot) -> None:
         self.snapshot_received.emit(snapshot)
 
 
@@ -473,7 +495,7 @@ class AmbientHUDWidget(QWidget):
         painter.drawText(
             QRectF(center.x() + 36.0, center.y() + 99.0, 72.0, 14.0),
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-            "CORE // SAFE",
+            "CORE // LOCAL",
         )
 
         # Linhas de telemetria ficam deliberadamente abstratas no modo demo;
@@ -590,10 +612,14 @@ class AmbientWindow(QWidget):
         state_bus: AgentStateBus,
         *,
         debug_mode: bool,
+        telemetry_bus: TelemetryBus | None = None,
+        control_center_bus: ControlCenterBus | None = None,
     ) -> None:
         super().__init__()
         self.state_bus = state_bus
         self.debug_mode = debug_mode
+        self.telemetry_bus = telemetry_bus
+        self.control_center_bus = control_center_bus
         self.debug_controller = (
             AmbientUIDebugController(state_bus) if debug_mode else None
         )
@@ -635,6 +661,20 @@ class AmbientWindow(QWidget):
         self._relay = _StateRelay(self)
         self._relay.snapshot_received.connect(self._apply_snapshot)
         self._unsubscribe = self.state_bus.subscribe(self._relay.relay)
+        self._telemetry_relay = _TelemetryRelay(self)
+        self._telemetry_relay.snapshot_received.connect(self._apply_telemetry)
+        self._unsubscribe_telemetry = (
+            self.telemetry_bus.subscribe(self._telemetry_relay.relay)
+            if self.telemetry_bus is not None
+            else lambda: None
+        )
+        self._control_center_relay = _ControlCenterRelay(self)
+        self._control_center_relay.snapshot_received.connect(self._apply_control_center)
+        self._unsubscribe_control_center = (
+            self.control_center_bus.subscribe(self._control_center_relay.relay)
+            if self.control_center_bus is not None
+            else lambda: None
+        )
 
         self._place_near_work_area()
 
@@ -740,10 +780,11 @@ class AmbientWindow(QWidget):
         separator = QFrame(panel)
         separator.setObjectName("separator")
 
-        channels = QLabel("VOICE  01   CORE  01   TOOLS  01   SAFETY  01")
-        channels.setObjectName("channel")
-        online = QLabel("● LOCAL LINK   ● POLICY LAYER   ● AUDIT")
-        online.setObjectName("online")
+        display = format_telemetry(TelemetrySnapshot())
+        self.channels_label = QLabel(display.channels)
+        self.channels_label.setObjectName("channel")
+        self.telemetry_health_label = QLabel(display.health)
+        self.telemetry_health_label.setObjectName("online")
 
         layout.addWidget(eyebrow)
         layout.addWidget(title)
@@ -753,8 +794,133 @@ class AmbientWindow(QWidget):
         layout.addSpacing(6)
         layout.addWidget(separator)
         layout.addSpacing(4)
-        layout.addWidget(channels)
-        layout.addWidget(online)
+        layout.addWidget(self.channels_label)
+        layout.addWidget(self.telemetry_health_label)
+        layout.addSpacing(8)
+
+        # Control Center tabs
+        self.control_tabs = QTabWidget(panel)
+        self.control_tabs.setObjectName("controlTabs")
+        self.control_tabs.setStyleSheet(
+            """
+            QTabWidget::pane {
+                border: 1px solid rgba(71, 192, 226, 52);
+                background: rgba(2, 8, 13, 200);
+                border-radius: 2px;
+            }
+            QTabBar::tab {
+                color: rgba(191, 230, 240, 220);
+                background: rgba(4, 20, 29, 210);
+                border: 1px solid rgba(68, 175, 207, 62);
+                border-bottom: none;
+                border-top-left-radius: 2px;
+                border-top-right-radius: 2px;
+                padding: 4px 12px;
+                margin-right: 2px;
+                font-size: 8px;
+                letter-spacing: 1px;
+            }
+            QTabBar::tab:selected {
+                color: rgba(232, 251, 255, 248);
+                background: rgba(2, 8, 13, 200);
+                border-bottom: 1px solid rgba(2, 8, 13, 200);
+            }
+            QTabBar::tab:hover:!selected {
+                background: rgba(7, 35, 48, 225);
+            }
+            """
+        )
+
+        # Telemetry tab
+        self.telemetry_tab = QWidget()
+        telemetry_layout = QVBoxLayout(self.telemetry_tab)
+        telemetry_layout.setContentsMargins(12, 10, 12, 10)
+        telemetry_layout.setSpacing(6)
+
+        self.channels_label = QLabel(display.channels)
+        self.channels_label.setObjectName("channel")
+        telemetry_layout.addWidget(self.channels_label)
+
+        self.telemetry_health_label = QLabel(display.health)
+        self.telemetry_health_label.setObjectName("online")
+        telemetry_layout.addWidget(self.telemetry_health_label)
+
+        telemetry_layout.addStretch(1)
+        self.control_tabs.addTab(self.telemetry_tab, "TELEMETRY")
+
+        # Memory tab
+        self.memory_tab = QWidget()
+        memory_layout = QVBoxLayout(self.memory_tab)
+        memory_layout.setContentsMargins(12, 10, 12, 10)
+        memory_layout.setSpacing(6)
+
+        self.memory_summary_label = QLabel("Memória: 0 | Consentimento: 0 | Expirados: 0")
+        self.memory_summary_label.setObjectName("meta")
+        self.memory_summary_label.setWordWrap(True)
+        memory_layout.addWidget(self.memory_summary_label)
+
+        self.memory_list = QTextEdit()
+        self.memory_list.setReadOnly(True)
+        self.memory_list.setMaximumHeight(160)
+        self.memory_list.setStyleSheet(
+            """
+            QTextEdit {
+                color: rgba(213, 239, 247, 230);
+                background: rgba(2, 8, 13, 180);
+                border: 1px solid rgba(71, 192, 226, 40);
+                border-radius: 1px;
+                font-family: "Consolas", "Segoe UI";
+                font-size: 8px;
+            }
+            """
+        )
+        memory_layout.addWidget(self.memory_list)
+
+        self.control_tabs.addTab(self.memory_tab, "MEMORY")
+
+        # Skills tab
+        self.skills_tab = QWidget()
+        skills_layout = QVBoxLayout(self.skills_tab)
+        skills_layout.setContentsMargins(12, 10, 12, 10)
+        skills_layout.setSpacing(6)
+
+        self.skills_summary_label = QLabel("Skills: 0 | Execuções: 0 | Sucessos: 0")
+        self.skills_summary_label.setObjectName("meta")
+        skills_layout.addWidget(self.skills_summary_label)
+
+        self.skills_list = QTextEdit()
+        self.skills_list.setReadOnly(True)
+        self.skills_list.setMaximumHeight(160)
+        self.skills_list.setStyleSheet(
+            """
+            QTextEdit {
+                color: rgba(213, 239, 247, 230);
+                background: rgba(2, 8, 13, 180);
+                border: 1px solid rgba(71, 192, 226, 40);
+                border-radius: 1px;
+                font-family: "Consolas", "Segoe UI";
+                font-size: 8px;
+            }
+            """
+        )
+        skills_layout.addWidget(self.skills_list)
+
+        self.control_tabs.addTab(self.skills_tab, "SKILLS")
+
+        # Vision tab
+        self.vision_tab = QWidget()
+        vision_layout = QVBoxLayout(self.vision_tab)
+        vision_layout.setContentsMargins(12, 10, 12, 10)
+        vision_layout.setSpacing(6)
+
+        self.vision_status_label = QLabel("Visão: Desabilitada")
+        self.vision_status_label.setObjectName("meta")
+        vision_layout.addWidget(self.vision_status_label)
+
+        vision_layout.addStretch(1)
+        self.control_tabs.addTab(self.vision_tab, "VISION")
+
+        layout.addWidget(self.control_tabs)
         layout.addStretch(1)
 
         self.state_selector = QComboBox(panel)
@@ -778,7 +944,7 @@ class AmbientWindow(QWidget):
         mode_label = QLabel(
             "SIMULATION BUS // NO DEVICE INPUT"
             if self.debug_mode
-            else "RUNTIME BUS // LIVE"
+            else "RUNTIME BUS // READ ONLY"
         )
         mode_label.setObjectName("meta")
         layout.addWidget(mode_label)
@@ -848,6 +1014,50 @@ class AmbientWindow(QWidget):
         if self.tray is not None:
             self.tray.setToolTip(f"Jarvis · {label_for(snapshot.state)}")
 
+    def _apply_telemetry(self, snapshot: TelemetrySnapshot) -> None:
+        display = format_telemetry(snapshot)
+        self.channels_label.setText(display.channels)
+        self.telemetry_health_label.setText(display.health)
+
+    def _apply_control_center(self, snapshot: ControlCenterSnapshot) -> None:
+        # Update telemetry tab
+        display = format_telemetry(snapshot.telemetry)
+        self.channels_label.setText(display.channels)
+        self.telemetry_health_label.setText(display.health)
+
+        # Update memory tab
+        mem = snapshot.memory
+        self.memory_summary_label.setText(
+            f"Memória: {mem.total} | Consentimento: {mem.with_consent} | Expirados: {mem.expired} | Sensibilidade: {mem.by_sensitivity}"
+        )
+        lines = []
+        for mem_entry in mem.recent:
+            sens = mem_entry.sensitivity.value
+            consent = "SIM" if mem_entry.consent_given else "NÃO"
+            ret = f"{mem_entry.retention_days}d" if mem_entry.retention_days else "∞"
+            lines.append(f"[{mem_entry.category}] {mem_entry.content[:60]}... | {sens} | {consent} | ret={ret} | {mem_entry.id}")
+        self.memory_list.setPlainText("\n".join(lines) if lines else "(vazio)")
+
+        # Update skills tab
+        sk = snapshot.skills
+        self.skills_summary_label.setText(
+            f"Skills: {sk.total} | Execuções: {sk.total_executions} | Sucessos: {sk.total_successes}"
+        )
+        lines = []
+        for skill in sk.recent:
+            triggers = ", ".join(skill.triggers) if skill.triggers else "(sem triggers)"
+            lines.append(f"{skill.name} | exec={skill.execution_count} ok={skill.success_count} | {triggers} | {skill.id}")
+        self.skills_list.setPlainText("\n".join(lines) if lines else "(vazio)")
+
+        # Update vision tab
+        vis = snapshot.vision
+        if vis.enabled:
+            self.vision_status_label.setText(
+                f"Visão: Habilitada | Última observação: {vis.last_observation or '—'}"
+            )
+        else:
+            self.vision_status_label.setText("Visão: Desabilitada")
+
     def toggle_panel(self) -> None:
         right_edge = self.geometry().right()
         top = self.y()
@@ -907,6 +1117,8 @@ class AmbientWindow(QWidget):
     def shutdown(self) -> None:
         self._quitting = True
         self._unsubscribe()
+        self._unsubscribe_telemetry()
+        self._unsubscribe_control_center()
         if self.tray is not None:
             self.tray.hide()
         self.close()
@@ -918,6 +1130,8 @@ class AmbientWindow(QWidget):
             self.hide()
             return
         self._unsubscribe()
+        self._unsubscribe_telemetry()
+        self._unsubscribe_control_center()
         event.accept()
         if self.tray is None:
             QApplication.quit()
@@ -927,6 +1141,8 @@ def run_qt_ambient_ui(
     *,
     state_bus: AgentStateBus,
     debug_mode: bool = False,
+    telemetry_bus: TelemetryBus | None = None,
+    control_center_bus: ControlCenterBus | None = None,
 ) -> int:
     """Inicializa a janela Qt consumindo somente o barramento de aplicação."""
 
@@ -936,7 +1152,12 @@ def run_qt_ambient_ui(
     app.setApplicationName("Jarvis")
     app.setQuitOnLastWindowClosed(False)
 
-    window = AmbientWindow(state_bus, debug_mode=debug_mode)
+    window = AmbientWindow(
+        state_bus,
+        debug_mode=debug_mode,
+        telemetry_bus=telemetry_bus,
+        control_center_bus=control_center_bus,
+    )
     window.show()
 
     if not owns_app:

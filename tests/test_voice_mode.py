@@ -278,8 +278,15 @@ def test_ui_flag_starts_live_state_channel_without_coupling_ui_to_voice(
     process = object()
 
     class FakeStateServer:
-        def __init__(self, _state_bus: Any, *, endpoint_path: Path) -> None:
+        def __init__(
+            self,
+            _state_bus: Any,
+            *,
+            endpoint_path: Path,
+            telemetry_bus: Any = None,
+        ) -> None:
             captured["endpoint_path"] = endpoint_path
+            captured["server_telemetry_bus"] = telemetry_bus
 
         def start(self) -> None:
             events.append("server-start")
@@ -310,6 +317,7 @@ def test_ui_flag_starts_live_state_channel_without_coupling_ui_to_voice(
 
     assert captured["endpoint_path"] == Path("data/runtime/ambient-ui.json")
     assert captured["launch_path"] == Path("data/runtime/ambient-ui.json")
+    assert captured["server_telemetry_bus"] is captured["telemetry_bus"]
     assert events == [
         "server-start",
         "ui-launch",

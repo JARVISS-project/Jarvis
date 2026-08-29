@@ -265,6 +265,37 @@ def test_remember_does_not_call_llm_and_persists() -> None:
     assert memories[0].id in result
 
 
+def test_remember_options_do_not_become_memory_content() -> None:
+    llm = ScriptedLLM([])
+    store = InMemoryMemoryStore()
+    harness = make_persistent_harness(llm, ConversationMemory(), store)
+
+    response = harness.processar_mensagem(
+        "/remember Meu editor é VS Code --categoria preference "
+        "--sensibilidade private --retencao 30"
+    )
+
+    entry = store.get_all()[0]
+    assert "Memória armazenada" in response
+    assert entry.content == "Meu editor é VS Code"
+    assert entry.category == "preference"
+    assert entry.retention_days == 30
+
+
+def test_memory_consent_command_revokes_llm_context() -> None:
+    llm = ScriptedLLM([LLMResponse(content="Resposta")])
+    store = InMemoryMemoryStore()
+    entry = store.add("Editor preferido VS Code", "preference")
+    harness = make_persistent_harness(llm, ConversationMemory(), store)
+
+    assert harness.processar_mensagem(
+        f"/consent revoke {entry.id}"
+    ) == "Consentimento revogado."
+    harness.processar_mensagem("editor VS Code")
+
+    assert entry.content not in llm.calls[0][0]["content"]
+
+
 def test_memories_lists_ids_categories_and_contents() -> None:
     store = InMemoryMemoryStore()
     entry = store.add("Uso Python", "user")
@@ -319,15 +350,15 @@ def test_persistent_memories_are_sent_as_separate_context() -> None:
     entry = store.add("Meu editor é VS Code", "user")
     harness = make_persistent_harness(llm, ConversationMemory(), store)
 
-    harness.processar_mensagem("Qual editor eu uso?")
+    harness.processar_mensagem("Qual é o meu editor?")
 
     assert llm.calls[0][0]["role"] == "system"
-    assert "explicitamente pelo usuário" in llm.calls[0][0]["content"]
+    assert "Memórias persistentes relevantes" in llm.calls[0][0]["content"]
     assert entry.id in llm.calls[0][0]["content"]
     assert entry.content in llm.calls[0][0]["content"]
     assert llm.calls[0][1] == {
         "role": "user",
-        "content": "Qual editor eu uso?",
+        "content": "Qual é o meu editor?",
     }
 
 

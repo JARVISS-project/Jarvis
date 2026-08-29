@@ -32,10 +32,16 @@ class FakeBackend:
         self.escape_events: list[bool] = []
         self.foreground: int | None = None
         self.close_requests: list[int] = []
-        self.existing_handles = {1}
+        self.window = DesktopWindow(7, "Obsidian", 70, "TestWindow")
+        self.existing_handles = {7}
+        self.list_calls = 0
 
     def list_windows(self) -> list[DesktopWindow]:
-        return [DesktopWindow(7, "Obsidian")]
+        self.list_calls += 1
+        return [self.window] if 7 in self.existing_handles else []
+
+    def inspect_window(self, handle: int) -> DesktopWindow | None:
+        return self.window if handle in self.existing_handles else None
 
     def focus_window(self, handle: int) -> None:
         self.focused.append(handle)
@@ -56,6 +62,9 @@ class FakeBackend:
 
     def window_rectangle(self, _handle: int) -> WindowRectangle:
         return WindowRectangle(0, 0, 100, 80)
+
+    def window_capture_rectangle(self, handle: int) -> WindowRectangle:
+        return self.window_rectangle(handle)
 
     def move_pointer(self, x: int, y: int) -> None:
         self.pointer = (x, y)
@@ -205,3 +214,22 @@ def test_disabled_desktop_control_blocks_limited_input_before_effect(
     assert move_pointer.service.backend.pointer == (0, 0)
     assert move_pointer.service.backend.escape_events == []
     assert move_pointer.service.backend.close_requests == []
+
+
+def test_executor_resolves_window_title_only_once(tmp_path: Path) -> None:
+    _list, _apps, focus, _open, _move, _escape, _close = build_tools(tmp_path)
+    backend = focus.service.backend
+    executor = ToolExecutor(
+        SafetyManager(),
+        AuditLogger(tmp_path / "audit.log"),
+        capability_policy=CapabilityPolicy(
+            {Capability.DESKTOP_CONTROL: True}
+        ),
+    )
+
+    result = executor.execute_with_result(focus, title="Obsidian")
+
+    assert result.status == "success"
+    assert backend.list_calls == 1
+    assert "70" not in result.content
+    assert "TestWindow" not in result.content

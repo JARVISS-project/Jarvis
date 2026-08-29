@@ -1,10 +1,64 @@
 """Tools de desktop deliberadamente pequenas e sem shell irrestrito."""
 
+from hashlib import sha256
 from typing import Any
 
+from jarvis.desktop.models import PreparedDesktopWindow
 from jarvis.desktop.service import DesktopService
 from jarvis.security.risk import RiskLevel
-from jarvis.tools.base import Tool
+from jarvis.tools.base import Tool, ToolPreparation
+
+
+class _PreparedDesktopWindowTool(Tool):
+    service: DesktopService
+
+    def prepare(self, **kwargs: Any) -> ToolPreparation:
+        prepared = self.service.prepare_window(str(kwargs["title"]))
+        binding_digest = sha256(
+            prepared.visual_identity().encode("utf-8")
+        ).hexdigest()
+        return ToolPreparation(
+            prepared.public_target,
+            prepared,
+            binding_digest,
+        )
+
+    def get_target(self, **kwargs: Any) -> str:
+        return self.prepare(**kwargs).target
+
+    def preflight(self, **kwargs: Any) -> None:
+        self.service.prepare_window(str(kwargs["title"]))
+
+    def preflight_prepared(
+        self,
+        preparation: ToolPreparation,
+        **kwargs: Any,
+    ) -> None:
+        self.service.kill_switch.require_available()
+        self.service.validate_prepared_window(self._prepared_window(preparation))
+
+    def refresh_prepared(
+        self,
+        preparation: ToolPreparation,
+        **kwargs: Any,
+    ) -> ToolPreparation:
+        refreshed = self.service.refresh_prepared_window(
+            self._prepared_window(preparation)
+        )
+        return ToolPreparation(
+            preparation.target,
+            refreshed,
+            preparation.binding_digest,
+        )
+
+    @staticmethod
+    def _prepared_window(
+        preparation: ToolPreparation,
+    ) -> PreparedDesktopWindow:
+        context = preparation.context
+        if not isinstance(context, PreparedDesktopWindow):
+            raise RuntimeError("Contexto preparado da janela ausente.")
+        return context
 
 
 class DesktopListWindowsTool(Tool):
@@ -61,7 +115,7 @@ class DesktopListApplicationsTool(Tool):
         ) + "."
 
 
-class DesktopFocusWindowTool(Tool):
+class DesktopFocusWindowTool(_PreparedDesktopWindowTool):
     name = "desktop_focus_window"
     description = (
         "Traz para primeiro plano uma única janela já aberta. Use um trecho "
@@ -83,17 +137,18 @@ class DesktopFocusWindowTool(Tool):
     def __init__(self, service: DesktopService) -> None:
         self.service = service
 
-    def get_target(self, **kwargs: Any) -> str:
-        self.service.kill_switch.require_available()
-        window = self.service.resolve_window(str(kwargs["title"]))
-        return f"janela:{window.title}"
-
-    def preflight(self, **kwargs: Any) -> None:
-        self.service.kill_switch.require_available()
-        self.service.resolve_window(str(kwargs["title"]))
-
     def execute(self, **kwargs: Any) -> str:
         window = self.service.focus_window(str(kwargs["title"]))
+        return f'Janela "{window.title}" trazida para primeiro plano.'
+
+    def execute_prepared(
+        self,
+        preparation: ToolPreparation,
+        **kwargs: Any,
+    ) -> str:
+        window = self.service.focus_prepared_window(
+            self._prepared_window(preparation)
+        )
         return f'Janela "{window.title}" trazida para primeiro plano.'
 
 
@@ -145,7 +200,7 @@ class DesktopOpenApplicationTool(Tool):
         )
 
 
-class DesktopMovePointerToWindowTool(Tool):
+class DesktopMovePointerToWindowTool(_PreparedDesktopWindowTool):
     name = "desktop_move_pointer_to_window"
     description = (
         "Move o ponteiro somente para o centro de uma janela aberta e "
@@ -167,15 +222,6 @@ class DesktopMovePointerToWindowTool(Tool):
     def __init__(self, service: DesktopService) -> None:
         self.service = service
 
-    def get_target(self, **kwargs: Any) -> str:
-        self.service.kill_switch.require_available()
-        window = self.service.resolve_window(str(kwargs["title"]))
-        return f"janela:{window.title}"
-
-    def preflight(self, **kwargs: Any) -> None:
-        self.service.kill_switch.require_available()
-        self.service.resolve_window(str(kwargs["title"]))
-
     def execute(self, **kwargs: Any) -> str:
         window = self.service.move_pointer_to_window_center(
             str(kwargs["title"])
@@ -185,8 +231,21 @@ class DesktopMovePointerToWindowTool(Tool):
             "posição verificada."
         )
 
+    def execute_prepared(
+        self,
+        preparation: ToolPreparation,
+        **kwargs: Any,
+    ) -> str:
+        window = self.service.move_pointer_to_prepared_window_center(
+            self._prepared_window(preparation)
+        )
+        return (
+            f'Ponteiro movido para o centro da janela "{window.title}"; '
+            "posição verificada."
+        )
 
-class DesktopPressEscapeTool(Tool):
+
+class DesktopPressEscapeTool(_PreparedDesktopWindowTool):
     name = "desktop_press_escape"
     description = (
         "Envia somente a tecla Escape para uma janela aberta e inequívoca. "
@@ -208,15 +267,6 @@ class DesktopPressEscapeTool(Tool):
     def __init__(self, service: DesktopService) -> None:
         self.service = service
 
-    def get_target(self, **kwargs: Any) -> str:
-        self.service.kill_switch.require_available()
-        window = self.service.resolve_window(str(kwargs["title"]))
-        return f"janela:{window.title}"
-
-    def preflight(self, **kwargs: Any) -> None:
-        self.service.kill_switch.require_available()
-        self.service.resolve_window(str(kwargs["title"]))
-
     def execute(self, **kwargs: Any) -> str:
         window = self.service.press_escape(str(kwargs["title"]))
         return (
@@ -224,8 +274,21 @@ class DesktopPressEscapeTool(Tool):
             "janela em primeiro plano verificada."
         )
 
+    def execute_prepared(
+        self,
+        preparation: ToolPreparation,
+        **kwargs: Any,
+    ) -> str:
+        window = self.service.press_escape_prepared(
+            self._prepared_window(preparation)
+        )
+        return (
+            f'Escape enviado para a janela "{window.title}"; '
+            "janela em primeiro plano verificada."
+        )
 
-class DesktopCloseWindowTool(Tool):
+
+class DesktopCloseWindowTool(_PreparedDesktopWindowTool):
     name = "desktop_close_window"
     description = (
         "Solicita fechamento cooperativo de uma janela aberta e inequívoca. "
@@ -247,17 +310,22 @@ class DesktopCloseWindowTool(Tool):
     def __init__(self, service: DesktopService) -> None:
         self.service = service
 
-    def get_target(self, **kwargs: Any) -> str:
-        self.service.kill_switch.require_available()
-        window = self.service.resolve_window(str(kwargs["title"]))
-        return f"janela:{window.title}"
-
-    def preflight(self, **kwargs: Any) -> None:
-        self.service.kill_switch.require_available()
-        self.service.resolve_window(str(kwargs["title"]))
-
     def execute(self, **kwargs: Any) -> str:
         result = self.service.close_window(str(kwargs["title"]))
+        return self._format_result(result)
+
+    def execute_prepared(
+        self,
+        preparation: ToolPreparation,
+        **kwargs: Any,
+    ) -> str:
+        result = self.service.close_prepared_window(
+            self._prepared_window(preparation)
+        )
+        return self._format_result(result)
+
+    @staticmethod
+    def _format_result(result) -> str:  # type: ignore[no-untyped-def]
         if result.closed:
             return (
                 f'Janela "{result.window.title}" fechada; '

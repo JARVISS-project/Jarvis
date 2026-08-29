@@ -5,7 +5,7 @@ from jarvis.security.audit import AuditLogger
 from jarvis.security.capabilities import Capability, CapabilityPolicy
 from jarvis.security.risk import RiskLevel
 from jarvis.security.safety_manager import SafetyManager
-from jarvis.tools.base import Tool
+from jarvis.tools.base import Tool, ToolPreparation
 from jarvis.tools.executor import ToolExecutor
 
 
@@ -18,6 +18,8 @@ class ProbeTool(Tool):
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
         self.executions = 0
+        self.context = object()
+        self.executed_context: object | None = None
 
     def get_target(self, **_kwargs: Any) -> str:
         return "janela:Obsidian"
@@ -28,22 +30,44 @@ class ProbeTool(Tool):
             raise RuntimeError("falha da Tool")
         return "efeito verificado pela Tool"
 
+    def prepare(self, **_kwargs: Any) -> ToolPreparation:
+        return ToolPreparation("janela:Obsidian", self.context)
+
+    def execute_prepared(
+        self,
+        preparation: ToolPreparation,
+        **_kwargs: Any,
+    ) -> str:
+        self.executed_context = preparation.context
+        return self.execute()
+
 
 class RecordingVerifier:
     def __init__(self, *, fail_before: bool = False) -> None:
         self.fail_before = fail_before
-        self.before_calls: list[tuple[str, str]] = []
-        self.after_calls: list[tuple[object, str, str]] = []
+        self.before_calls: list[tuple[str, str, object | None]] = []
+        self.after_calls: list[tuple[object, str, str, object | None]] = []
         self.cancelled: list[object] = []
 
-    def before(self, tool_name: str, target: str) -> object:
-        self.before_calls.append((tool_name, target))
+    def before(
+        self,
+        tool_name: str,
+        target: str,
+        context: object | None = None,
+    ) -> object:
+        self.before_calls.append((tool_name, target, context))
         if self.fail_before:
             raise RuntimeError("Vision indisponível")
         return object()
 
-    def after(self, token: object, tool_name: str, target: str) -> str:
-        self.after_calls.append((token, tool_name, target))
+    def after(
+        self,
+        token: object,
+        tool_name: str,
+        target: str,
+        context: object | None = None,
+    ) -> str:
+        self.after_calls.append((token, tool_name, target, context))
         return "changed"
 
     def cancel(self, token: object) -> None:
@@ -78,9 +102,11 @@ def test_visual_signal_is_additional_to_successful_tool_result(
     assert result.content == "efeito verificado pela Tool"
     assert result.visual_change == "changed"
     assert verifier.before_calls == [
-        ("desktop_focus_window", "janela:Obsidian")
+        ("desktop_focus_window", "janela:Obsidian", tool.context)
     ]
     assert len(verifier.after_calls) == 1
+    assert verifier.after_calls[0][3] is tool.context
+    assert tool.executed_context is tool.context
 
 
 def test_visual_failure_does_not_block_or_upgrade_tool_result(

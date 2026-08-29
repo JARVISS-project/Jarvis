@@ -47,8 +47,9 @@ class ToolExecutor:
         try:
             if self.capability_policy is not None:
                 self.capability_policy.require_tool(tool.name)
-            target = tool.get_target(**kwargs)
-            tool.preflight(**kwargs)
+            preparation = tool.prepare(**kwargs)
+            target = preparation.target
+            tool.preflight_prepared(preparation, **kwargs)
             if (
                 self.confirmation_requester is not None
                 and self.safety_manager.policy.requires_confirmation(tool.risk)
@@ -58,6 +59,7 @@ class ToolExecutor:
                     target,
                     dict(kwargs),
                     _interaction_id,
+                    preparation.binding_digest,
                 )
                 self.audit_logger.log(
                     tool_name=tool.name,
@@ -97,11 +99,17 @@ class ToolExecutor:
                 )
                 return ToolExecutionResult(result, "denied", False)
 
+            if self.verifier is not None:
+                preparation = tool.refresh_prepared(preparation, **kwargs)
             self._notify_started(tool.name)
             execution_started = True
-            verification_token = self._begin_verification(tool.name, target)
+            verification_token = self._begin_verification(
+                tool.name,
+                target,
+                preparation.context,
+            )
             try:
-                result = tool.execute(**kwargs)
+                result = tool.execute_prepared(preparation, **kwargs)
             except Exception:
                 self._cancel_verification(verification_token)
                 raise
@@ -109,6 +117,7 @@ class ToolExecutor:
                 verification_token,
                 tool.name,
                 target,
+                preparation.context,
             )
             execution_result = ToolExecutionResult(
                 result,
@@ -179,8 +188,9 @@ class ToolExecutor:
         try:
             if self.capability_policy is not None:
                 self.capability_policy.require_tool(tool.name)
-            target = tool.get_target(**kwargs)
-            tool.preflight(**kwargs)
+            preparation = tool.prepare(**kwargs)
+            target = preparation.target
+            tool.preflight_prepared(preparation, **kwargs)
             authorized = self.safety_manager.consume_grant(
                 grant,
                 tool.name,
@@ -190,6 +200,7 @@ class ToolExecutor:
                 digest_arguments(kwargs)
                 if getattr(grant, "arguments_digest", None) is not None
                 else None,
+                preparation.binding_digest,
             )
             if not authorized:
                 self.audit_logger.log(
@@ -198,11 +209,17 @@ class ToolExecutor:
                 return ToolExecutionResult(
                     "Ação não autorizada.", "denied", False
                 )
+            if self.verifier is not None:
+                preparation = tool.refresh_prepared(preparation, **kwargs)
             self._notify_started(tool.name)
             execution_started = True
-            verification_token = self._begin_verification(tool.name, target)
+            verification_token = self._begin_verification(
+                tool.name,
+                target,
+                preparation.context,
+            )
             try:
-                result = tool.execute(**kwargs)
+                result = tool.execute_prepared(preparation, **kwargs)
             except Exception:
                 self._cancel_verification(verification_token)
                 raise
@@ -210,6 +227,7 @@ class ToolExecutor:
                 verification_token,
                 tool.name,
                 target,
+                preparation.context,
             )
             execution_result = ToolExecutionResult(
                 result,
@@ -253,12 +271,17 @@ class ToolExecutor:
             # Observabilidade nunca deve alterar a autorização/execução.
             return
 
-    def _begin_verification(self, tool_name: str, target: str):  # type: ignore[no-untyped-def]
+    def _begin_verification(
+        self,
+        tool_name: str,
+        target: str,
+        context: object | None,
+    ):  # type: ignore[no-untyped-def]
         verifier = self.verifier
         if verifier is None:
             return None
         try:
-            return verifier.before(tool_name, target)
+            return verifier.before(tool_name, target, context)
         except Exception:
             return None
 
@@ -267,12 +290,13 @@ class ToolExecutor:
         token,  # type: ignore[no-untyped-def]
         tool_name: str,
         target: str,
+        context: object | None,
     ) -> str | None:
         verifier = self.verifier
         if verifier is None or token is None:
             return None
         try:
-            result = verifier.after(token, tool_name, target)
+            result = verifier.after(token, tool_name, target, context)
             return result if result in {"changed", "unchanged"} else None
         except Exception:
             self._cancel_verification(token)

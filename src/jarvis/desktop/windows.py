@@ -136,6 +136,24 @@ class WindowsDesktopBackend:
             raise OSError("Não foi possível enumerar janelas do Windows.")
         return windows
 
+    def inspect_window(self, handle: int) -> DesktopWindow | None:
+        hwnd = wintypes.HWND(handle)
+        if not self._user32.IsWindow(hwnd):
+            return None
+        length = int(self._user32.GetWindowTextLengthW(hwnd))
+        buffer = ctypes.create_unicode_buffer(max(length + 1, 1))
+        self._user32.GetWindowTextW(hwnd, buffer, len(buffer))
+        process_id = wintypes.DWORD()
+        self._user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
+        class_buffer = ctypes.create_unicode_buffer(256)
+        self._user32.GetClassNameW(hwnd, class_buffer, 256)
+        return DesktopWindow(
+            handle=handle,
+            title=buffer.value.strip(),
+            process_id=int(process_id.value) or None,
+            class_name=class_buffer.value or None,
+        )
+
     def focus_window(self, handle: int) -> None:
         hwnd = wintypes.HWND(handle)
         if not self._user32.IsWindow(hwnd):
@@ -171,6 +189,23 @@ class WindowsDesktopBackend:
             raise RuntimeError(
                 "A janela permaneceu minimizada após a tentativa de restauração."
             )
+        rectangle = wintypes.RECT()
+        if not self._user32.GetWindowRect(hwnd, ctypes.byref(rectangle)):
+            raise OSError(
+                ctypes.get_last_error(),
+                "Não foi possível obter os limites da janela.",
+            )
+        return WindowRectangle(
+            int(rectangle.left),
+            int(rectangle.top),
+            int(rectangle.right),
+            int(rectangle.bottom),
+        )
+
+    def window_capture_rectangle(self, handle: int) -> WindowRectangle:
+        hwnd = wintypes.HWND(handle)
+        if not self._user32.IsWindow(hwnd):
+            raise ValueError("A janela deixou de existir.")
         rectangle = wintypes.RECT()
         if not self._user32.GetWindowRect(hwnd, ctypes.byref(rectangle)):
             raise OSError(

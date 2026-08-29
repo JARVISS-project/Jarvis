@@ -1,17 +1,23 @@
 from typing import Any
 from pathlib import Path
+import json
 import re
+import shlex
 import time
 
 from jarvis.security.authorization import AuthorizationGrant
+from jarvis.ui.control_center_model import ControlCenterBus
+from jarvis.vision.service import VisionService
 
 from jarvis.application.agent_loop_coordinator import AgentLoopCoordinator
+from jarvis.application.control_center_coordinator import ControlCenterCoordinator
 from jarvis.application.intent_coordinator import IntentCoordinator
 from jarvis.application.obsidian_coordinator import ObsidianCoordinator
 from jarvis.application.response_coordinator import ResponseCoordinator
 from jarvis.application.skill_coordinator import SkillCoordinator
 from jarvis.application.tool_execution_coordinator import ToolExecutionCoordinator
 from jarvis.application.turn_policy import TurnKind, TurnPolicy
+from jarvis.application.telemetry import TelemetryBus
 
 from jarvis.config import JarvisConfig
 from jarvis.context.recent import RecentContext
@@ -89,17 +95,22 @@ class Harness:
         note_reference_resolver: NoteReferenceResolver | None = None,
         context_router: ContextRouter | None = None,
         skill_store: SkillStore | None = None,
-        skill_mirror: ObsidianSkillMirror | None = None,
+skill_mirror: ObsidianSkillMirror | None = None,
+        telemetry_bus: TelemetryBus | None = None,
+        control_center_bus: ControlCenterBus | None = None,
+        vision_service: VisionService | None = None,
     ) -> None:
         self.llm = llm
         self.tool_registry = tool_registry
         self.tool_executor = tool_executor
         self.memory = memory
+        self.telemetry_bus = telemetry_bus
         self.memory_store = (
             memory_store
             if memory_store is not None
             else InMemoryMemoryStore()
         )
+        self.memory_store.cleanup_expired()
         self.config = config or JarvisConfig()
         self.resource_manager = (
             resource_manager
@@ -248,6 +259,14 @@ class Harness:
             self.agent_loop_coordinator.process,
             lambda: (self.last_tool_trace_request, self.last_tool_trace),
         )
+        self.control_center_bus = control_center_bus or ControlCenterBus()
+        self.control_center_coordinator = ControlCenterCoordinator(
+            self.memory_store,
+            self.skill_store,
+            vision_service,
+            self.telemetry_bus or TelemetryBus(),
+            self.control_center_bus,
+        )
         self._latency_turn_started_at: float | None = None
 
     def run(self) -> None:
@@ -291,12 +310,22 @@ class Harness:
         stripped_message = mensagem.strip()
         command = stripped_message.lower()
 
-        confirmation_response = self._process_confirmation_message(
-            stripped_message,
-            confirmation_session_id,
-            confirmation_challenge_id,
-        )
+        measuring_confirmation = self.has_pending_confirmation()
+        if measuring_confirmation:
+            self._start_latency_turn()
+        try:
+            confirmation_response = self._process_confirmation_message(
+                stripped_message,
+                confirmation_session_id,
+                confirmation_challenge_id,
+            )
+        except Exception:
+            if measuring_confirmation:
+                self._finish_latency_turn()
+            raise
         if confirmation_response is not None:
+            if measuring_confirmation:
+                self._finish_latency_turn()
             return confirmation_response
 
         if command == "/doctor":
@@ -324,10 +353,79 @@ class Harness:
         if command == "/remember" or command.startswith("/remember "):
             content = stripped_message[len("/remember"):].strip()
             if not content:
-                return "Uso: /remember <texto>"
+                return (
+                    "Uso: /remember <texto> [--categoria <cat>] "
+                    "[--sensibilidade <public|private|sensitive>] "
+                    "[--retencao <dias>] [--metadados <json>]"
+                )
 
-            entry = self.memory_store.add(content, category="user")
-            return f"Memória armazenada com ID: {entry.id}."
+            try:
+                args = shlex.split(content)
+            except ValueError:
+                return "Argumentos de memória inválidos. Verifique as aspas."
+            category = "user"
+            sensitivity = "private"
+            retention_days: int | None = None
+            metadata: dict[str, Any] = {}
+            content_parts: list[str] = []
+
+            i = 0
+            while i < len(args):
+                arg = args[i]
+                if arg in {
+                    "--categoria",
+                    "--sensibilidade",
+                    "--retencao",
+                    "--metadados",
+                } and i + 1 >= len(args):
+                    return f"A opção {arg} exige um valor."
+                if arg == "--categoria":
+                    category = args[i + 1]
+                    i += 2
+                elif arg == "--sensibilidade":
+                    sensitivity = args[i + 1]
+                    i += 2
+                elif arg == "--retencao":
+                    try:
+                        retention_days = int(args[i + 1])
+                    except ValueError:
+                        return "Retenção deve ser um número inteiro de dias."
+                    if retention_days <= 0:
+                        return "Retenção deve ser maior que zero."
+                    i += 2
+                elif arg == "--metadados":
+                    try:
+                        metadata = json.loads(args[i + 1])
+                    except (json.JSONDecodeError, TypeError):
+                        return "Metadados devem ser JSON válido."
+                    if not isinstance(metadata, dict):
+                        return "Metadados devem ser um objeto JSON."
+                    i += 2
+                elif arg.startswith("--"):
+                    return f"Opção de memória desconhecida: {arg}."
+                else:
+                    content_parts.append(arg)
+                    i += 1
+
+            actual_content = " ".join(content_parts).strip()
+            if not actual_content:
+                return "Uso: /remember <texto> [opções]"
+
+            try:
+                entry = self.memory_store.add(
+                    actual_content,
+                    category=category,
+                    sensitivity=sensitivity,
+                    retention_days=retention_days,
+                    metadata=metadata,
+                )
+            except ValueError as error:
+                return f"Memória inválida: {error}"
+            return (
+                f"Memória armazenada com ID: {entry.id}. "
+                f"Sensibilidade: {entry.sensitivity.value}. "
+                f"Retenção: {entry.retention_days or 'indefinida'} dias."
+            )
 
         if command == "/memories":
             memories = self.memory_store.get_all()
@@ -336,10 +434,45 @@ class Harness:
 
             lines = ["Memórias persistentes:"]
             lines.extend(
-                f"- {entry.id} | {entry.category} | {entry.content}"
+                f"- {entry.id} | {entry.category} | {entry.sensitivity.value} | "
+                f"ret={entry.retention_days or 'indefinida'} | {entry.content}"
                 for entry in memories
             )
             return "\n".join(lines)
+
+        if command == "/consent" or command.startswith("/consent "):
+            args = stripped_message[len("/consent"):].strip().split()
+            if not args or args[0] not in {"grant", "revoke", "list"}:
+                return "Uso: /consent grant|revoke|list <id>"
+
+            action = args[0]
+            if action == "list":
+                memories = self.memory_store.get_all()
+                if not memories:
+                    return "Nenhuma memória persistente armazenada."
+                return "\n".join(
+                    f"{'SIM' if m.consent_given else 'NAO'} "
+                    f"{m.id} | {m.content[:50]}"
+                    for m in memories
+                )
+
+            if len(args) < 2:
+                return "Uso: /consent grant|revoke <id>"
+
+            memory_id = args[1]
+            memories = self.memory_store.get_all()
+            target = next((m for m in memories if m.id == memory_id), None)
+            if target is None:
+                return "Memória não encontrada."
+
+            if action == "grant":
+                if not self.memory_store.update_consent(memory_id, True):
+                    return "Memória não encontrada."
+                return "Consentimento concedido."
+            else:
+                if not self.memory_store.update_consent(memory_id, False):
+                    return "Memória não encontrada."
+                return "Consentimento revogado."
 
         if command == "/forget" or command.startswith("/forget "):
             memory_id = stripped_message[len("/forget"):].strip()
@@ -417,6 +550,21 @@ class Harness:
                 time.perf_counter() - started
             )
         self._latency_turn_started_at = None
+        telemetry_bus = self.telemetry_bus
+        if started is not None and telemetry_bus is not None:
+            try:
+                telemetry_bus.publish_turn(
+                    turn_ms=round(
+                        float(self.last_latency["harness_seconds"]) * 1000
+                    ),
+                    llm_ms=round(float(self.last_latency["llm_seconds"]) * 1000),
+                    llm_calls=int(self.last_latency["llm_calls"]),
+                    tool_ms=round(float(self.last_latency["tool_seconds"]) * 1000),
+                    tool_calls=int(self.last_latency["tool_calls"]),
+                )
+            except Exception:
+                # Telemetria visual nunca pode alterar a resposta do Core.
+                pass
         if self._current_tool_trace:
             self.last_tool_trace = list(self._current_tool_trace)
             self.last_tool_trace_request = self._current_trace_request
@@ -471,6 +619,11 @@ class Harness:
 
     def close_confirmation_sessions(self) -> None:
         self.confirmation_sessions.close()
+
+    def close(self) -> None:
+        """Encerra coordenadores e sessões pertencentes ao Harness."""
+        self.control_center_coordinator.close()
+        self.close_confirmation_sessions()
 
     def _process_active_message(
         self, mensagem: str, response_mode: str = "text"
@@ -876,6 +1029,7 @@ class Harness:
         target: str,
         arguments: dict[str, Any],
         interaction_id: str | None,
+        preparation_digest: str | None = None,
     ) -> ToolExecutionResult:
         session = self.confirmation_sessions.request(
             tool_name=tool.name,
@@ -884,6 +1038,7 @@ class Harness:
             risk=tool.risk,
             interaction_id=interaction_id,
             prompt_text=security_prompt(tool.name, target, risk=tool.risk),
+            preparation_digest=preparation_digest,
         )
         if session is None:
             return ToolExecutionResult(
@@ -998,6 +1153,7 @@ class Harness:
             invocation.interaction_id,
             session.id,
             invocation.arguments_digest,
+            invocation.preparation_digest,
         )
 
     def _cleanup_confirmation_session(
@@ -1091,9 +1247,9 @@ class Harness:
         self.tool_execution_coordinator.cancel_pending_action()
 
     def _system_context(
-        self, response_mode: str = "text"
+        self, response_mode: str = "text", user_message: str | None = None
     ) -> list[dict[str, Any]]:
-        return self.response_coordinator.system_context(response_mode)
+        return self.response_coordinator.system_context(response_mode, user_message)
 
     def _append_recent_context(
         self, lines: list[str], active: ActiveContext

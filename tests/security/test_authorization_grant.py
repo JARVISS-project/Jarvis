@@ -73,6 +73,37 @@ def test_session_grant_rejects_changed_arguments_and_scoped_invalidation() -> No
     )
 
 
+def test_session_grant_rejects_changed_prepared_identity() -> None:
+    store = AuthorizationGrantStore()
+    grant = store.issue(
+        "critical_tool",
+        "janela:Obsidian",
+        "interaction-a",
+        "session-a",
+        "arguments-a",
+        "prepared-a",
+    )
+
+    assert not store.consume(
+        grant,
+        "critical_tool",
+        "janela:Obsidian",
+        "interaction-a",
+        "session-a",
+        "arguments-a",
+        "prepared-b",
+    )
+    assert store.consume(
+        grant,
+        "critical_tool",
+        "janela:Obsidian",
+        "interaction-a",
+        "session-a",
+        "arguments-a",
+        "prepared-a",
+    )
+
+
 class BooleanOnlySafetyManager:
     def authorize(self, action, target, risk):  # type: ignore[no-untyped-def]
         return True

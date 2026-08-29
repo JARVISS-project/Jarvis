@@ -17,6 +17,7 @@ def request(manager: ConfirmationSessionManager):  # type: ignore[no-untyped-def
         risk=RiskLevel.CRITICAL,
         interaction_id="interaction-a",
         prompt_text="Posso continuar?",
+        preparation_digest="opaque-preparation-digest",
     )
 
 
@@ -29,6 +30,8 @@ def test_session_transitions_and_binding() -> None:
     session = request(manager)
     assert session is not None
     assert session.state is ConfirmationSessionState.WAITING_CONFIRMATION
+    assert session.invocation.preparation_digest == "opaque-preparation-digest"
+    assert "opaque-preparation-digest" not in repr(session.invocation)
 
     stale, _session, _grant = manager.decide(
         confirmed=True,

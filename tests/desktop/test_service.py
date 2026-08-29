@@ -36,9 +36,17 @@ class FakeBackend:
         self.close_requests: list[int] = []
         self.close_immediately = True
         self.existing_handles = {window.handle for window in self.windows}
+        self.list_calls = 0
 
     def list_windows(self) -> list[DesktopWindow]:
+        self.list_calls += 1
         return list(self.windows)
+
+    def inspect_window(self, handle: int) -> DesktopWindow | None:
+        return next(
+            (window for window in self.windows if window.handle == handle),
+            None,
+        )
 
     def focus_window(self, handle: int) -> None:
         self.focused.append(handle)
@@ -65,6 +73,9 @@ class FakeBackend:
 
     def window_rectangle(self, _handle: int) -> WindowRectangle:
         return WindowRectangle(10, 20, 110, 100)
+
+    def window_capture_rectangle(self, handle: int) -> WindowRectangle:
+        return self.window_rectangle(handle)
 
     def move_pointer(self, x: int, y: int) -> None:
         self.pointer = (x, y)
@@ -270,3 +281,37 @@ def test_close_window_reports_pending_save_dialog_without_forcing(
     assert not result.closed
     assert backend.close_requests == [2]
     assert backend.window_exists(2)
+
+
+def test_prepared_action_does_not_resolve_title_again(tmp_path: Path) -> None:
+    service, backend, _executable = build_service(tmp_path)
+
+    prepared = service.prepare_window("Obsidian")
+    service.move_pointer_to_prepared_window_center(prepared)
+
+    assert backend.list_calls == 1
+    assert backend.focused == [2]
+
+
+def test_prepared_window_rejects_reused_handle_with_different_process(
+    tmp_path: Path,
+) -> None:
+    service, backend, _executable = build_service(tmp_path)
+    prepared = service.prepare_window("Obsidian")
+    backend.windows[1] = DesktopWindow(2, "Obsidian", 999, None)
+
+    with pytest.raises(RuntimeError, match="identidade"):
+        service.focus_prepared_window(prepared)
+
+    assert backend.focused == []
+
+
+def test_prepared_window_repr_hides_native_identity_and_region(
+    tmp_path: Path,
+) -> None:
+    service, _backend, _executable = build_service(tmp_path)
+
+    prepared = service.prepare_window("Obsidian")
+
+    assert repr(prepared) == "PreparedDesktopWindow(public_target='janela:Obsidian')"
+    assert "200" not in repr(prepared)

@@ -3,6 +3,7 @@ import time
 
 from jarvis.application.state import AgentState, AgentStateBus
 from jarvis.application.state_ipc import LocalStateClient, LocalStateServer
+from jarvis.application.telemetry import TelemetryBus
 from jarvis.application.tool_execution_state import AgentToolExecutionObserver
 from jarvis.application.voice_bridge import VoiceStateBridge
 from jarvis.desktop.catalog import DesktopApplicationCatalog
@@ -36,6 +37,9 @@ class PointerBackend:
     def list_windows(self) -> list[DesktopWindow]:
         return [self.window]
 
+    def inspect_window(self, handle: int) -> DesktopWindow | None:
+        return self.window if handle == self.window.handle else None
+
     def focus_window(self, handle: int) -> None:
         self.foreground = handle
 
@@ -54,6 +58,9 @@ class PointerBackend:
 
     def window_rectangle(self, _handle: int) -> WindowRectangle:
         return WindowRectangle(0, 0, 100, 80)
+
+    def window_capture_rectangle(self, handle: int) -> WindowRectangle:
+        return self.window_rectangle(handle)
 
     def move_pointer(self, x: int, y: int) -> None:
         self.pointer = (x, y)
@@ -90,7 +97,14 @@ def build_runtime(
     tmp_path: Path,
     *,
     verified: bool,
-) -> tuple[Harness, PointerBackend, PointerLLM, AgentStateBus, Path]:
+) -> tuple[
+    Harness,
+    PointerBackend,
+    PointerLLM,
+    AgentStateBus,
+    TelemetryBus,
+    Path,
+]:
     backend = PointerBackend(verified=verified)
     service = DesktopService(
         backend,
@@ -101,6 +115,7 @@ def build_runtime(
     registry.register(DesktopMovePointerToWindowTool(service))
     registry.register(DesktopPressEscapeTool(service))
     state_bus = AgentStateBus(AgentState.PROCESSING)
+    telemetry_bus = TelemetryBus()
     audit_path = tmp_path / "audit.log"
     llm = PointerLLM()
     harness = Harness(
@@ -108,21 +123,22 @@ def build_runtime(
         tool_registry=registry,
         tool_executor=ToolExecutor(
             SafetyManager(),
-            AuditLogger(audit_path),
+            AuditLogger(audit_path, telemetry_bus.record_audit),
             capability_policy=CapabilityPolicy(
                 {Capability.DESKTOP_CONTROL: True}
             ),
             observer=AgentToolExecutionObserver(state_bus),
         ),
         memory=ConversationMemory(),
+        telemetry_bus=telemetry_bus,
     )
-    return harness, backend, llm, state_bus, audit_path
+    return harness, backend, llm, state_bus, telemetry_bus, audit_path
 
 
 def test_desktop_input_runtime_publishes_ui_state_audits_and_latency(
     tmp_path: Path,
 ) -> None:
-    harness, backend, llm, runtime_bus, audit_path = build_runtime(
+    harness, backend, llm, runtime_bus, runtime_telemetry, audit_path = build_runtime(
         tmp_path,
         verified=True,
     )
@@ -132,6 +148,7 @@ def test_desktop_input_runtime_publishes_ui_state_audits_and_latency(
         replay_current=False,
     )
     ui_bus = AgentStateBus()
+    ui_telemetry = TelemetryBus()
     ui_snapshots = []
     ui_bus.subscribe(
         ui_snapshots.append,
@@ -140,9 +157,15 @@ def test_desktop_input_runtime_publishes_ui_state_audits_and_latency(
     server = LocalStateServer(
         runtime_bus,
         endpoint_path=tmp_path / "ambient-ui.json",
+        telemetry_bus=runtime_telemetry,
     )
     endpoint = server.start()
-    client = LocalStateClient(ui_bus, endpoint, reconnect_seconds=0.01)
+    client = LocalStateClient(
+        ui_bus,
+        endpoint,
+        reconnect_seconds=0.01,
+        telemetry_bus=ui_telemetry,
+    )
     client.start()
     try:
         runtime_bus.publish(AgentState.PROCESSING, source="voice_pipeline")
@@ -162,6 +185,7 @@ def test_desktop_input_runtime_publishes_ui_state_audits_and_latency(
             "Mova o mouse para o centro da janela do Obsidian."
         )
         _wait_until(lambda: ui_bus.snapshot.sequence >= 3)
+        _wait_until(lambda: ui_telemetry.snapshot.has_completed_turn)
 
         assert processed
         assert not spoke
@@ -179,6 +203,10 @@ def test_desktop_input_runtime_publishes_ui_state_audits_and_latency(
         assert all(snapshot.detail is None for snapshot in ui_snapshots)
         assert harness.last_latency["tool_calls"] == 1
         assert harness.last_latency["llm_calls"] == 0
+        assert ui_telemetry.snapshot.llm_calls == 0
+        assert ui_telemetry.snapshot.tool_calls == 1
+        assert ui_telemetry.snapshot.audit_events == 1
+        assert ui_telemetry.snapshot.audit_write_ok is True
         audit = audit_path.read_text(encoding="utf-8")
         assert "tool=desktop_move_pointer_to_window" in audit
         assert "authorized=True status=success" in audit
@@ -190,7 +218,7 @@ def test_desktop_input_runtime_publishes_ui_state_audits_and_latency(
 def test_desktop_input_runtime_failure_publishes_error_and_stops_llm(
     tmp_path: Path,
 ) -> None:
-    harness, _backend, llm, state_bus, audit_path = build_runtime(
+    harness, _backend, llm, state_bus, _telemetry, audit_path = build_runtime(
         tmp_path,
         verified=False,
     )
@@ -215,7 +243,7 @@ def test_desktop_input_runtime_failure_publishes_error_and_stops_llm(
 def test_escape_uses_same_runtime_authorization_and_audit_path(
     tmp_path: Path,
 ) -> None:
-    harness, backend, llm, state_bus, audit_path = build_runtime(
+    harness, backend, llm, state_bus, _telemetry, audit_path = build_runtime(
         tmp_path,
         verified=True,
     )

@@ -94,7 +94,7 @@ class AgentLoopCoordinator:
 
         self.memory.add_user_message(message)
         messages: list[dict[str, Any]] = self.response_coordinator.system_context(
-            response_mode
+            response_mode, user_message=message
         )
         if turn_kind is TurnKind.ADVISORY:
             messages.append(

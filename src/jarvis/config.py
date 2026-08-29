@@ -31,6 +31,7 @@ def _load_local_settings(path: Path) -> tuple[dict[str, Any], str | None]:
         "desktop_read": bool,
         "desktop_control": bool,
         "vision": bool,
+        "browser": bool,
     }
     for key, expected_type in validators.items():
         current = value.get(key)
@@ -65,6 +66,10 @@ class JarvisConfig:
     desktop_read_enabled: bool = False
     desktop_control_enabled: bool = False
     vision_enabled: bool = False
+    browser_enabled: bool = False
+    browser_allowed_domains: list[str] = field(default_factory=list)
+    browser_blocked_domains: list[str] = field(default_factory=list)
+    browser_max_tabs: int = 10
     obsidian_search_max_results: int = 10
     obsidian_max_note_size_bytes: int = 1_000_000
     max_tool_iterations: int = 5
@@ -267,6 +272,45 @@ class JarvisConfig:
             if isinstance(local_vision, bool):
                 self.vision_enabled = local_vision
 
+        environment_browser = os.getenv("JARVIS_BROWSER")
+        if environment_browser is not None:
+            self.browser_enabled = _environment_flag("JARVIS_BROWSER")
+        else:
+            local_browser = settings.get("browser")
+            if isinstance(local_browser, bool):
+                self.browser_enabled = local_browser
+
+        environment_browser_domains = os.getenv("JARVIS_BROWSER_ALLOWED_DOMAINS")
+        if environment_browser_domains is not None:
+            self.browser_allowed_domains = [
+                d.strip().lower() for d in environment_browser_domains.split(",") if d.strip()
+            ]
+        else:
+            local_browser_domains = settings.get("browser_allowed_domains")
+            if isinstance(local_browser_domains, list):
+                self.browser_allowed_domains = [d.strip().lower() for d in local_browser_domains if d.strip()]
+
+        environment_browser_blocked = os.getenv("JARVIS_BROWSER_BLOCKED_DOMAINS")
+        if environment_browser_blocked is not None:
+            self.browser_blocked_domains = [
+                d.strip().lower() for d in environment_browser_blocked.split(",") if d.strip()
+            ]
+        else:
+            local_browser_blocked = settings.get("browser_blocked_domains")
+            if isinstance(local_browser_blocked, list):
+                self.browser_blocked_domains = [d.strip().lower() for d in local_browser_blocked if d.strip()]
+
+        environment_browser_max_tabs = os.getenv("JARVIS_BROWSER_MAX_TABS")
+        if environment_browser_max_tabs is not None:
+            try:
+                self.browser_max_tabs = int(environment_browser_max_tabs)
+            except ValueError:
+                pass
+        else:
+            local_browser_max_tabs = settings.get("browser_max_tabs")
+            if isinstance(local_browser_max_tabs, int):
+                self.browser_max_tabs = local_browser_max_tabs
+
     def save_obsidian_settings(
         self,
         *,
@@ -307,7 +351,6 @@ class JarvisConfig:
             self.desktop_read_enabled = bool(read)
         if control is not None and os.getenv("JARVIS_DESKTOP_CONTROL") is None:
             self.desktop_control_enabled = bool(control)
-
     def save_vision_settings(self, *, enabled: bool) -> None:
         settings, _error = _load_local_settings(self.settings_path)
         settings["vision"] = bool(enabled)
@@ -315,6 +358,32 @@ class JarvisConfig:
         if os.getenv("JARVIS_VISION") is None:
             self.vision_enabled = bool(enabled)
 
+    def save_browser_settings(
+        self,
+        *,
+        enabled: bool | None = None,
+        allowed_domains: list[str] | None = None,
+        blocked_domains: list[str] | None = None,
+        max_tabs: int | None = None,
+    ) -> None:
+        settings, _error = _load_local_settings(self.settings_path)
+        if enabled is not None:
+            settings["browser"] = bool(enabled)
+        if allowed_domains is not None:
+            settings["browser_allowed_domains"] = [d.strip().lower() for d in allowed_domains if d.strip()]
+        if blocked_domains is not None:
+            settings["browser_blocked_domains"] = [d.strip().lower() for d in blocked_domains if d.strip()]
+        if max_tabs is not None:
+            settings["browser_max_tabs"] = int(max_tabs)
+        self._write_local_settings(settings)
+        if os.getenv("JARVIS_BROWSER") is None and enabled is not None:
+            self.browser_enabled = bool(enabled)
+        if allowed_domains is not None:
+            self.browser_allowed_domains = [d.strip().lower() for d in allowed_domains if d.strip()]
+        if blocked_domains is not None:
+            self.browser_blocked_domains = [d.strip().lower() for d in blocked_domains if d.strip()]
+        if max_tabs is not None:
+            self.browser_max_tabs = int(max_tabs)
 
     def save_voice_settings(
         self,

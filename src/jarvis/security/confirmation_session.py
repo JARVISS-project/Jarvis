@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum
 import hashlib
 import json
@@ -44,6 +44,7 @@ class PreparedInvocation:
     arguments_digest: str
     risk: RiskLevel
     interaction_id: str
+    preparation_digest: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +126,7 @@ class ConfirmationSessionManager:
         risk: RiskLevel,
         interaction_id: str | None,
         prompt_text: str,
+        preparation_digest: str | None = None,
     ) -> ConfirmationSession | None:
         snapshot = json.loads(json.dumps(arguments, ensure_ascii=False))
         now = self.clock()
@@ -139,6 +141,7 @@ class ConfirmationSessionManager:
                 arguments_digest=digest_arguments(snapshot),
                 risk=risk,
                 interaction_id=interaction_id or str(uuid4()),
+                preparation_digest=preparation_digest,
             )
             requested = ConfirmationSession(
                 id=str(uuid4()),

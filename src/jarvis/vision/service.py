@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from hmac import compare_digest
 from hashlib import sha256
+from hmac import compare_digest
 from threading import RLock
 import time
 from typing import Callable
@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from jarvis.security.capabilities import Capability, CapabilityPolicy
 from jarvis.vision.backend import VisionBackend
+from jarvis.vision.models import CaptureRegion, TextResult, UITreeResult
 
 
 class ScreenChange(str, Enum):
@@ -34,6 +35,7 @@ class VisualVerificationToken:
     created_at: float = field(repr=False)
     target_digest: bytes = field(repr=False)
     fingerprint: bytes = field(repr=False)
+    region: CaptureRegion | None = field(repr=False)
 
 
 class VisionService:
@@ -73,7 +75,11 @@ class VisionService:
             status = ScreenChange.CHANGED
         return ScreenChangeResult(status, width, height)
 
-    def begin_verification(self, target_identity: str) -> VisualVerificationToken:
+    def begin_verification(
+        self,
+        target_identity: str,
+        region: CaptureRegion | None = None,
+    ) -> VisualVerificationToken:
         self.capability_policy.require(Capability.VISION)
         target = target_identity.strip()
         if not target:
@@ -81,7 +87,7 @@ class VisionService:
         now = self.monotonic()
         with self._lock:
             self._discard_expired_locked(now)
-            fingerprint, width, height = self._capture_fingerprint_locked()
+            fingerprint, width, height = self._capture_fingerprint_locked(region)
             token = VisualVerificationToken(
                 id=str(uuid4()),
                 width=width,
@@ -89,6 +95,7 @@ class VisionService:
                 created_at=now,
                 target_digest=sha256(target.encode("utf-8")).digest(),
                 fingerprint=fingerprint,
+                region=region,
             )
             self._pending[token.id] = token
             return token
@@ -109,7 +116,7 @@ class VisionService:
                 raise TimeoutError("Baseline visual expirada.")
             if not compare_digest(token.target_digest, target_digest):
                 raise ValueError("Identidade visual do alvo não corresponde.")
-            current, width, height = self._capture_fingerprint_locked()
+            current, width, height = self._capture_fingerprint_locked(token.region)
         status = (
             ScreenChange.UNCHANGED
             if current == token.fingerprint
@@ -121,10 +128,45 @@ class VisionService:
         with self._lock:
             self._pending.pop(token.id, None)
 
-    def _capture_fingerprint_locked(self) -> tuple[bytes, int, int]:
-        frame = self._backend.capture_screen()
+    def extract_text(
+        self, region: CaptureRegion, language: str | None = None
+    ) -> TextResult:
+        self.capability_policy.require(Capability.VISION)
+        if region.width <= 0 or region.height <= 0:
+            raise RuntimeError("A região de captura possui dimensões inválidas.")
+        if region.width * region.height > self.max_pixels:
+            raise RuntimeError("A região de captura excede o limite de pixels.")
+        return self._backend.extract_text(region, language)
+
+    def get_ui_tree(self, region: CaptureRegion | None = None) -> UITreeResult:
+        self.capability_policy.require(Capability.VISION)
+        if region is not None:
+            if region.width <= 0 or region.height <= 0:
+                raise RuntimeError("A região de captura possui dimensões inválidas.")
+            if region.width * region.height > self.max_pixels:
+                raise RuntimeError("A região de captura excede o limite de pixels.")
+        return self._backend.get_ui_tree(region)
+
+    def _capture_fingerprint_locked(
+        self,
+        region: CaptureRegion | None = None,
+    ) -> tuple[bytes, int, int]:
+        if region is None:
+            frame = self._backend.capture_screen()
+        else:
+            if region.width <= 0 or region.height <= 0:
+                raise RuntimeError("A região de captura possui dimensões inválidas.")
+            if region.width * region.height > self.max_pixels:
+                raise RuntimeError("A região de captura excede o limite de pixels.")
+            frame = self._backend.capture_region(region)
         if frame.width <= 0 or frame.height <= 0:
             raise RuntimeError("A captura de tela possui dimensões inválidas.")
+        if region is not None and (
+            frame.width != region.width or frame.height != region.height
+        ):
+            raise RuntimeError(
+                "A captura não corresponde às dimensões da região solicitada."
+            )
         pixel_count = frame.width * frame.height
         if pixel_count > self.max_pixels:
             raise RuntimeError("A captura de tela excede o limite de pixels.")

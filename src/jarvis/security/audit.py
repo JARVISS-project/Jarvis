@@ -1,10 +1,16 @@
 from datetime import datetime
 from pathlib import Path
+from collections.abc import Callable
 
 
 class AuditLogger:
-    def __init__(self, log_file: Path) -> None:
+    def __init__(
+        self,
+        log_file: Path,
+        telemetry_callback: Callable[[bool], None] | None = None,
+    ) -> None:
         self.log_file = log_file
+        self.telemetry_callback = telemetry_callback
         self.log_file.parent.mkdir(
             parents=True,
             exist_ok=True,
@@ -29,8 +35,22 @@ class AuditLogger:
             f"status={status}\n"
         )
 
-        with self.log_file.open(
-            "a",
-            encoding="utf-8",
-        ) as file:
-            file.write(entry)
+        try:
+            with self.log_file.open(
+                "a",
+                encoding="utf-8",
+            ) as file:
+                file.write(entry)
+        except Exception:
+            self._notify_telemetry(False)
+            raise
+        self._notify_telemetry(True)
+
+    def _notify_telemetry(self, succeeded: bool) -> None:
+        callback = self.telemetry_callback
+        if callback is None:
+            return
+        try:
+            callback(succeeded)
+        except Exception:
+            return

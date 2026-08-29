@@ -1,0 +1,5 @@
+[2026-08-28T21:06:53] tool=browser_navigate target=browser:navigate:tab_1:https://example.com authorized=False status=error
+[2026-08-28T21:08:00] tool=browser_navigate target=browser:navigate:tab_1:https://example.com authorized=False status=error
+[2026-08-28T21:09:30] tool=browser_navigate target=browser:navigate:tab_1:https://example.com authorized=False status=error
+[2026-08-28T22:07:08] tool=browser_navigate target=browser:tab:tab_1:https://example.com authorized=False status=error
+[2026-08-28T22:09:15] tool=browser_navigate target=browser:tab:tab_1:https://example.com authorized=False status=error

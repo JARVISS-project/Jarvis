@@ -200,16 +200,20 @@ Estados visuais incluem `WAITING_WAKE`, `LISTENING`, `PROCESSING`, `SPEAKING`, `
 
 A partir da fundação de Desktop Automation, `EXECUTING` deixou de existir apenas no modo de demonstração: um observador do `ToolExecutor` publica esse estado **somente depois da autorização e imediatamente antes da execução real**. Ao terminar, volta para `PROCESSING`; exceções de runtime publicam `ERROR`. O observador recebe somente o nome da Tool e o resultado estruturado, sem argumentos/alvos sensíveis.
 
-### Indicadores visuais ainda não são telemetria
+### HUD Telemetry
 
-Textos como:
+Os indicadores textuais decorativos foram substituídos por telemetria agregada real do último turno:
 
 ```text
-VOICE 01   CORE 01   TOOLS 01   SAFETY 01
-● LOCAL LINK   ● POLICY LAYER   ● AUDIT
+TURN 842ms   LLM 731ms/1
+TOOLS 4ms/1   AUDIT OK / 17
 ```
 
-são **decorativos atualmente**. Não devem ser interpretados como evidência de saúde operacional. Futuramente precisam receber telemetria real ou ser marcados de modo inequivocamente decorativo.
+Antes da primeira evidência, a HUD exibe `--`; não afirma mais `SAFE`, `POLICY LAYER`, link ativo ou audit saudável sem sinal correspondente. `TOOLS` conta invocações pelo Harness, não ações necessariamente concluídas. `AUDIT OK` significa somente que a última gravação local de audit terminou sem erro e o número representa gravações bem-sucedidas desde o início do runtime.
+
+`TelemetryBus` é separado do `AgentStateBus` e contém somente inteiros limitados, booleanos e contadores: duração total/LLM/Tools, chamadas LLM/Tools e estado agregado de audit. Nomes de Tool, argumentos, alvos, paths, títulos, conteúdo, status, pixels, digests, handles e PIDs não entram no snapshot ou IPC.
+
+O IPC continua Core → UI em loopback e protocolo v1, agora com mensagem aditiva `type=telemetry` e allowlist explícita. Publicação do Core apenas coloca payloads em uma fila limitada; uma thread daemon realiza os envios, clientes lentos são limitados e não bloqueiam Harness, Tool ou audit. Sequências regressivas de estado/telemetria são ignoradas pelo cliente. A geometria animada do HUD continua sendo linguagem visual, não indicador de saúde.
 
 ## 11. Segurança da UI
 
@@ -337,22 +341,50 @@ O routing é determinístico (`llm_calls=0`). Capability é verificada pelo `Too
 
 Validação real do backend observou uma área multi-monitor de `3840x3240`; duas capturas produziram baseline/mudança e o diretório temporário continha somente banco e audit, sem screenshot.
 
-Quando `VISION` está habilitada, o `ToolExecutor` acrescenta verificação visual opcional às Tools Desktop somente depois da autorização: captura baseline, executa a Tool e captura o pós-estado. A baseline usa token UUID single-use, digest da identidade lógica do alvo e expiração de 10 segundos; mismatch, expiração, replay ou falha da Tool cancelam/invalidam o token. Falha do verificador não bloqueia, autoriza, promove nem transforma o resultado da Tool.
+Quando `VISION` está habilitada, o `ToolExecutor` acrescenta verificação visual opcional às Tools Desktop somente depois da autorização: captura baseline, executa a Tool e captura o pós-estado. A baseline usa token UUID single-use, digest da identidade preparada do alvo e expiração de 10 segundos; mismatch, expiração, replay ou falha da Tool cancelam/invalidam o token. Falha do verificador não bloqueia, autoriza, promove nem transforma o resultado da Tool.
 
-O sinal interno `visual_change` contém somente `changed`, `unchanged` ou `None`. Ele não altera a resposta ao usuário, status, grounding, audit ou IPC. Mudança visual é evidência adicional temporal, nunca prova semântica de que a ação causou o estado observado. A identidade atual deriva do alvo lógico resolvido; binding futuro a handle/processo preparado ainda é necessário para eliminar a janela de TOCTOU entre preflight e execução.
+As Tools de janela agora resolvem o título uma única vez e criam um contexto efêmero vinculado a handle, processo e classe Win32. Preflight e cada etapa com efeito revalidam diretamente essa identidade, sem nova busca por título. Handle, PID, classe, região e digest não entram em resposta, audit, IPC, trace ou representação do contexto. Confirmações diferidas preservam somente um digest opaco da identidade preparada; após a confirmação, uma nova preparação com identidade diferente não consegue consumir o grant, mesmo que o título público permaneça igual.
+
+A região da janela é lida depois da autorização e imediatamente antes da baseline. Pillow captura somente esse retângulo, inclusive com coordenadas negativas de múltiplos monitores, e o token obriga o pós-estado a reutilizar exatamente a região original. Dimensões retornadas pelo backend precisam corresponder ao retângulo solicitado. `desktop_open_application` não usa fallback de tela inteira porque não existe janela preparada antes do lançamento; seu sucesso continua dependendo da verificação semântica de processo e janela do `DesktopService`.
+
+O sinal interno `visual_change` contém somente `changed`, `unchanged` ou `None`. Ele não altera a resposta ao usuário, status, grounding, audit ou IPC. Mudança visual é evidência adicional temporal, nunca prova semântica de que a ação causou o estado observado. Binding por handle, PID e classe reduz o TOCTOU atual; process creation time permanece uma opção de hardening futuro contra reutilização extrema de identidade no mesmo processo/classe.
 
 Validação Win32 real com Explorer em foreground produziu Tool `success`, posição verificada e `visual_change=changed`. Uma tentativa anterior bloqueada pelo foreground lock cancelou a baseline e não gerou sinal visual falso.
 
+### Persistent Personal Memory Foundation
+
+A capacidade de memória pessoal persistente foi implementada com consentimento explícito, provenance, sensibilidade, retenção e exclusão controlados pelo usuário.
+
+`MemoryEntry` agora inclui:
+- `sensitivity`: `public`, `private`, `sensitive`;
+- `provenance`: `user_explicit`, `conversation_derived`, `tool_observation`;
+- `retention_days`: retenção opcional em dias;
+- `consent_given`: consentimento explícito para uso no contexto do LLM;
+- `metadata`: dicionário extensível para futuros atributos.
+
+`MemoryStore` ganhou `get_relevant(query, max_results, min_score)` para recuperação por relevância semântica simples (Jaccard sobre tokens normalizados ≥3 chars) em vez de injetar o acervo completo. A normalização remove acentos para preservar consultas em português. `cleanup_expired()` remove fisicamente entradas vencidas na inicialização, listagem ou recuperação. `update_consent(id, bool)` permite conceder/revogar consentimento. Bancos SQLite anteriores são migrados sem descartar memórias existentes.
+
+Comandos de CLI atualizados:
+- `/remember <texto> [--categoria <cat>] [--sensibilidade <public|private|sensitive>] [--retencao <dias>] [--metadados <json>]`;
+- `/memories` lista com sensibilidade e retenção;
+- `/consent grant|revoke|list <id>` gerencia consentimento por memória;
+- `/forget <id>` remove memória.
+
+`ResponseCoordinator.system_context()` agora recebe `user_message` opcional e injeta apenas memórias relevantes (com consentimento) via `memory_store.get_relevant(user_message)`. Turnos sem memórias relevantes não recebem bloco de memória no system prompt.
+
+Memória nunca concede autorização: `consent_given` controla apenas inclusão no contexto do LLM; execução continua passando por Tool, policy, SafetyManager, risco/confirmação e audit. Skills permanecem como memória procedural estruturada executada via `ToolExecutor`.
+
 ## 14. Testes
 
-Marco conhecido após a revisão de autonomia e hardening de Desktop Automation:
+Marco conhecido após a conclusão do Remote Gateway Hardening:
 
 ```text
-766 passed, 1 skipped
+919 passed, 1 skipped
 compileall OK
+git diff --check OK
 ```
 
-A suíte usa fakes nas fronteiras externas e não substitui teste real de voz, Ollama ou Qt. As validações Win32 reais conhecidas estão registradas na seção de Desktop Automation.
+A suíte usa fakes nas fronteiras externas e não substitui teste real de voz, Ollama ou Qt. O Remote Gateway possui integração TCP loopback real automatizada; as validações Win32 reais conhecidas estão registradas nas seções de Desktop Automation, Vision e Control Center.
 
 Sempre validar no PC principal:
 
@@ -369,17 +401,582 @@ python -m pytest
 
 ## 16. Próximas prioridades
 
-Próximo sprint recomendado: **Vision Target-Bound Verification**, mantendo clique e texto bloqueados.
+Próximo sprint recomendado: **Web Control Center Foundation**, sem autoridade operacional no frontend.
 
-1. preparar e vincular handle/processo da janela uma única vez para preflight, ação e pós-verificação;
-2. reduzir comparação de tela inteira para região da janela preparada, sem persistir pixels;
-3. manter mudança visual como sinal adicional, nunca autorização ou prova semântica isolada;
-4. evoluir memória pessoal persistente com autorização clara;
-5. transformar indicadores decorativos da HUD em telemetria real;
-6. Vision para percepção e verificação da tela;
-7. browser agent;
-8. startup automático e background runtime;
-9. acesso remoto seguro.
+1. Web Control Center Foundation;
+2. startup automático e background runtime;
+3. Google Integration Foundation, somente após decisão explícita de sprint.
+
+## 17. Control Center Foundation (concluído)
+
+A fundação da interface de controle (Control Center) foi implementada, expandindo a Ambient HUD existente com um painel de abas dedicado à visualização agregada de telemetria, memória, skills e visão.
+
+**Novas capacidades:**
+
+- **Aba Telemetria**: Exibe métricas agregadas do último turno (TURN, LLM, TOOLS) e saúde do audit (AUDIT OK/ERROR), substituindo os indicadores decorativos anteriores por dados reais.
+- **Aba Memória**: Lista memórias persistentes com sensibilidade (public/private/sensitive), consentimento (SIM/NÃO), retenção e ID. Atualiza automaticamente quando memórias são adicionadas/removidas.
+- **Abas Skills**: Mostra skills aprendidas com contadores de execução/sucesso, triggers e IDs.
+- **Aba Visão**: Status da capacidade Vision (habilitada/desabilitada) e última observação visual.
+
+**Arquitetura:**
+
+- `ControlCenterBus`: Barramento thread-safe para snapshots agregados (`ControlCenterSnapshot`) contendo telemetria, memória, skills e visão.
+- `ControlCenterCoordinator`: Agrega dados de `MemoryStore`, `SkillStore`, `VisionService` e `TelemetryBus`, publicando no bus periodicamente e sob demanda.
+- `AmbientWindow` (Qt): Painel expandido com `QTabWidget` contendo abas TELEMETRY, MEMORY, SKILLS, VISION. Assina `ControlCenterBus`, `AgentStateBus` e `TelemetryBus` via relays Qt.
+
+**Novos arquivos:**
+
+- `src/jarvis/ui/control_center_model.py`: Modelos (`ControlCenterSnapshot`, `MemorySummary`, `SkillSummary`, `VisionSummary`) e barramento (`ControlCenterBus`).
+- `src/jarvis/application/control_center_coordinator.py`: Coordenador que agrega e publica dados.
+- `src/jarvis/ui/control_center_model.py`: Extensões do Qt para abas do Control Center.
+- Testes: `tests/ui/test_control_center_model.py`, `tests/application/test_control_center_coordinator.py`.
+
+**Privacidade e segurança:**
+
+- Snapshots contêm apenas dados agregados e metadados não sensíveis (contagens, IDs, categorias, sensibilidades).
+- Conteúdo de memórias truncado a 60 chars na UI; Skills mostram apenas nome, triggers, contadores.
+- Nenhum pixel, screenshot, argumento de Tool, caminho ou conteúdo sensível exposto.
+- `ControlCenterBus` não replicado via IPC; permanece local.
+
+**Testes adicionados:**
+
+- `test_control_center_model.py`: Bus, snapshots, enums, summaries.
+- `test_control_center_coordinator.py`: Refresh de memória, skills, visão, integração com telemetria, close.
+
+**Validação:**
+
+```text
+836 passed, 1 skipped
+compileall OK
+git diff --check OK
+```
+
+## 18. Vision Semantic Perception Foundation (concluído)
+
+A fundação de percepção semântica read-only foi implementada, expandindo a Vision Foundation existente.
+
+**Novas capacidades:**
+
+- **OCR (vision_extract_text)**: Extrai texto de uma região explícita da tela via Tesseract. Requer região (left, top, right, bottom) e idioma opcional (padrão `por+eng`). Retorna texto, confiança, região e idioma. Não persiste screenshot.
+- **UI Tree (vision_get_ui_tree)**: Captura a árvore de acessibilidade da região ou tela inteira via Windows UI Automation (comtypes/uiautomation). Retorna hierarquia de elementos com nome, tipo de controle, retângulo delimitador, filhos e propriedades. Não persiste screenshot.
+
+**Arquitetura:**
+
+- `VisionBackend` (protocolo) estendido com `extract_text(region, language)` e `get_ui_tree(region)`.
+- `PillowVisionBackend`: implementa OCR via `pytesseract` (opcional, falha fechada se indisponível).
+- `WindowsUIAutomationBackend`: implementa UI tree via UI Automation (apenas Windows).
+- `CompositeVisionBackend`: compõe ambos, usado pelo runtime.
+- `VisionService`: expõe `extract_text` e `get_ui_tree` com capability-gating (`Capability.VISION`), validação de região, limite de pixels e privacidade (sem pixels/digests em respostas, audit ou IPC).
+
+**Tools registradas:**
+
+- `vision_extract_text` (MEDIUM): OCR read-only com região explícita.
+- `vision_get_ui_tree` (MEDIUM): UI tree read-only com região opcional.
+
+**Privacidade e segurança:**
+
+- Ambas Tools são capability-gated (`VISION`), validadas por região e limite de pixels.
+- Retornam apenas dados semânticos (texto/confiança ou árvore de elementos), nunca pixels, screenshots ou hashes.
+- Não concedem autorização, não escolhem coordenadas de ação, não interpretam causalidade.
+- Integração com `VisionToolExecutionVerifier` mantida para verificação visual pós-execução de Tools Desktop.
+
+**Testes adicionados:**
+
+- `test_extract_text_*` e `test_get_ui_tree_*` em `tests/vision/test_vision_service.py`: capability-gating, validação de região, limite de pixels, privacidade de resposta.
+- `test_extract_text_tool_*` e `test_ui_tree_tool_*` em `tests/tools/test_vision.py`: execução, validação, auditoria, bloqueio quando desabilitado.
+
+**Dependências opcionais:**
+
+- `vision` extra em `pyproject.toml` agora inclui `pytesseract>=0.3,<1` para OCR.
+- Windows UI Automation requer `comtypes` e `uiautomation` (instalados no ambiente Windows; backend falha fechada se indisponíveis).
+
+## 19. Browser Agent Foundation (concluído)
+
+A fundação do Browser Agent foi implementada, permitindo automação segura de navegador via Playwright com capacidade dedicada.
+
+**Novas capacidades:**
+
+- **Navegação (browser_navigate)**: Navega para URLs permitidas com validação de domínio.
+- **Gestão de abas**: `browser_list_tabs`, `browser_new_tab`, `browser_close_tab`, `browser_switch_tab`.
+- **Interação (browser_click, browser_type, browser_fill)**: Clique, digitação e preenchimento de formulários via seletores CSS.
+- **Extração (browser_extract_text, browser_extract_multiple)**: Extração de texto e atributos de elementos.
+- **Utilitários**: `browser_wait_for_selector`, `browser_get_snapshot`, `browser_go_back`, `browser_go_forward`, `browser_reload`, `browser_press_key`.
+
+**Arquitetura:**
+
+- `BrowserBackend` (protocolo) com implementação `PlaywrightBackend` (Chromium/Firefox/WebKit).
+- `BrowserService`: Camada de domínio com validação de domínios permitidos/bloqueados, limite de abas, timeout de navegação, allowlist de teclas e scripts.
+- `BrowserService.list_tabs_sync()`: Método síncrono para preflight.
+- Tools registradas: 12 tools (SAFE/LOW/MEDIUM risk) capability-gated por `Capability.BROWSER`.
+- Tools usam `_PreparedBrowserTool` base para validação de aba e seletor.
+
+**Privacidade e segurança:**
+
+- Capability `BROWSER` separada, desabilitada por padrão.
+- Domínios permitidos/bloqueados configuráveis via `JARVIS_BROWSER_ALLOWED_DOMAINS` / `JARVIS_BROWSER_BLOCKED_DOMAINS`.
+- Limite de abas (`browser_max_tabs`, padrão 10).
+- Allowlist de teclas permitidas (Enter, Escape, Tab, setas, F1-F12, etc.).
+- Allowlist de scripts JavaScript (querySelector, getElementById, title, location, innerWidth/Height).
+- Seletores CSS obrigatórios para clique/digitação/extração; sem coordenadas absolutas.
+- Não persiste screenshots por padrão; extração retorna apenas dados semânticos.
+
+**Dependências opcionais:**
+
+- `browser` extra em `pyproject.toml` inclui `playwright>=1.40,<2`.
+- Requer instalação do Playwright: `playwright install`.
+
+**Configuração:**
+
+- `/config browser on|off` - habilita/desabilita capability.
+- `/config browser allowed_domains <domínios>` - lista de domínios permitidos (CSV).
+- `/config browser blocked_domains <domínios>` - lista de domínios bloqueados (CSV).
+- `/config browser max_tabs <n>` - limite de abas simultâneas.
+
+**Testes:**
+
+- Testes de integração para navegação, interação, extração e gestão de abas (a serem adicionados).
+
+## Remote Gateway Hardening (concluído)
+
+O Gateway remoto voltou a possuir runtime TCP local funcional e uma fronteira explícita com o Core:
+
+```text
+Remote Client
+    ↓
+RemoteGateway
+    ↓
+RemoteCorePort
+    ↓
+Harness / Core
+    ↓
+Policy / Safety / ToolExecutor / Tool / Verification / Audit
+```
+
+- `RemoteCorePort` é a única interface operacional visível ao Gateway; não expõe `Harness`, `ToolExecutor`, `ToolRegistry`, grants ou execução direta de Tools.
+- Chat remoto entra pelo mesmo `Harness.processar_mensagem()` usado pelo Core.
+- Confirmações remotas retornam ao Core com o `session_id` e `challenge_id` originais. O Remote não cria `ConfirmationSession`, não chama `decide()` e não fabrica grant.
+- Lifecycle de Gateway, bridge e transporte é explícito e idempotente por `start()` / `stop()`.
+- O contrato `TransportServer` / `TransportConnection` opera com mensagens lógicas e estados explícitos de recepção; somente TCP/NDJSON foi implementado neste sprint.
+- O protocolo usa discriminadores tipados imutáveis, schemas fechados, validação de tipos, campos obrigatórios, limites e rejeição de campos inesperados.
+- O framing limita o buffer antes de newline a 64 KiB e encerra frames excedentes.
+- Códigos de pairing são gerados apenas pelo comando local `--remote-pair`, persistidos temporariamente somente como hash, vinculados ao nome do dispositivo, one-time e com expiração.
+- `DeviceRegistry` usa substituição atômica, falha fechada em corrupção e preserva revogações como tombstones duráveis. Revogação feita por comando local é recarregada pelo runtime e encerra sessões ativas.
+- Tokens ficam armazenados somente como SHA-256; o token em claro é entregue apenas no pairing inicial e não é reenviado no reconnect.
+- Eventos remotos usam a assinatura existente de `AuditLogger.log(tool_name, target, authorized, status)` sem conteúdo de chat, token ou argumentos de Tool.
+- Estado remoto não inclui `snapshot.detail`; telemetria continua agregada.
+- WebSocket, React e Web Control Center permaneceram fora deste sprint.
+
+Testes em `tests/remote/` cobrem protocolo, framing incremental e excedente, transporte TCP, auth/pairing, persistência, corrupção, revogação, sessões, rate limiting, bridge, `RemoteCorePort`, confirmação original, reconnect, Kill Switch preservado por resposta do Core e invariantes arquiteturais.
+
+Validação em 29/08/2026:
+
+```text
+tests/remote: 51 passed
+total: 919 passed, 1 skipped
+compileall OK
+git diff --check OK
+TCP loopback smoke test OK
+```
+
+## 20. Google Workspace Integration
+
+> Planejamento de integração ao ecossistema Google através de APIs oficiais. Não implementar neste sprint; registrado para continuidade do roadmap.
+
+...
+
+## 21. Regras para continuidade
+
+A fundação da interface de controle (Control Center) foi implementada, expandindo a Ambient HUD existente com um painel de abas dedicado à visualização agregada de telemetria, memória, skills e visão.
+
+**Novas capacidades:**
+
+- **Aba Telemetria**: Exibe métricas agregadas do último turno (TURN, LLM, TOOLS) e saúde do audit (AUDIT OK/ERROR), substituindo os indicadores decorativos anteriores por dados reais.
+- **Aba Memória**: Lista memórias persistentes com sensibilidade (public/private/sensitive), consentimento (SIM/NÃO), retenção e ID. Atualiza automaticamente quando memórias são adicionadas/removidas.
+- **Abas Skills**: Mostra skills aprendidas com contadores de execução/sucesso, triggers e IDs.
+- **Aba Visão**: Status da capacidade Vision (habilitada/desabilitada) e última observação visual.
+
+**Arquitetura:**
+
+- `ControlCenterBus`: Barramento thread-safe para snapshots agregados (`ControlCenterSnapshot`) contendo telemetria, memória, skills e visão.
+- `ControlCenterCoordinator`: Agrega dados de `MemoryStore`, `SkillStore`, `VisionService` e `TelemetryBus`, publicando no bus periodicamente e sob demanda.
+- `AmbientWindow` (Qt): Painel expandido com `QTabWidget` contendo abas TELEMETRY, MEMORY, SKILLS, VISION. Assina `ControlCenterBus`, `AgentStateBus` e `TelemetryBus` via relays Qt.
+- `TelemetryBus`: Continua separado do `AgentStateBus`; agora também alimenta o `ControlCenterBus` via `ControlCenterCoordinator`.
+- IPC: `LocalStateServer` replica tanto `StateSnapshot` quanto `TelemetrySnapshot` (tipo `telemetry`); `ControlCenterSnapshot` não é replicado via IPC (apenas local).
+
+**Novos arquivos:**
+
+- `src/jarvis/ui/control_center_model.py`: Modelos (`ControlCenterSnapshot`, `MemorySummary`, `SkillSummary`, `VisionSummary`) e barramento (`ControlCenterBus`).
+- `src/jarvis/application/control_center_coordinator.py`: Coordenador que agrega e publica dados.
+- `src/jarvis/ui/control_center_model.py`: Extensões do Qt para abas do Control Center.
+- Testes: `tests/ui/test_control_center_model.py`, `tests/application/test_control_center_coordinator.py`.
+
+**Privacidade e segurança:**
+
+- Snapshots contêm apenas dados agregados e metadados não sensíveis (contagens, IDs, categorias, sensibilidades).
+- Conteúdo de memórias truncado a 60 chars na UI; Skills mostram apenas nome, triggers, contadores.
+- Nenhum pixel, screenshot, argumento de Tool, caminho ou conteúdo sensível exposto.
+- `ControlCenterBus` não replicado via IPC; permanece local.
+
+**Testes adicionados:**
+
+- `test_control_center_model.py`: Bus, snapshots, enums, summaries.
+- `test_control_center_coordinator.py`: Refresh de memória, skills, visão, integração com telemetria, close.
+
+**Validação:**
+
+```text
+836 passed, 1 skipped
+compileall OK
+git diff --check OK
+```
+
+## 18. Vision Semantic Perception Foundation (concluído)
+
+1. fundação da interface de controle (Control Center) para status, telemetria, memórias, Skills e visão;
+2. browser agent;
+3. startup automático e background runtime;
+4. acesso remoto seguro.
+
+## 17. Vision Semantic Perception Foundation (concluído)
+
+A fundação de percepção semântica read-only foi implementada, expandindo a Vision Foundation existente.
+
+**Novas capacidades:**
+
+- **OCR (vision_extract_text)**: Extrai texto de uma região explícita da tela via Tesseract. Requer região (left, top, right, bottom) e idioma opcional (padrão `por+eng`). Retorna texto, confiança, região e idioma. Não persiste screenshot.
+- **UI Tree (vision_get_ui_tree)**: Captura a árvore de acessibilidade da região ou tela inteira via Windows UI Automation (comtypes/uiautomation). Retorna hierarquia de elementos com nome, tipo de controle, retângulo delimitador, filhos e propriedades. Não persiste screenshot.
+
+**Arquitetura:**
+
+- `VisionBackend` (protocolo) estendido com `extract_text(region, language)` e `get_ui_tree(region)`.
+- `PillowVisionBackend`: implementa OCR via `pytesseract` (opcional, falha fechada se indisponível).
+- `WindowsUIAutomationBackend`: implementa UI tree via UI Automation (apenas Windows).
+- `CompositeVisionBackend`: compõe ambos, usado pelo runtime.
+- `VisionService`: expõe `extract_text` e `get_ui_tree` com capability-gating (`Capability.VISION`), validação de região, limite de pixels e privacidade (sem pixels/digests em respostas, audit ou IPC).
+
+**Tools registradas:**
+
+- `vision_extract_text` (MEDIUM): OCR read-only com região explícita.
+- `vision_get_ui_tree` (MEDIUM): UI tree read-only com região opcional.
+
+**Privacidade e segurança:**
+
+- Ambas Tools são capability-gated (`VISION`), validadas por região e limite de pixels.
+- Retornam apenas dados semânticos (texto/confiança ou árvore de elementos), nunca pixels, screenshots ou hashes.
+- Não concedem autorização, não escolhem coordenadas de ação, não interpretam causalidade.
+- Integração com `VisionToolExecutionVerifier` mantida para verificação visual pós-execução de Tools Desktop.
+
+**Testes adicionados:**
+
+- `test_extract_text_*` e `test_get_ui_tree_*` em `tests/vision/test_vision_service.py`: capability-gating, validação de região, limite de pixels, privacidade de resposta.
+- `test_extract_text_tool_*` e `test_ui_tree_tool_*` em `tests/tools/test_vision.py`: execução, validação, auditoria, bloqueio quando desabilitado.
+
+**Dependências opcionais:**
+
+- `vision` extra em `pyproject.toml` agora inclui `pytesseract>=0.3,<1` para OCR.
+- Windows UI Automation requer `comtypes` e `uiautomation` (instalados no ambiente Windows; backend falha fechada se indisponíveis).
+
+## 18. Google Workspace Integration
+
+> Planejamento de integração ao ecossistema Google através de APIs oficiais. Não implementar neste sprint; registrado para continuidade do roadmap.
+
+### Objetivo
+
+Integrar o JARVIS ao ecossistema Google através das APIs oficiais, permitindo que o agente consulte e opere serviços pessoais do usuário de forma segura, auditável e compatível com a arquitetura de Tools.
+
+A integração não deve depender de automação visual do navegador quando houver API oficial disponível.
+
+### Arquitetura esperada
+
+```text
+User Intent
+    ↓
+JARVIS Core
+    ↓
+Tool
+    ↓
+Policy / Capability / Safety
+    ↓
+Google Integration Provider
+    ↓
+Google API
+    ↓
+Verification
+    ↓
+Audit
+    ↓
+Response
+```
+
+O LLM nunca recebe credenciais, refresh tokens ou acesso direto às APIs.
+
+### Princípios
+
+- OAuth 2.0 para autenticação.
+- Nunca armazenar senha da conta Google.
+- Nunca expor access token ou refresh token ao LLM.
+- Nunca registrar tokens no Audit.
+- Nunca versionar secrets ou arquivos de credenciais no Git.
+- Preferir armazenamento seguro de credenciais no Windows.
+- Aplicar mínimo privilégio através de scopes específicos.
+- Solicitar novas permissões apenas quando uma nova integração realmente precisar delas.
+- Todas as operações continuam passando por Capability, Policy, SafetyManager, ToolExecutor e Audit.
+- A integração Google não cria um caminho alternativo para contornar a arquitetura de segurança.
+- Operações devem verificar o resultado real antes de afirmar sucesso.
+
+### Arquitetura planejada
+
+```text
+src/jarvis/integrations/google/
+├── auth.py
+├── client.py
+├── models.py
+├── calendar.py
+├── drive.py
+├── docs.py
+└── sheets.py
+
+src/jarvis/tools/
+├── google_calendar.py
+├── google_drive.py
+├── google_docs.py
+└── google_sheets.py
+```
+
+Evitar acoplamento direto entre Harness/Application Layer e SDKs do Google.
+
+Quando possível, utilizar interfaces/providers que permitam futuramente outras implementações:
+
+```text
+CalendarProvider
+├── GoogleCalendarProvider
+└── FutureCalendarProvider
+```
+
+### Fase 1 — Google Authentication Foundation
+
+Implementar:
+
+- OAuth 2.0;
+- fluxo inicial de consentimento;
+- renovação segura de access tokens;
+- armazenamento seguro do refresh token;
+- scopes mínimos;
+- revogação/desconexão da conta;
+- estado de conexão consultável pelo JARVIS;
+- tratamento explícito de token expirado/revogado;
+- testes sem depender da conta Google real.
+
+Não implementar todos os serviços Google nesta fase.
+
+### Fase 2 — Google Calendar
+
+Primeira integração funcional.
+
+Capacidades planejadas:
+
+- listar próximos eventos;
+- consultar agenda por período;
+- verificar disponibilidade;
+- obter detalhes de evento;
+- criar evento;
+- editar evento;
+- cancelar/excluir evento;
+- configurar lembretes;
+- trabalhar corretamente com timezone;
+- interpretar referências como hoje, amanhã, sexta-feira e próxima semana antes de chamar a Tool.
+
+Exemplos futuros:
+
+> "O que eu tenho amanhã?"
+>
+> "Tenho alguma coisa sexta à tarde?"
+>
+> "Marca dentista sexta às 14h."
+>
+> "Muda minha reunião para 16h."
+>
+> "Quando eu tenho duas horas livres essa semana?"
+
+A leitura da agenda não deve depender do LLM para operações determinísticas de data, timezone ou conflito.
+
+### Fase 3 — Google Drive
+
+Capacidades planejadas:
+
+- localizar arquivos;
+- listar arquivos recentes;
+- obter metadados;
+- identificar Docs, Sheets e outros tipos;
+- abrir/referenciar arquivos por ID;
+- servir como camada de descoberta para Docs e Sheets.
+
+Não permitir acesso irrestrito a arquivos sem respeitar scopes e política.
+
+### Fase 4 — Google Docs
+
+Capacidades planejadas:
+
+- criar documento;
+- ler conteúdo;
+- adicionar conteúdo;
+- atualizar trechos suportados;
+- gerar documentos a partir de conteúdo produzido pelo JARVIS.
+
+Exemplos:
+
+> "Cria um documento com esse resumo."
+>
+> "Adiciona isso nas minhas anotações do projeto."
+
+### Fase 5 — Google Sheets
+
+Capacidades planejadas:
+
+- criar planilha;
+- consultar ranges;
+- adicionar linhas;
+- atualizar células/ranges;
+- estruturar dados;
+- utilizar código para cálculos determinísticos antes de recorrer ao LLM.
+
+Exemplos:
+
+> "Adiciona esse gasto na minha planilha."
+>
+> "Quanto eu gastei este mês?"
+>
+> "Cria uma planilha para acompanhar os benchmarks do JARVIS."
+
+### Fase 6 — Gmail
+
+Integração futura e separada devido ao maior nível de sensibilidade.
+
+Inicialmente priorizar:
+
+- leitura/pesquisa;
+- resumo;
+- identificação de mensagens importantes.
+
+Envio, resposta, exclusão e outras operações mutáveis devem receber análise de risco específica antes de serem liberadas.
+
+### Integração com o Control Center
+
+O futuro JARVIS Control Center deve poder exibir:
+
+- próxima agenda;
+- eventos do dia;
+- status da conexão Google;
+- calendários conectados;
+- documentos recentes;
+- planilhas recentes;
+- atividades realizadas pelo JARVIS.
+
+A interface nunca acessa diretamente as APIs Google.
+
+```text
+Control Center
+    ↓
+JARVIS Gateway
+    ↓
+Core
+    ↓
+Tools
+    ↓
+Google Provider
+```
+
+### Evolução futura
+
+Google Calendar poderá ser combinado com:
+
+- Personal Memory;
+- rotina;
+- Tasks;
+- Automations;
+- proatividade BALANCED;
+- notificações;
+- Control Center;
+- acesso mobile/remoto.
+
+Exemplo futuro:
+
+> "Marca isso em um horário que não conflite com meus compromissos."
+
+JARVIS poderá:
+
+```text
+Calendar
++
+Memory / Preferences
++
+Scheduling Logic
++
+Policy
+→ propor horário
+→ receber decisão quando necessário
+→ executar via Calendar Tool
+→ verificar criação
+→ registrar em Audit
+```
+
+### Ordem recomendada
+
+```text
+Google Integration Foundation
+    ↓
+OAuth / Secure Credential Storage
+    ↓
+Google Calendar
+    ↓
+Google Drive
+    ↓
+Google Docs
+    ↓
+Google Sheets
+    ↓
+Gmail
+    ↓
+Calendar + Memory + Tasks + Proactivity
+```
+
+E no roadmap principal:
+
+```text
+Vision Verification                  ✅
+        ↓
+Target-Bound Vision                  ✅
+        ↓
+Control Center Foundation
+        ↓
+Google Integration Foundation
+        ↓
+Google Calendar
+        ↓
+Desktop Input seguro
+        ↓
+Vision Understanding
+        ↓
+Personal Memory / Obsidian
+        ↓
+Google Drive / Docs / Sheets
+        ↓
+Scheduling + Tasks + Proactivity
+        ↓
+Gmail
+        ↓
+Gateway / Mobile / Remote
+```
+
+Calendar entra cedo porque já vai começar a transformar o JARVIS em um assistente pessoal de verdade; Drive, Docs e Sheets podem evoluir posteriormente conforme o Core amadurece.
+
+## 19. Regras para continuidade
+
+1. ampliar Vision para percepção semântica read-only (OCR e UI tree), sem persistir screenshots por padrão;
+2. manter percepção incapaz de conceder autorização ou escolher coordenadas de ação;
+3. browser agent;
+4. startup automático e background runtime;
+5. acesso remoto seguro.
 
 ### Fase futura: Voice & Persona Evolution
 
@@ -396,7 +993,301 @@ Esta fase permanece no roadmap e não faz parte do sprint atual de Desktop Relia
 - Cachear frases frequentes, como wake acknowledgement e confirmações curtas.
 - Não remover o pipeline de voz atual antes de existir comparação objetiva e teste real.
 
-## 17. Regras para continuidade
+## 18. Google Workspace Integration
+
+> Planejamento de integração ao ecossistema Google através de APIs oficiais. Não implementar neste sprint; registrado para continuidade do roadmap.
+
+### Objetivo
+
+Integrar o JARVIS ao ecossistema Google através das APIs oficiais, permitindo que o agente consulte e opere serviços pessoais do usuário de forma segura, auditável e compatível com a arquitetura de Tools.
+
+A integração não deve depender de automação visual do navegador quando houver API oficial disponível.
+
+### Arquitetura esperada
+
+```text
+User Intent
+    ↓
+JARVIS Core
+    ↓
+Tool
+    ↓
+Policy / Capability / Safety
+    ↓
+Google Integration Provider
+    ↓
+Google API
+    ↓
+Verification
+    ↓
+Audit
+    ↓
+Response
+```
+
+O LLM nunca recebe credenciais, refresh tokens ou acesso direto às APIs.
+
+### Princípios
+
+- OAuth 2.0 para autenticação.
+- Nunca armazenar senha da conta Google.
+- Nunca expor access token ou refresh token ao LLM.
+- Nunca registrar tokens no Audit.
+- Nunca versionar secrets ou arquivos de credenciais no Git.
+- Preferir armazenamento seguro de credenciais no Windows.
+- Aplicar mínimo privilégio através de scopes específicos.
+- Solicitar novas permissões apenas quando uma nova integração realmente precisar delas.
+- Todas as operações continuam passando por Capability, Policy, SafetyManager, ToolExecutor e Audit.
+- A integração Google não cria um caminho alternativo para contornar a arquitetura de segurança.
+- Operações devem verificar o resultado real antes de afirmar sucesso.
+
+### Arquitetura planejada
+
+```text
+src/jarvis/integrations/google/
+├── auth.py
+├── client.py
+├── models.py
+├── calendar.py
+├── drive.py
+├── docs.py
+└── sheets.py
+
+src/jarvis/tools/
+├── google_calendar.py
+├── google_drive.py
+├── google_docs.py
+└── google_sheets.py
+```
+
+Evitar acoplamento direto entre Harness/Application Layer e SDKs do Google.
+
+Quando possível, utilizar interfaces/providers que permitam futuramente outras implementações:
+
+```text
+CalendarProvider
+├── GoogleCalendarProvider
+└── FutureCalendarProvider
+```
+
+### Fase 1 — Google Authentication Foundation
+
+Implementar:
+
+- OAuth 2.0;
+- fluxo inicial de consentimento;
+- renovação segura de access tokens;
+- armazenamento seguro do refresh token;
+- scopes mínimos;
+- revogação/desconexão da conta;
+- estado de conexão consultável pelo JARVIS;
+- tratamento explícito de token expirado/revogado;
+- testes sem depender da conta Google real.
+
+Não implementar todos os serviços Google nesta fase.
+
+### Fase 2 — Google Calendar
+
+Primeira integração funcional.
+
+Capacidades planejadas:
+
+- listar próximos eventos;
+- consultar agenda por período;
+- verificar disponibilidade;
+- obter detalhes de evento;
+- criar evento;
+- editar evento;
+- cancelar/excluir evento;
+- configurar lembretes;
+- trabalhar corretamente com timezone;
+- interpretar referências como hoje, amanhã, sexta-feira e próxima semana antes de chamar a Tool.
+
+Exemplos futuros:
+
+> "O que eu tenho amanhã?"
+>
+> "Tenho alguma coisa sexta à tarde?"
+>
+> "Marca dentista sexta às 14h."
+>
+> "Muda minha reunião para 16h."
+>
+> "Quando eu tenho duas horas livres essa semana?"
+
+A leitura da agenda não deve depender do LLM para operações determinísticas de data, timezone ou conflito.
+
+### Fase 3 — Google Drive
+
+Capacidades planejadas:
+
+- localizar arquivos;
+- listar arquivos recentes;
+- obter metadados;
+- identificar Docs, Sheets e outros tipos;
+- abrir/referenciar arquivos por ID;
+- servir como camada de descoberta para Docs e Sheets.
+
+Não permitir acesso irrestrito a arquivos sem respeitar scopes e política.
+
+### Fase 4 — Google Docs
+
+Capacidades planejadas:
+
+- criar documento;
+- ler conteúdo;
+- adicionar conteúdo;
+- atualizar trechos suportados;
+- gerar documentos a partir de conteúdo produzido pelo JARVIS.
+
+Exemplos:
+
+> "Cria um documento com esse resumo."
+>
+> "Adiciona isso nas minhas anotações do projeto."
+
+### Fase 5 — Google Sheets
+
+Capacidades planejadas:
+
+- criar planilha;
+- consultar ranges;
+- adicionar linhas;
+- atualizar células/ranges;
+- estruturar dados;
+- utilizar código para cálculos determinísticos antes de recorrer ao LLM.
+
+Exemplos:
+
+> "Adiciona esse gasto na minha planilha."
+>
+> "Quanto eu gastei este mês?"
+>
+> "Cria uma planilha para acompanhar os benchmarks do JARVIS."
+
+### Fase 6 — Gmail
+
+Integração futura e separada devido ao maior nível de sensibilidade.
+
+Inicialmente priorizar:
+
+- leitura/pesquisa;
+- resumo;
+- identificação de mensagens importantes.
+
+Envio, resposta, exclusão e outras operações mutáveis devem receber análise de risco específica antes de serem liberadas.
+
+### Integração com o Control Center
+
+O futuro JARVIS Control Center deve poder exibir:
+
+- próxima agenda;
+- eventos do dia;
+- status da conexão Google;
+- calendários conectados;
+- documentos recentes;
+- planilhas recentes;
+- atividades realizadas pelo JARVIS.
+
+A interface nunca acessa diretamente as APIs Google.
+
+```text
+Control Center
+    ↓
+JARVIS Gateway
+    ↓
+Core
+    ↓
+Tools
+    ↓
+Google Provider
+```
+
+### Evolução futura
+
+Google Calendar poderá ser combinado com:
+
+- Personal Memory;
+- rotina;
+- Tasks;
+- Automations;
+- proatividade BALANCED;
+- notificações;
+- Control Center;
+- acesso mobile/remoto.
+
+Exemplo futuro:
+
+> "Marca isso em um horário que não conflite com meus compromissos."
+
+JARVIS poderá:
+
+```text
+Calendar
++
+Memory / Preferences
++
+Scheduling Logic
++
+Policy
+→ propor horário
+→ receber decisão quando necessário
+→ executar via Calendar Tool
+→ verificar criação
+→ registrar em Audit
+```
+
+### Ordem recomendada
+
+```text
+Google Integration Foundation
+    ↓
+OAuth / Secure Credential Storage
+    ↓
+Google Calendar
+    ↓
+Google Drive
+    ↓
+Google Docs
+    ↓
+Google Sheets
+    ↓
+Gmail
+    ↓
+Calendar + Memory + Tasks + Proactivity
+```
+
+No roadmap principal:
+
+```text
+Vision Verification                  ✅
+        ↓
+Target-Bound Vision
+        ↓
+Control Center Foundation
+        ↓
+Google Integration Foundation
+        ↓
+Google Calendar
+        ↓
+Desktop Input seguro
+        ↓
+Vision Understanding
+        ↓
+Personal Memory / Obsidian
+        ↓
+Google Drive / Docs / Sheets
+        ↓
+Scheduling + Tasks + Proactivity
+        ↓
+Gmail
+        ↓
+Gateway / Mobile / Remote
+```
+
+Calendar entra cedo porque já vai começar a transformar o JARVIS em um assistente pessoal de verdade; Drive, Docs e Sheets podem evoluir posteriormente conforme o Core amadurece.
+
+## 19. Regras para continuidade
 
 Antes de alterar código:
 

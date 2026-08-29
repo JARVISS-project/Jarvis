@@ -1,6 +1,6 @@
 """Modelos imutáveis usados pela camada de automação de desktop."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -26,6 +26,22 @@ class WindowRectangle:
     top: int
     right: int
     bottom: int
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedDesktopWindow:
+    public_target: str
+    window: DesktopWindow = field(repr=False)
+    rectangle: WindowRectangle | None = field(default=None, repr=False)
+
+    def visual_identity(self) -> str:
+        return "|".join(
+            (
+                str(self.window.handle),
+                str(self.window.process_id),
+                self.window.class_name or "",
+            )
+        )
 
 
 @dataclass(frozen=True, slots=True)

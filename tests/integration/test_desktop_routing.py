@@ -51,6 +51,12 @@ class FakeDesktopBackend:
     def list_windows(self) -> list[DesktopWindow]:
         return list(self.windows)
 
+    def inspect_window(self, handle: int) -> DesktopWindow | None:
+        return next(
+            (window for window in self.windows if window.handle == handle),
+            None,
+        )
+
     def focus_window(self, handle: int) -> None:
         self.focused.append(handle)
         self.foreground = handle
@@ -70,6 +76,9 @@ class FakeDesktopBackend:
 
     def window_rectangle(self, _handle: int) -> WindowRectangle:
         return WindowRectangle(0, 0, 100, 80)
+
+    def window_capture_rectangle(self, handle: int) -> WindowRectangle:
+        return self.window_rectangle(handle)
 
     def move_pointer(self, x: int, y: int) -> None:
         self.pointer = (x, y)

@@ -10,15 +10,24 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+from queue import Empty, Full, Queue
 import socket
 from threading import Event, Lock, Thread
 from typing import Any
 
 from jarvis.application.state import AgentState, AgentStateBus, StateSnapshot
+from jarvis.application.telemetry import (
+    MAX_COUNT,
+    MAX_DURATION_MS,
+    TelemetryBus,
+    TelemetrySnapshot,
+)
 
 
 PROTOCOL_VERSION = 1
 LOOPBACK_HOST = "127.0.0.1"
+MAX_CLIENTS = 8
+OUTBOUND_QUEUE_SIZE = 256
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,19 +97,24 @@ class LocalStateServer:
         *,
         endpoint_path: Path,
         host: str = LOOPBACK_HOST,
+        telemetry_bus: TelemetryBus | None = None,
     ) -> None:
         if host != LOOPBACK_HOST:
             raise ValueError("O servidor de estado só pode usar loopback local.")
         self.state_bus = state_bus
         self.endpoint_path = endpoint_path
         self.host = host
+        self.telemetry_bus = telemetry_bus
         self.endpoint: StateEndpoint | None = None
         self._server_socket: socket.socket | None = None
         self._clients: list[socket.socket] = []
         self._clients_lock = Lock()
         self._stop_event = Event()
         self._thread: Thread | None = None
+        self._send_thread: Thread | None = None
+        self._outbound: Queue[bytes] = Queue(maxsize=OUTBOUND_QUEUE_SIZE)
         self._unsubscribe = None
+        self._unsubscribe_telemetry = None
 
     def start(self) -> StateEndpoint:
         if self.endpoint is not None:
@@ -119,10 +133,21 @@ class LocalStateServer:
             pid=os.getpid(),
         )
         self._write_endpoint(self.endpoint)
+        self._send_thread = Thread(
+            target=self._send_loop,
+            name="jarvis-state-ipc-writer",
+            daemon=True,
+        )
+        self._send_thread.start()
         self._unsubscribe = self.state_bus.subscribe(
             self._broadcast,
             replay_current=False,
         )
+        if self.telemetry_bus is not None:
+            self._unsubscribe_telemetry = self.telemetry_bus.subscribe(
+                self._broadcast_telemetry,
+                replay_current=False,
+            )
         self._thread = Thread(
             target=self._accept_loop,
             name="jarvis-state-ipc-server",
@@ -157,6 +182,25 @@ class LocalStateServer:
             "utf-8"
         )
 
+    @staticmethod
+    def _encode_telemetry(snapshot: TelemetrySnapshot) -> bytes:
+        payload = {
+            "protocol_version": PROTOCOL_VERSION,
+            "type": "telemetry",
+            "sequence": snapshot.sequence,
+            "has_completed_turn": snapshot.has_completed_turn,
+            "turn_ms": snapshot.turn_ms,
+            "llm_ms": snapshot.llm_ms,
+            "llm_calls": snapshot.llm_calls,
+            "tool_ms": snapshot.tool_ms,
+            "tool_calls": snapshot.tool_calls,
+            "audit_events": snapshot.audit_events,
+            "audit_write_ok": snapshot.audit_write_ok,
+        }
+        return (json.dumps(payload, separators=(",", ":")) + "\n").encode(
+            "utf-8"
+        )
+
     def _accept_loop(self) -> None:
         server_socket = self._server_socket
         if server_socket is None:
@@ -172,32 +216,71 @@ class LocalStateServer:
             if address[0] != LOOPBACK_HOST:
                 client.close()
                 continue
-            client.settimeout(0.5)
+            client.settimeout(0.05)
             with self._clients_lock:
+                if len(self._clients) >= MAX_CLIENTS:
+                    client.close()
+                    continue
                 self._clients.append(client)
                 try:
                     client.sendall(self._encode(self.state_bus.snapshot))
+                    if self.telemetry_bus is not None:
+                        client.sendall(
+                            self._encode_telemetry(self.telemetry_bus.snapshot)
+                        )
                 except OSError:
                     self._clients.remove(client)
                     client.close()
 
     def _broadcast(self, snapshot: StateSnapshot) -> None:
-        payload = self._encode(snapshot)
+        self._enqueue_payload(self._encode(snapshot))
+
+    def _broadcast_telemetry(self, snapshot: TelemetrySnapshot) -> None:
+        self._enqueue_payload(self._encode_telemetry(snapshot))
+
+    def _enqueue_payload(self, payload: bytes) -> None:
+        try:
+            self._outbound.put_nowait(payload)
+        except Full:
+            try:
+                self._outbound.get_nowait()
+            except Empty:
+                pass
+            try:
+                self._outbound.put_nowait(payload)
+            except Full:
+                pass
+
+    def _send_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                payload = self._outbound.get(timeout=0.1)
+            except Empty:
+                continue
+            self._send_payload(payload)
+
+    def _send_payload(self, payload: bytes) -> None:
         dead_clients: list[socket.socket] = []
         with self._clients_lock:
-            for client in self._clients:
-                try:
-                    client.sendall(payload)
-                except OSError:
-                    dead_clients.append(client)
+            clients = tuple(self._clients)
+        for client in clients:
+            try:
+                client.sendall(payload)
+            except OSError:
+                dead_clients.append(client)
+        with self._clients_lock:
             for client in dead_clients:
-                self._clients.remove(client)
+                if client in self._clients:
+                    self._clients.remove(client)
                 client.close()
 
     def close(self) -> None:
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
+        if self._unsubscribe_telemetry is not None:
+            self._unsubscribe_telemetry()
+            self._unsubscribe_telemetry = None
         self._stop_event.set()
         server_socket = self._server_socket
         self._server_socket = None
@@ -217,6 +300,9 @@ class LocalStateServer:
         if self._thread is not None:
             self._thread.join(timeout=1.0)
             self._thread = None
+        if self._send_thread is not None:
+            self._send_thread.join(timeout=1.0)
+            self._send_thread = None
         self._remove_own_endpoint()
         self.endpoint = None
 
@@ -251,16 +337,19 @@ class LocalStateClient:
         endpoint: StateEndpoint,
         *,
         reconnect_seconds: float = 0.35,
+        telemetry_bus: TelemetryBus | None = None,
     ) -> None:
         if reconnect_seconds <= 0:
             raise ValueError("reconnect_seconds deve ser positivo.")
         self.state_bus = state_bus
         self.endpoint = endpoint
         self.reconnect_seconds = reconnect_seconds
+        self.telemetry_bus = telemetry_bus
         self._stop_event = Event()
         self._socket_lock = Lock()
         self._socket: socket.socket | None = None
         self._thread: Thread | None = None
+        self._last_state_sequence = -1
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -318,16 +407,75 @@ class LocalStateClient:
             payload = json.loads(raw_line.decode("utf-8"))
             if payload.get("protocol_version") != PROTOCOL_VERSION:
                 return
-            if payload.get("type") != "state":
+            message_type = payload.get("type")
+            if message_type == "telemetry":
+                self._handle_telemetry(payload)
+                return
+            if message_type != "state":
                 return
             state = AgentState(str(payload["state"]))
             source = str(payload.get("source") or "runtime")
+            sequence = self._metric(payload, "sequence", MAX_COUNT)
         except (UnicodeError, json.JSONDecodeError, KeyError, ValueError, TypeError):
             return
+        if sequence <= self._last_state_sequence:
+            return
+        self._last_state_sequence = sequence
         self.state_bus.publish(
             state,
             source=f"ipc:{source}",
         )
+
+    def _handle_telemetry(self, payload: dict[str, Any]) -> None:
+        telemetry_bus = self.telemetry_bus
+        if telemetry_bus is None:
+            return
+        try:
+            snapshot = TelemetrySnapshot(
+                sequence=self._metric(payload, "sequence", MAX_COUNT),
+                has_completed_turn=self._boolean(payload, "has_completed_turn"),
+                turn_ms=self._metric(payload, "turn_ms", MAX_DURATION_MS),
+                llm_ms=self._metric(payload, "llm_ms", MAX_DURATION_MS),
+                llm_calls=self._metric(payload, "llm_calls", MAX_COUNT),
+                tool_ms=self._metric(payload, "tool_ms", MAX_DURATION_MS),
+                tool_calls=self._metric(payload, "tool_calls", MAX_COUNT),
+                audit_events=self._metric(payload, "audit_events", MAX_COUNT),
+                audit_write_ok=self._optional_boolean(payload, "audit_write_ok"),
+            )
+            if snapshot.sequence < telemetry_bus.snapshot.sequence:
+                return
+            telemetry_bus.publish_snapshot(snapshot)
+        except (KeyError, TypeError, ValueError):
+            return
+
+    @staticmethod
+    def _metric(payload: dict[str, Any], name: str, maximum: int) -> int:
+        value = payload[name]
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError
+        if not 0 <= value <= maximum:
+            raise ValueError
+        return value
+
+    @staticmethod
+    def _boolean(payload: dict[str, Any], name: str) -> bool:
+        value = payload[name]
+        if not isinstance(value, bool):
+            raise TypeError
+        return value
+
+    @classmethod
+    def _optional_boolean(
+        cls,
+        payload: dict[str, Any],
+        name: str,
+    ) -> bool | None:
+        value = payload[name]
+        if value is None:
+            return None
+        if not isinstance(value, bool):
+            raise TypeError
+        return value
 
     def close(self) -> None:
         self._stop_event.set()

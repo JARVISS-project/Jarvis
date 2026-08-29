@@ -6,6 +6,7 @@ import pytest
 from jarvis.__main__ import build_harness
 from jarvis.config import JarvisConfig
 from jarvis.integrations.obsidian.vault import ObsidianVault
+from jarvis.memory.in_memory_store import InMemoryMemoryStore
 from jarvis.runtime.resource_manager import ResourceManager
 from jarvis.security.audit import AuditLogger
 from jarvis.security.filesystem import FileSystemGuard
@@ -185,7 +186,10 @@ def test_search_tool_does_not_return_complete_note(vault: ObsidianVault) -> None
 
 def test_disabled_and_enabled_registration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("jarvis.__main__.OllamaLLM", lambda **_kwargs: object())
-    monkeypatch.setattr("jarvis.__main__.SQLiteMemoryStore", lambda _path: object())
+    monkeypatch.setattr(
+        "jarvis.__main__.SQLiteMemoryStore",
+        lambda _path: InMemoryMemoryStore(),
+    )
     disabled = build_harness(
         JarvisConfig(obsidian_enabled=False, obsidian_vault_path=None),
         ResourceManager(),
@@ -202,7 +206,10 @@ def test_write_capability_controls_tool_exposure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("jarvis.__main__.OllamaLLM", lambda **_kwargs: object())
-    monkeypatch.setattr("jarvis.__main__.SQLiteMemoryStore", lambda _path: object())
+    monkeypatch.setattr(
+        "jarvis.__main__.SQLiteMemoryStore",
+        lambda _path: InMemoryMemoryStore(),
+    )
     read_only = build_harness(
         JarvisConfig(
             obsidian_enabled=True,
@@ -227,7 +234,10 @@ def test_write_capability_controls_tool_exposure(
 
 def test_configured_limits_are_applied(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("jarvis.__main__.OllamaLLM", lambda **_kwargs: object())
-    monkeypatch.setattr("jarvis.__main__.SQLiteMemoryStore", lambda _path: object())
+    monkeypatch.setattr(
+        "jarvis.__main__.SQLiteMemoryStore",
+        lambda _path: InMemoryMemoryStore(),
+    )
     harness = build_harness(
         JarvisConfig(
             obsidian_enabled=True,
@@ -247,7 +257,10 @@ def test_recent_context_receives_ordered_note_results(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("jarvis.__main__.OllamaLLM", lambda **_kwargs: object())
-    monkeypatch.setattr("jarvis.__main__.SQLiteMemoryStore", lambda _path: object())
+    monkeypatch.setattr(
+        "jarvis.__main__.SQLiteMemoryStore",
+        lambda _path: InMemoryMemoryStore(),
+    )
     harness = build_harness(
         JarvisConfig(obsidian_enabled=True, obsidian_vault_path=tmp_path),
         ResourceManager(),

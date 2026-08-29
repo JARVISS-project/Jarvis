@@ -11,6 +11,7 @@ from jarvis.desktop.control import DesktopKillSwitch
 from jarvis.desktop.models import (
     DesktopApplication,
     DesktopWindow,
+    PreparedDesktopWindow,
     WindowCloseResult,
 )
 
@@ -82,10 +83,56 @@ class DesktopService:
         )
 
     def focus_window(self, query: str) -> DesktopWindow:
+        return self.focus_prepared_window(self.prepare_window(query))
+
+    def prepare_window(self, query: str) -> PreparedDesktopWindow:
         self.kill_switch.require_available()
         window = self.resolve_window(query)
-        self.backend.focus_window(window.handle)
-        return window
+        if window.process_id is None:
+            raise RuntimeError("A janela alvo não possui identidade de processo.")
+        current = self.backend.inspect_window(window.handle)
+        if current is None or not self._same_window_identity(window, current):
+            raise RuntimeError("A identidade da janela alvo mudou durante o preparo.")
+        return PreparedDesktopWindow(
+            public_target=f"janela:{window.title}",
+            window=window,
+        )
+
+    def refresh_prepared_window(
+        self,
+        prepared: PreparedDesktopWindow,
+    ) -> PreparedDesktopWindow:
+        self.validate_prepared_window(prepared)
+        rectangle = self.backend.window_capture_rectangle(
+            prepared.window.handle
+        )
+        if rectangle.right <= rectangle.left or rectangle.bottom <= rectangle.top:
+            raise RuntimeError("A janela não possui limites utilizáveis.")
+        return PreparedDesktopWindow(
+            prepared.public_target,
+            prepared.window,
+            rectangle,
+        )
+
+    def validate_prepared_window(
+        self,
+        prepared: PreparedDesktopWindow,
+    ) -> DesktopWindow:
+        current = self.backend.inspect_window(prepared.window.handle)
+        if current is None:
+            raise ValueError("A janela alvo deixou de existir.")
+        if not self._same_window_identity(prepared.window, current):
+            raise RuntimeError("A identidade da janela alvo mudou.")
+        return current
+
+    def focus_prepared_window(
+        self,
+        prepared: PreparedDesktopWindow,
+    ) -> DesktopWindow:
+        self.kill_switch.require_available()
+        self.validate_prepared_window(prepared)
+        self.backend.focus_window(prepared.window.handle)
+        return prepared.window
 
     def resolve_application(self, name: str) -> DesktopApplication:
         return self.catalog.resolve(name)
@@ -126,11 +173,20 @@ class DesktopService:
         self,
         query: str,
     ) -> DesktopWindow:
+        return self.move_pointer_to_prepared_window_center(
+            self.prepare_window(query)
+        )
+
+    def move_pointer_to_prepared_window_center(
+        self,
+        prepared: PreparedDesktopWindow,
+    ) -> DesktopWindow:
         self.kill_switch.require_available()
-        window = self.resolve_window(query)
-        self.kill_switch.require_available()
+        self.validate_prepared_window(prepared)
+        window = prepared.window
         self.backend.focus_window(window.handle)
         self.kill_switch.require_available()
+        self.validate_prepared_window(prepared)
         if self.backend.foreground_window() != window.handle:
             raise RuntimeError("A janela alvo não ficou em primeiro plano.")
         rectangle = self.backend.window_rectangle(window.handle)
@@ -146,11 +202,18 @@ class DesktopService:
         return window
 
     def press_escape(self, query: str) -> DesktopWindow:
+        return self.press_escape_prepared(self.prepare_window(query))
+
+    def press_escape_prepared(
+        self,
+        prepared: PreparedDesktopWindow,
+    ) -> DesktopWindow:
         self.kill_switch.require_available()
-        window = self.resolve_window(query)
-        self.kill_switch.require_available()
+        self.validate_prepared_window(prepared)
+        window = prepared.window
         self.backend.focus_window(window.handle)
         self.kill_switch.require_available()
+        self.validate_prepared_window(prepared)
         if self.backend.foreground_window() != window.handle:
             raise RuntimeError("A janela alvo não ficou em primeiro plano.")
         self.kill_switch.require_available()
@@ -170,13 +233,31 @@ class DesktopService:
         return window
 
     def close_window(self, query: str) -> WindowCloseResult:
+        return self.close_prepared_window(self.prepare_window(query))
+
+    def close_prepared_window(
+        self,
+        prepared: PreparedDesktopWindow,
+    ) -> WindowCloseResult:
         self.kill_switch.require_available()
-        window = self.resolve_window(query)
-        self.kill_switch.require_available()
+        self.validate_prepared_window(prepared)
+        window = prepared.window
         self.backend.request_window_close(window.handle)
         deadline = self.monotonic() + self.verification_timeout
         while self.backend.window_exists(window.handle):
+            self.validate_prepared_window(prepared)
             if self.monotonic() >= deadline:
                 return WindowCloseResult(window, closed=False)
             self.sleep(self.verification_interval)
         return WindowCloseResult(window, closed=True)
+
+    @staticmethod
+    def _same_window_identity(
+        expected: DesktopWindow,
+        current: DesktopWindow,
+    ) -> bool:
+        return (
+            current.handle == expected.handle
+            and current.process_id == expected.process_id
+            and current.class_name == expected.class_name
+        )

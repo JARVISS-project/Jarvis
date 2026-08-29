@@ -1,6 +1,6 @@
 """Autorizações efêmeras, vinculadas e de uso único."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Callable
@@ -22,6 +22,7 @@ class AuthorizationGrant:
     consumed: bool = False
     session_id: str | None = None
     arguments_digest: str | None = None
+    preparation_digest: str | None = field(default=None, repr=False)
 
 
 class AuthorizationGrantStore:
@@ -44,6 +45,7 @@ class AuthorizationGrantStore:
         interaction_id: str | None = None,
         session_id: str | None = None,
         arguments_digest: str | None = None,
+        preparation_digest: str | None = None,
     ) -> AuthorizationGrant:
         now = self._clock()
         grant = AuthorizationGrant(
@@ -55,6 +57,7 @@ class AuthorizationGrantStore:
             expires_at=now + timedelta(seconds=self.lifetime_seconds),
             session_id=session_id,
             arguments_digest=arguments_digest,
+            preparation_digest=preparation_digest,
         )
         with self._lock:
             self._grants[grant.id] = grant
@@ -68,6 +71,7 @@ class AuthorizationGrantStore:
         interaction_id: str | None = None,
         session_id: str | None = None,
         arguments_digest: str | None = None,
+        preparation_digest: str | None = None,
     ) -> bool:
         with self._lock:
             stored = self._grants.get(grant.id)
@@ -83,6 +87,7 @@ class AuthorizationGrantStore:
                 )
                 and grant.session_id == session_id
                 and grant.arguments_digest == arguments_digest
+                and grant.preparation_digest == preparation_digest
             )
             if not valid:
                 return False

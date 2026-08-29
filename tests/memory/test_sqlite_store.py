@@ -1,5 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import sqlite3
 
 from jarvis.memory.sqlite_store import SQLiteMemoryStore
 
@@ -67,3 +68,57 @@ def test_clear_removes_all_memories(tmp_path: Path) -> None:
     store.clear()
 
     assert store.get_all() == []
+
+
+def test_existing_memory_table_is_migrated_without_data_loss(tmp_path: Path) -> None:
+    database_path = tmp_path / "jarvis.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE memories (
+                creation_order INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT NOT NULL UNIQUE,
+                content TEXT NOT NULL,
+                category TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO memories (id, content, category, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            ("legacy", "Editor preferido", "user", datetime.now().isoformat()),
+        )
+
+    store = SQLiteMemoryStore(database_path)
+
+    entries = store.get_all()
+    assert len(entries) == 1
+    assert entries[0].id == "legacy"
+    assert entries[0].consent_given is True
+
+
+def test_sqlite_consent_controls_relevant_retrieval(tmp_path: Path) -> None:
+    store = SQLiteMemoryStore(tmp_path / "jarvis.db")
+    entry = store.add("Editor preferido VS Code", "preference")
+
+    assert store.get_relevant("editor VS Code") == [entry]
+    assert store.update_consent(entry.id, False)
+    assert store.get_relevant("editor VS Code") == []
+
+
+def test_sqlite_store_deletes_expired_memory_on_read(tmp_path: Path) -> None:
+    database_path = tmp_path / "jarvis.db"
+    store = SQLiteMemoryStore(database_path)
+    entry = store.add("Temporária", "fact", retention_days=1)
+    expired_at = datetime.now(timezone.utc) - timedelta(days=2)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "UPDATE memories SET created_at = ? WHERE id = ?",
+            (expired_at.isoformat(), entry.id),
+        )
+
+    assert store.get_relevant("temporária") == []
+    with sqlite3.connect(database_path) as connection:
+        count = connection.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+    assert count == 0

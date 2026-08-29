@@ -10,6 +10,9 @@ class DesktopBackend(Protocol):
     def list_windows(self) -> list[DesktopWindow]:
         """Retorna janelas de topo visíveis."""
 
+    def inspect_window(self, handle: int) -> DesktopWindow | None:
+        """Lê diretamente a identidade atual de um handle, sem busca por título."""
+
     def focus_window(self, handle: int) -> None:
         """Traz uma janela existente para primeiro plano."""
 
@@ -28,6 +31,9 @@ class DesktopBackend(Protocol):
 
     def window_rectangle(self, handle: int) -> WindowRectangle:
         """Retorna os limites atuais de uma janela válida."""
+
+    def window_capture_rectangle(self, handle: int) -> WindowRectangle:
+        """Retorna limites read-only, inclusive antes de restaurar a janela."""
 
     def move_pointer(self, x: int, y: int) -> None:
         """Move o ponteiro para uma coordenada calculada pelo serviço."""

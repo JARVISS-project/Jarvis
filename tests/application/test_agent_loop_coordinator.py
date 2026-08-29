@@ -34,7 +34,7 @@ class ResponseStub:
         return False
 
     @staticmethod
-    def system_context(_response_mode):
+    def system_context(_response_mode, user_message=None):
         return []
 
     @staticmethod

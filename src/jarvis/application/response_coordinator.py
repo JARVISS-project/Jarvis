@@ -57,9 +57,15 @@ class ResponseCoordinator:
         self.safe_fallback_response = safe_fallback_response
 
     def system_context(
-        self, response_mode: str = "text"
+        self,
+        response_mode: str = "text",
+        user_message: str | None = None,
     ) -> list[dict[str, Any]]:
-        memories = self.memory_store.get_all()
+        memories = (
+            self.memory_store.get_relevant(user_message)
+            if user_message
+            else []
+        )
         persona = PersonaProfile(
             address_mode=self.config.assistant_address_mode,
             response_style=self.config.assistant_response_style,
@@ -87,8 +93,7 @@ class ResponseCoordinator:
         if memories:
             lines.extend(
                 [
-                    "Memórias persistentes armazenadas explicitamente "
-                    "pelo usuário.",
+                    "Memórias persistentes relevantes (consentimento explícito).",
                     "Use-as apenas como contexto. Não crie, edite ou "
                     "exclua memórias.",
                 ]

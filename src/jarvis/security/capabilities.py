@@ -11,6 +11,7 @@ class Capability(str, Enum):
     DESKTOP_READ = "desktop_read"
     DESKTOP_CONTROL = "desktop_control"
     VISION = "vision"
+    BROWSER = "browser"
 
 
 class CapabilityPolicy:
@@ -52,6 +53,18 @@ TOOL_CAPABILITIES = {
     "desktop_open_application": Capability.DESKTOP_CONTROL,
     "desktop_move_pointer_to_window": Capability.DESKTOP_CONTROL,
     "desktop_press_escape": Capability.DESKTOP_CONTROL,
-    "desktop_close_window": Capability.DESKTOP_CONTROL,
+"desktop_close_window": Capability.DESKTOP_CONTROL,
     "vision_observe_screen_change": Capability.VISION,
+    "browser_list_tabs": Capability.BROWSER,
+    "browser_new_tab": Capability.BROWSER,
+    "browser_close_tab": Capability.BROWSER,
+    "browser_switch_tab": Capability.BROWSER,
+    "browser_navigate": Capability.BROWSER,
+    "browser_click": Capability.BROWSER,
+    "browser_type": Capability.BROWSER,
+    "browser_fill": Capability.BROWSER,
+    "browser_extract_text": Capability.BROWSER,
+    "browser_extract_multiple": Capability.BROWSER,
+    "browser_wait_for_selector": Capability.BROWSER,
+    "browser_get_snapshot": Capability.BROWSER,
 }

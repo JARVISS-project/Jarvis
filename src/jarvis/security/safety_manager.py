@@ -51,6 +51,7 @@ class SafetyManager:
         interaction_id: str | None = None,
         session_id: str | None = None,
         arguments_digest: str | None = None,
+        preparation_digest: str | None = None,
     ) -> bool:
         return self.grants.consume(
             grant,
@@ -59,6 +60,7 @@ class SafetyManager:
             interaction_id,
             session_id,
             arguments_digest,
+            preparation_digest,
         )
 
     def grant_explicit_authorization(
@@ -69,6 +71,7 @@ class SafetyManager:
         interaction_id: str,
         session_id: str | None = None,
         arguments_digest: str | None = None,
+        preparation_digest: str | None = None,
     ) -> AuthorizationGrant | None:
         if (
             not interaction_id
@@ -82,6 +85,7 @@ class SafetyManager:
             interaction_id,
             session_id,
             arguments_digest,
+            preparation_digest,
         )
 
     def invalidate_session(self, session_id: str) -> None:

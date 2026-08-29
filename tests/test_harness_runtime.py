@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 
 from jarvis.config import JarvisConfig
+from jarvis.application.telemetry import TelemetryBus
 from jarvis.harness import Harness
 from jarvis.llm.base import LLMClient
 from jarvis.llm.types import LLMResponse
@@ -53,6 +54,7 @@ def make_harness(
     memory: ConversationMemory | None = None,
     store: InMemoryMemoryStore | None = None,
     config: JarvisConfig | None = None,
+    telemetry_bus: TelemetryBus | None = None,
 ) -> Harness:
     return Harness(
         llm=llm,
@@ -62,6 +64,7 @@ def make_harness(
         memory_store=store or InMemoryMemoryStore(),
         config=config,
         resource_manager=manager,
+        telemetry_bus=telemetry_bus,
     )
 
 
@@ -197,6 +200,20 @@ def test_harness_records_last_latency_and_reports_it() -> None:
     assert "LLM" in report
     assert "Tools" in report
     assert llm.calls == 1
+
+
+def test_completed_turn_publishes_aggregate_telemetry() -> None:
+    manager = ResourceManager()
+    llm = RuntimeAwareLLM(manager)
+    telemetry = TelemetryBus()
+    harness = make_harness(manager, llm, telemetry_bus=telemetry)
+
+    harness.processar_mensagem("Olá")
+
+    assert telemetry.snapshot.has_completed_turn
+    assert telemetry.snapshot.llm_calls == 1
+    assert telemetry.snapshot.tool_calls == 0
+    assert telemetry.snapshot.turn_ms >= 0
 
 
 class DirectToolExecutor:
