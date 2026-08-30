@@ -1335,11 +1335,13 @@ skill_mirror: ObsidianSkillMirror | None = None,
         messages: list[dict[str, Any]],
         *,
         tool_executed: bool = False,
+        successful_tool_names: set[str] | None = None,
     ) -> str:
         return self.response_coordinator.finalize_llm_response(
             content,
             messages,
             tool_executed=tool_executed,
+            successful_tool_names=successful_tool_names or (),
         )
 
     def _fast_path_response(self, message: str) -> str | None:

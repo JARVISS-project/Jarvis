@@ -171,6 +171,7 @@ class AgentLoopCoordinator:
                         response.content,
                         messages,
                         tool_executed=bool(successful_tool_names),
+                        successful_tool_names=successful_tool_names,
                         allow_retry=turn_kind is TurnKind.EFFECT_REQUEST,
                     )
                 self.memory.add_assistant_message(final_response)

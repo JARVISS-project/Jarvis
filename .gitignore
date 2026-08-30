@@ -18,6 +18,7 @@ Thumbs.db
 
 # Logs
 logs/
+/audit.log
 
 # Local application data
 data/

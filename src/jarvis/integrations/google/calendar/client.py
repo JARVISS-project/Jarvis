@@ -10,9 +10,11 @@ from urllib.request import Request, urlopen
 
 from jarvis.integrations.google.contracts import GoogleAuthProvider
 from jarvis.integrations.google.errors import (
+    GoogleConflictError,
     GoogleNetworkError,
     GooglePermissionError,
     GoogleRateLimitError,
+    GoogleRequestError,
     GoogleResourceNotFoundError,
     GoogleResponseError,
     GoogleTokenRevokedError,
@@ -35,11 +37,14 @@ class GoogleCalendarApiClient:
     def post(self, path: str, body: dict[str, object]) -> dict[str, Any]:
         return self._request("POST", path, body=body)
 
-    def patch(self, path: str, body: dict[str, object]) -> dict[str, Any]:
-        return self._request("PATCH", path, body=body)
-
-    def delete(self, path: str) -> dict[str, Any]:
-        return self._request("DELETE", path)
+    def patch(
+        self,
+        path: str,
+        body: dict[str, object],
+        *,
+        etag: str,
+    ) -> dict[str, Any]:
+        return self._request("PATCH", path, body=body, if_match=etag)
 
     def _request(
         self,
@@ -48,16 +53,17 @@ class GoogleCalendarApiClient:
         *,
         params: dict[str, object] | None = None,
         body: dict[str, object] | None = None,
+        if_match: str | None = None,
     ) -> dict[str, Any]:
         handle = self._auth.credentials()
         try:
             return self._request_once(
-                method, path, params or {}, body, handle.access_token
+                method, path, params or {}, body, handle.access_token, if_match
             )
         except GoogleTokenRevokedError:
             handle = self._auth.refresh_credentials()
             return self._request_once(
-                method, path, params or {}, body, handle.access_token
+                method, path, params or {}, body, handle.access_token, if_match
             )
 
     def _request_once(
@@ -67,12 +73,15 @@ class GoogleCalendarApiClient:
         params: dict[str, object],
         body: dict[str, object] | None,
         access_token: str,
+        if_match: str | None,
     ) -> dict[str, Any]:
         query = urlencode(params)
         url = f"{GOOGLE_CALENDAR_API_BASE}{path}"
         if query:
             url = f"{url}?{query}"
         headers = {"Authorization": f"Bearer {access_token}"}
+        if if_match is not None:
+            headers["If-Match"] = if_match
         data = None
         if body is not None:
             data = json.dumps(body, separators=(",", ":")).encode("utf-8")
@@ -89,6 +98,14 @@ class GoogleCalendarApiClient:
             if error.code == 404:
                 raise GoogleResourceNotFoundError(
                     "Recurso do Google Calendar não encontrado."
+                ) from None
+            if error.code in {409, 412}:
+                raise GoogleConflictError(
+                    "O evento foi alterado concorrentemente no Google Calendar."
+                ) from None
+            if error.code == 400:
+                raise GoogleRequestError(
+                    "O Google Calendar rejeitou os campos enviados."
                 ) from None
             if error.code == 429:
                 raise GoogleRateLimitError(

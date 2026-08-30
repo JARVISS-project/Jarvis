@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 import unicodedata
+from collections.abc import Collection
 
 
 @dataclass(frozen=True)
@@ -54,17 +55,52 @@ class ExecutionClaimGuard:
         r"|\b(?:adicionei|coloquei|pus)\s+(?:o\s+evento|a\s+reuniao|o\s+compromisso)\b"
         r"|\b(?:mudei|alterei|modifiquei)\s+(?:o\s+horario|a\s+data|o\s+evento)\b"
     )
+    _CALENDAR_CREATE_CLAIM = re.compile(
+        r"\b(?:marquei|agendei)\b"
+        r"|\b(?:criei|adicionei|coloquei|pus)\b(?:\s+[a-z0-9]+){0,6}\s+"
+        r"(?:evento|compromisso|reuniao|agenda)\b"
+        r"|\b(?:evento|compromisso|reuniao)\b(?:\s+[a-z0-9]+){0,4}\s+"
+        r"(?:foi\s+)?"
+        r"(?:criad[oa]|agendad[oa]|marcad[oa])\b"
+    )
+    _CALENDAR_UPDATE_CLAIM = re.compile(
+        r"\bremarquei\b"
+        r"|\b(?:mudei|alterei|modifiquei|atualizei)\b"
+        r"(?:\s+[a-z0-9]+){0,6}\s+"
+        r"(?:evento|compromisso|reuniao|horario|data|agenda)\b"
+        r"|\b(?:evento|compromisso|reuniao|horario|data)\b"
+        r"(?:\s+[a-z0-9]+){0,4}\s+"
+        r"(?:foi\s+)?(?:atualizad[oa]|alterad[oa]|modificad[oa]|remarcad[oa])\b"
+    )
+    _UNSUPPORTED_CALENDAR_WRITE_CLAIM = re.compile(
+        r"\bcancelei\b"
+        r"|\b(?:exclui|deletei|removi)\b(?:\s+[a-z0-9]+){0,6}\s+"
+        r"(?:evento|compromisso|reuniao|agenda)\b"
+        r"|\b(?:evento|compromisso|reuniao)\b(?:\s+[a-z0-9]+){0,4}\s+"
+        r"(?:foi\s+)?(?:cancelad[oa]|excluid[oa]|removid[oa])\b"
+    )
 
     def validate(
         self,
         text: str | None,
         *,
         tool_executed: bool,
+        successful_tool_names: Collection[str] = (),
     ) -> GroundingDecision:
+        normalized = self.normalize(text or "")
+        successful = set(successful_tool_names)
+        if self._UNSUPPORTED_CALENDAR_WRITE_CLAIM.search(normalized):
+            return GroundingDecision(False, "unsupported_calendar_write_claim")
+        if self._CALENDAR_CREATE_CLAIM.search(normalized) and (
+            "google_calendar_create_event" not in successful
+        ):
+            return GroundingDecision(False, "calendar_create_claim_without_verified_tool")
+        if self._CALENDAR_UPDATE_CLAIM.search(normalized) and (
+            "google_calendar_update_event" not in successful
+        ):
+            return GroundingDecision(False, "calendar_update_claim_without_verified_tool")
         if tool_executed:
             return GroundingDecision(True)
-
-        normalized = self.normalize(text or "")
         if self._COMPLETED_ACTION.search(normalized):
             return GroundingDecision(False, "execution_claim_without_tool")
         if self._RESULT_CLAIM.search(normalized):

@@ -29,6 +29,7 @@ from jarvis.integrations.google.calendar.tools import (
     GoogleCalendarListEventsTool,
 )
 from jarvis.integrations.google.errors import (
+    GoogleConflictError,
     GoogleNetworkError,
     GooglePermissionError,
     GoogleRateLimitError,
@@ -427,6 +428,31 @@ def test_api_client_refreshes_once_after_unauthorized(
     GoogleCalendarApiClient(FakeAuth(credential)).get("/calendar", {})
 
     assert credential.refresh_calls == 1
+
+
+def test_api_client_sends_if_match_and_maps_precondition_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = []
+
+    def capture(request, timeout):
+        requests.append(request)
+        return FakeHttpResponse({"id": "event"})
+
+    monkeypatch.setattr(calendar_client_module, "urlopen", capture)
+    client = GoogleCalendarApiClient(FakeAuth(FakeCredential()))
+
+    client.patch("/events/event", {"summary": "private"}, etag='"v1"')
+
+    assert requests[0].get_header("If-match") == '"v1"'
+
+    def precondition_failed(_request, timeout):
+        raise HTTPError("url", 412, "private response", {}, None)
+
+    monkeypatch.setattr(calendar_client_module, "urlopen", precondition_failed)
+    with pytest.raises(GoogleConflictError) as error:
+        client.patch("/events/event", {"summary": "private"}, etag='"v1"')
+    assert "private response" not in str(error.value)
 
 
 def test_api_client_maps_rate_limit_without_response_content(

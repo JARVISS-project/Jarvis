@@ -37,6 +37,10 @@ class GoogleNetworkError(GoogleIntegrationError):
     pass
 
 
+class GoogleRequestError(GoogleIntegrationError):
+    """A API rejeitou deterministicamente uma requisição inválida."""
+
+
 class GoogleResourceNotFoundError(GoogleIntegrationError):
     pass
 
@@ -51,6 +55,14 @@ class GooglePermissionError(GoogleIntegrationError):
 
 class GoogleResponseError(GoogleIntegrationError):
     pass
+
+
+class GoogleConflictError(GoogleIntegrationError):
+    """A escrita colidiu com estado remoto criado ou alterado."""
+
+
+class GoogleWriteUnknownError(GoogleIntegrationError):
+    """Não foi possível determinar com segurança o resultado da escrita."""
 
 
 class GoogleTokenRevokedError(GoogleIntegrationError):

@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, time, timezone as utc_timezone, tzinfo
+import hashlib
+import json
+from threading import RLock
 from typing import Any
+from uuid import uuid4
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from jarvis.integrations.google.calendar.contracts import CalendarProvider, CalendarWriteProvider
 from jarvis.integrations.google.calendar.models import CalendarEventInput, CalendarPeriod, CalendarReminder
+from jarvis.integrations.google.errors import GoogleWriteUnknownError
 from jarvis.security.risk import RiskLevel
 from jarvis.tools.base import Tool
 
@@ -24,29 +30,108 @@ def _parse_iso_datetime(value: str, timezone: tzinfo) -> datetime:
     except ValueError:
         raise ValueError("Formato de data/hora inválido. Use ISO 8601 com timezone.") from None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone)
-    else:
-        dt = dt.astimezone(timezone)
-    return dt
+        raise ValueError("Data/hora deve incluir timezone ou offset ISO 8601.")
+    resolved = dt.astimezone(timezone)
+    if dt.utcoffset() != resolved.utcoffset():
+        raise ValueError("Offset ISO 8601 diverge do timezone IANA informado.")
+    return resolved
 
 
-def _parse_reminders(value: object, timezone: tzinfo) -> list[CalendarReminder] | None:
+def _parse_reminders(value: object) -> tuple[CalendarReminder, ...] | None:
     if value is None:
         return None
     if not isinstance(value, list):
         raise ValueError("Lembretes devem ser uma lista.")
+    if len(value) > 5:
+        raise ValueError("No máximo 5 lembretes são permitidos.")
     reminders = []
     for item in value:
         if not isinstance(item, dict):
             raise ValueError("Cada lembrete deve ser um objeto.")
+        if set(item) != {"method", "minutes"}:
+            raise ValueError("Lembrete contém campos não permitidos.")
         method = item.get("method")
         minutes = item.get("minutes")
-        if not isinstance(method, str) or not isinstance(minutes, int):
+        if not isinstance(method, str) or type(minutes) is not int:
             raise ValueError("Lembrete inválido: method (str) e minutes (int) obrigatórios.")
         reminder = CalendarReminder(method=method, minutes=minutes)
         reminder.validate()
         reminders.append(reminder)
-    return reminders
+    return tuple(reminders)
+
+
+def _write_timezone(value: object, fallback: tzinfo) -> tzinfo:
+    if value is None:
+        return fallback
+    if not isinstance(value, str) or not value or len(value) > 128:
+        raise ValueError("timezone deve ser um identificador IANA válido.")
+    try:
+        return ZoneInfo(value)
+    except ZoneInfoNotFoundError:
+        raise ValueError("timezone IANA desconhecido.") from None
+
+
+def _validate_optional_text(
+    kwargs: dict[str, Any],
+    name: str,
+    label: str,
+    maximum: int,
+) -> None:
+    if name not in kwargs:
+        return
+    value = kwargs[name]
+    if not isinstance(value, str):
+        raise ValueError(f"{label} deve ser texto.")
+    if len(value) > maximum:
+        raise ValueError(f"{label} excede o limite.")
+
+
+def _build_event_input(
+    kwargs: dict[str, Any],
+    fallback_timezone: tzinfo,
+) -> CalendarEventInput:
+    event_timezone = _write_timezone(kwargs.get("timezone"), fallback_timezone)
+    start = _parse_iso_datetime(kwargs["start"], event_timezone)
+    end = _parse_iso_datetime(kwargs["end"], event_timezone)
+    if end <= start:
+        raise ValueError("Fim deve ser posterior ao início.")
+    if kwargs.get("is_all_day", False) and end.date() <= start.date():
+        raise ValueError("Evento de dia inteiro exige data final posterior à inicial.")
+    event = CalendarEventInput(
+        summary=kwargs["summary"],
+        start=start,
+        end=end,
+        is_all_day=kwargs.get("is_all_day", False),
+        timezone=kwargs.get("timezone"),
+        location=kwargs.get("location"),
+        description=kwargs.get("description"),
+        reminders=_parse_reminders(kwargs.get("reminders")),
+    )
+    event.validate()
+    return event
+
+
+def _validate_write_arguments(kwargs: dict[str, Any], timezone: tzinfo) -> None:
+    _validate_calendar_id(kwargs.get("calendar_id", "primary"))
+    summary = kwargs.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        raise ValueError("Título do evento é obrigatório.")
+    if len(summary) > 1024:
+        raise ValueError("Título do evento excede o limite.")
+    start = kwargs.get("start")
+    end = kwargs.get("end")
+    if not isinstance(start, str) or not isinstance(end, str):
+        raise ValueError("Início e fim são obrigatórios em formato ISO 8601.")
+    if type(kwargs.get("is_all_day", False)) is not bool:
+        raise ValueError("is_all_day deve ser booleano.")
+    _validate_optional_text(kwargs, "location", "Local do evento", 4096)
+    _validate_optional_text(kwargs, "description", "Descrição do evento", 32768)
+    _build_event_input(kwargs, timezone)
+
+
+_WRITABLE_EVENT_FIELDS = frozenset(
+    {"summary", "start", "end", "is_all_day", "timezone", "location", "description", "reminders"}
+)
 
 
 class GoogleCalendarListEventsTool(Tool):
@@ -254,7 +339,7 @@ class GoogleCalendarCreateEventTool(Tool):
             "start": {"type": "string", "description": "Início ISO 8601 com timezone (ex: 2026-09-01T14:00:00-03:00)"},
             "end": {"type": "string", "description": "Fim ISO 8601 com timezone (ex: 2026-09-01T15:00:00-03:00)"},
             "is_all_day": {"type": "boolean", "default": False},
-            "timezone": {"type": "string", "description": "IANA timezone opcional (ex: America/Sao_Paulo)"},
+            "timezone": {"type": "string", "description": "IANA timezone obrigatório (ex: America/Sao_Paulo)"},
             "location": {"type": "string", "description": "Local opcional"},
             "description": {"type": "string", "description": "Descrição opcional"},
             "reminders": {
@@ -267,11 +352,12 @@ class GoogleCalendarCreateEventTool(Tool):
                         "minutes": {"type": "integer"},
                     },
                     "required": ["method", "minutes"],
+                    "additionalProperties": False,
                 },
             },
             "calendar_id": {"type": "string", "default": "primary"},
         },
-        "required": ["summary", "start", "end"],
+        "required": ["summary", "start", "end", "timezone"],
         "additionalProperties": False,
     }
 
@@ -282,68 +368,41 @@ class GoogleCalendarCreateEventTool(Tool):
     ) -> None:
         self._provider = provider
         self._timezone = timezone
+        self._pending_operations: dict[str, str] = {}
+        self._operation_lock = RLock()
 
     def get_target(self, **kwargs: Any) -> str:
         return "google_calendar:event"
 
     def preflight(self, **kwargs: Any) -> None:
-        _validate_calendar_id(kwargs.get("calendar_id", "primary"))
-        summary = kwargs.get("summary")
-        if not isinstance(summary, str) or not summary.strip():
-            raise ValueError("Título do evento é obrigatório.")
-        start = kwargs.get("start")
-        end = kwargs.get("end")
-        if not isinstance(start, str) or not isinstance(end, str):
-            raise ValueError("Início e fim são obrigatórios em formato ISO 8601.")
-        _parse_iso_datetime(start, self._timezone)
-        _parse_iso_datetime(end, self._timezone)
-        is_all_day = kwargs.get("is_all_day", False)
-        if is_all_day:
-            # Para all-day, validamos apenas a data
-            pass
+        _validate_write_arguments(kwargs, self._timezone)
 
     def execute(self, **kwargs: Any) -> str:
         calendar_id = kwargs.get("calendar_id", "primary")
-        timezone = self._provider.get_timezone(calendar_id)
-        start_dt = _parse_iso_datetime(kwargs["start"], timezone)
-        end_dt = _parse_iso_datetime(kwargs["end"], timezone)
-        if end_dt <= start_dt:
-            raise ValueError("Fim deve ser posterior ao início.")
-
-        event_input = CalendarEventInput(
-            summary=kwargs["summary"],
-            start=start_dt,
-            end=end_dt,
-            is_all_day=kwargs.get("is_all_day", False),
-            timezone=kwargs.get("timezone"),
-            location=kwargs.get("location"),
-            description=kwargs.get("description"),
-            reminders=_parse_reminders(kwargs.get("reminders"), timezone),
-        )
-        event_input.validate()
-
-        created_event = self._provider.create_event(calendar_id, event_input)
-
-        # Pós-verificação: consultar o evento criado
-        verified = self._provider.get_event(calendar_id, created_event.id)
-        if verified is None:
-            return (
-                f"Evento criado (ID: {created_event.id}), mas a verificação "
-                f"pós-escrita falhou. Verifique manualmente."
+        event_input = _build_event_input(kwargs, self._timezone)
+        operation_key = hashlib.sha256(
+            json.dumps(kwargs, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        with self._operation_lock:
+            operation_id = self._pending_operations.setdefault(
+                operation_key, uuid4().hex
             )
-
-        # Comparar campos essenciais
-        if verified.summary != created_event.summary:
-            return (
-                f"Evento criado (ID: {created_event.id}), mas o título diverge "
-                f"após verificação. Esperado: {created_event.summary}, "
-                f"Encontrado: {verified.summary}."
+        try:
+            self._provider.create_event(
+                calendar_id,
+                event_input,
+                frozenset(kwargs) & _WRITABLE_EVENT_FIELDS,
+                operation_id,
             )
-
-        return (
-            f"Evento criado e verificado: {verified.to_display_string(timezone)} "
-            f"(ID: {verified.id})"
-        )
+        except GoogleWriteUnknownError:
+            raise
+        except Exception:
+            with self._operation_lock:
+                self._pending_operations.pop(operation_key, None)
+            raise
+        with self._operation_lock:
+            self._pending_operations.pop(operation_key, None)
+        return "Evento criado e verificado no Google Calendar."
 
 
 class GoogleCalendarUpdateEventTool(Tool):
@@ -358,7 +417,7 @@ class GoogleCalendarUpdateEventTool(Tool):
             "start": {"type": "string", "description": "Novo início ISO 8601 com timezone"},
             "end": {"type": "string", "description": "Novo fim ISO 8601 com timezone"},
             "is_all_day": {"type": "boolean", "default": False},
-            "timezone": {"type": "string", "description": "IANA timezone opcional"},
+            "timezone": {"type": "string", "description": "IANA timezone obrigatório"},
             "location": {"type": "string", "description": "Novo local opcional"},
             "description": {"type": "string", "description": "Nova descrição opcional"},
             "reminders": {
@@ -371,11 +430,12 @@ class GoogleCalendarUpdateEventTool(Tool):
                         "minutes": {"type": "integer"},
                     },
                     "required": ["method", "minutes"],
+                    "additionalProperties": False,
                 },
             },
             "calendar_id": {"type": "string", "default": "primary"},
         },
-        "required": ["event_id", "summary", "start", "end"],
+        "required": ["event_id", "summary", "start", "end", "timezone"],
         "additionalProperties": False,
     }
 
@@ -391,61 +451,18 @@ class GoogleCalendarUpdateEventTool(Tool):
         return "google_calendar:event"
 
     def preflight(self, **kwargs: Any) -> None:
-        _validate_calendar_id(kwargs.get("calendar_id", "primary"))
         event_id = kwargs.get("event_id")
         if not isinstance(event_id, str) or not event_id or len(event_id) > 1024:
             raise ValueError("event_id inválido.")
-        summary = kwargs.get("summary")
-        if not isinstance(summary, str) or not summary.strip():
-            raise ValueError("Título do evento é obrigatório.")
-        start = kwargs.get("start")
-        end = kwargs.get("end")
-        if not isinstance(start, str) or not isinstance(end, str):
-            raise ValueError("Início e fim são obrigatórios em formato ISO 8601.")
-        _parse_iso_datetime(start, self._timezone)
-        _parse_iso_datetime(end, self._timezone)
+        _validate_write_arguments(kwargs, self._timezone)
 
     def execute(self, **kwargs: Any) -> str:
         calendar_id = kwargs.get("calendar_id", "primary")
-        timezone = self._provider.get_timezone(calendar_id)
-        start_dt = _parse_iso_datetime(kwargs["start"], timezone)
-        end_dt = _parse_iso_datetime(kwargs["end"], timezone)
-        if end_dt <= start_dt:
-            raise ValueError("Fim deve ser posterior ao início.")
-
-        event_input = CalendarEventInput(
-            summary=kwargs["summary"],
-            start=start_dt,
-            end=end_dt,
-            is_all_day=kwargs.get("is_all_day", False),
-            timezone=kwargs.get("timezone"),
-            location=kwargs.get("location"),
-            description=kwargs.get("description"),
-            reminders=_parse_reminders(kwargs.get("reminders"), timezone),
+        event_input = _build_event_input(kwargs, self._timezone)
+        self._provider.update_event(
+            calendar_id,
+            kwargs["event_id"],
+            event_input,
+            frozenset(kwargs) & _WRITABLE_EVENT_FIELDS,
         )
-        event_input.validate()
-
-        updated_event = self._provider.update_event(
-            calendar_id, kwargs["event_id"], event_input
-        )
-
-        # Pós-verificação: consultar o evento atualizado
-        verified = self._provider.get_event(calendar_id, updated_event.id)
-        if verified is None:
-            return (
-                f"Evento atualizado (ID: {updated_event.id}), mas a verificação "
-                f"pós-escrita falhou. Verifique manualmente."
-            )
-
-        # Comparar campos essenciais
-        if verified.summary != updated_event.summary:
-            return (
-                f"Evento atualizado (ID: {updated_event.id}), mas o título diverge "
-                f"após verificação. Esperado: {updated_event.summary}, "
-                f"Encontrado: {verified.summary}."
-            )
-
-        return (
-            f"Evento atualizado e verificado: {verified.to_display_string(timezone)} "
-            f"(ID: {verified.id})"
-        )
+        return "Evento atualizado e verificado no Google Calendar."

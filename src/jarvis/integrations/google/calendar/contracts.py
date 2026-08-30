@@ -8,15 +8,24 @@ from typing import Any, Protocol
 from jarvis.integrations.google.calendar.models import (
     CalendarAvailability,
     CalendarEvent,
+    CalendarEventInput,
     CalendarPeriod,
 )
 
 
-class CalendarApiClient(Protocol):
+class CalendarReadApiClient(Protocol):
     def get(self, path: str, params: dict[str, object]) -> dict[str, Any]: ...
     def post(self, path: str, body: dict[str, object]) -> dict[str, Any]: ...
-    def patch(self, path: str, body: dict[str, object]) -> dict[str, Any]: ...
-    def delete(self, path: str) -> dict[str, Any]: ...
+
+
+class CalendarWriteApiClient(CalendarReadApiClient, Protocol):
+    def patch(
+        self,
+        path: str,
+        body: dict[str, object],
+        *,
+        etag: str,
+    ) -> dict[str, Any]: ...
 
 
 class CalendarProvider(Protocol):
@@ -44,12 +53,12 @@ class CalendarProvider(Protocol):
 
 
 class CalendarWriteProvider(Protocol):
-    def get_timezone(self, calendar_id: str) -> tzinfo: ...
-
     def create_event(
         self,
         calendar_id: str,
         event: CalendarEventInput,
+        modified_fields: frozenset[str],
+        operation_id: str,
     ) -> CalendarEvent: ...
 
     def update_event(
@@ -57,10 +66,12 @@ class CalendarWriteProvider(Protocol):
         calendar_id: str,
         event_id: str,
         event: CalendarEventInput,
+        modified_fields: frozenset[str],
     ) -> CalendarEvent: ...
 
     def get_event(
         self,
         calendar_id: str,
         event_id: str,
+        timezone: tzinfo,
     ) -> CalendarEvent | None: ...

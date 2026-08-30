@@ -401,10 +401,12 @@ python -m pytest
 
 ## 16. Próximas prioridades
 
-Próximo sprint recomendado: **Google Drive Read-only Foundation**, somente após decisão explícita de sprint.
+Próximo sprint recomendado: **Calendar Scheduling Logic Foundation**, após a
+consolidação corretiva de Calendar Write.
 
-1. Google Drive Read-only Foundation;
-2. hardening futuro de recovery/supervisão, sem restart infinito.
+1. Calendar Scheduling Logic Foundation;
+2. Google Drive Read-only Foundation;
+3. hardening futuro de recovery/supervisão, sem restart infinito.
 
 ## 17. Control Center Foundation (concluído)
 
@@ -843,26 +845,47 @@ Audit → resposta
 - Modelo de entrada tipado (`CalendarEventInput`): sem payload Google arbitrário; campos não suportados falham explicitamente.
 - Resolução determinística de datas/timezone: ISO 8601 com timezone obrigatório; DST e horários inexistentes/ambíguos validados antes da execução.
 - Preflight valida: credencial write válida, timestamps, timezone, campos obrigatórios, operação determinada.
-- Pós-verificação obrigatória (read-after-write): após create/update, consulta o evento pelo ID retornado e compara campos essenciais (título). Só então afirma sucesso.
+- Pós-verificação obrigatória (read-after-write): após create/update, consulta novamente a identidade solicitada e compara título, início, fim, all-day, timezone e todos os campos opcionais enviados. Só então afirma sucesso.
 - Verificação de conflitos como informação, não bloqueio automático.
-- Idempotência: retry de operação incerta primeiro determina se a escrita anterior ocorreu; estado desconhecido nunca vira sucesso.
-- Update usa identidade do evento; alteração concorrente detectada falha em vez de sobrescrever cegamente (quando suportado pela API).
+- Idempotência: create usa ID opaco por operação. Timeout antes/depois do envio é reconciliado por essa identidade; retry de estado `UNKNOWN` no mesmo runtime reutiliza o ID, enquanto novas operações legítimas idênticas recebem outro. Estado desconhecido nunca vira sucesso.
+- Update lê o ETag, envia `If-Match` e faz read-back. HTTP 412 falha como conflito; timeout seguido de alteração concorrente permanece `UNKNOWN`, sem alegar que nada foi escrito.
 - Audit com alvo constante `google_calendar:event`; sem título, descrição, localização, participantes, tokens em trace/telemetry/Remote.
 - Grounding expandido: bloqueia claims como “marquei”, “criei”, “agendei”, “mudei”, “alterei”, “cancelei”, “adicionei evento” sem Tool + verificação real.
 - Fast Path determinístico não implementado para escrita (requer validação explícita); pedidos naturais usam Agent Loop com Tools restritas.
 - Delete/cancel, convidados, recorrência avançada, notificações em massa: fora deste sprint.
 - Configuração: `/config google_calendar_write on|off` ou `JARVIS_GOOGLE_CALENDAR_WRITE`.
-- OAuth write: `--google-calendar-write connect|status|disconnect` (a implementar no CLI se necessário).
+- OAuth write: `--google-calendar-write connect|status|disconnect`.
 
-Validação automatizada em 30/08/2026:
+Revisão corretiva em 30/08/2026:
+
+- o provider write deixou de chamar `Calendars.get`, que não é autorizado pelo scope `calendar.events`; timezone IANA explícito passou a ser obrigatório nas Tools e o scope continua exatamente `openid + calendar.events`;
+- contratos HTTP read/write foram separados e o provider read-only continua sem operações de mutação;
+- respostas de Tool não incluem ID, título, horário, location ou description; modelos sensíveis omitem também esses campos de `repr`;
+- falha, divergência ou indisponibilidade de read-back produz erro terminal e Audit não-success; HTTP 200/201 isolado nunca confirma escrita;
+- validação rejeita payloads sem tipos esperados, campos extras em reminders, mais de cinco lembretes, offset divergente do timezone e all-day com datas normalizadas inválidas;
+- grounding passou a exigir a Tool verificada correspondente para claims de create/update e bloqueia claims de cancelamento, ainda não suportado;
+- `audit.log` de runtime foi removido do versionamento e passou a ser ignorado.
+
+Validação automatizada após a revisão corretiva em 30/08/2026:
 
 ```text
-1036 passed, 1 skipped
+1063 passed, 1 skipped
 compileall OK
 git diff --check OK
 ```
 
-Testes cobrem: scopes write isolados, read/write capability isolation, modelos tipados, validação de entrada, timezone/DST, preflight, pós-verificação, idempotência, concorrência, grounding write, Audit sem conteúdo sensível, read-only provider incapaz de escrever.
+Testes cobrem scopes/storage isolados, capability isolation, modelos e payloads tipados, timezone/offset/all-day, pós-verificação de todos os campos enviados, timeout antes/depois do envio, resposta 2xx malformada, retry sem duplicação, `UNKNOWN`, ETag/If-Match/412, concorrência, grounding por operação, Audit/repr privados e provider read-only incapaz de escrever.
+
+Aceite real de escrita em 30/08/2026:
+
+- consentimento separado concluiu com exatamente `openid + calendar.events` e criou `data/google/credentials_write.bin`, sem alterar o storage read-only;
+- uma criação real sem convidados passou por ToolExecutor, capability write, Audit de alvo constante, API e read-back obrigatório;
+- o read-back confirmou identidade, título, início, fim, timezone, all-day, location, description, reminders e ETag sem imprimir esses valores;
+- o mesmo evento teve somente o horário alterado; o PATCH real usou `If-Match`, o ETag mudou e novo read-back confirmou a alteração preservando os demais campos;
+- um novo processo restaurou a credencial write protegida por DPAPI e retornou conectado com os mesmos dois scopes exatos;
+- Audit temporário conteve somente o alvo constante e os dois status de sucesso, sem conteúdo, ID, horários ou credenciais;
+- o provider read-only permaneceu sem superfície de create/update;
+- como delete ainda não existe, o evento temporário com prefixo `JARVIS Calendar Write Acceptance` deve ser removido manualmente pelo usuário.
 
 Limitações deliberadas da V1:
 

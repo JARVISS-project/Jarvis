@@ -141,3 +141,32 @@ def test_google_calendar_command_uses_calendar_scopes(
     assert exit_info.value.code == 0
     assert calls == ["status"]
     assert capsys.readouterr().out.strip() == "Google Calendar conectado."
+
+
+def test_google_calendar_write_command_uses_separate_manager(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from jarvis.integrations.google import factory
+    from jarvis.integrations.google.models import ConnectionState, ConnectionStatus
+    from jarvis.integrations.google.scopes import CALENDAR_WRITE_SCOPES
+
+    calls: list[str] = []
+
+    class FakeManager:
+        def status(self):
+            calls.append("write-status")
+            return ConnectionStatus(ConnectionState.CONNECTED, CALENDAR_WRITE_SCOPES)
+
+    monkeypatch.setattr(
+        factory,
+        "build_google_auth_manager_with_calendar_write",
+        lambda: FakeManager(),
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["--google-calendar-write", "status"])
+
+    assert exit_info.value.code == 0
+    assert calls == ["write-status"]
+    assert capsys.readouterr().out.strip() == "Google Calendar Write conectado."

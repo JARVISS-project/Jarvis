@@ -59,6 +59,9 @@ def argument_parser() -> argparse.ArgumentParser:
     google_group.add_argument(
         "--google-calendar", choices=("connect", "status", "disconnect")
     )
+    google_group.add_argument(
+        "--google-calendar-write", choices=("connect", "status", "disconnect")
+    )
     parser.add_argument("--google-client-config", type=Path)
     parser.add_argument("--google-timeout", type=float, default=120.0)
     parser.add_argument("--startup", choices=("install", "remove", "status"))
@@ -101,7 +104,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_handle_startup(args))
     if args.runtime_status or args.runtime_stop:
         raise SystemExit(_handle_runtime_command(args))
-    if args.google or args.google_calendar:
+    if args.google or args.google_calendar or args.google_calendar_write:
         raise SystemExit(_handle_google_command(args))
     if args.setup_voice or args.setup_neural_voice or args.setup_fast_voice:
         _handle_setup(args, config)
@@ -160,6 +163,7 @@ def _handle_google_command(args: argparse.Namespace) -> int:
     from jarvis.integrations.google.factory import (
         build_google_auth_manager,
         build_google_auth_manager_with_calendar,
+        build_google_auth_manager_with_calendar_write,
     )
     from jarvis.integrations.google.models import ConnectionState
 
@@ -168,12 +172,14 @@ def _handle_google_command(args: argparse.Namespace) -> int:
         return 1
     try:
         calendar_command = args.google_calendar is not None
-        command = args.google_calendar or args.google
-        manager = (
-            build_google_auth_manager_with_calendar()
-            if calendar_command
-            else build_google_auth_manager()
-        )
+        write_command = args.google_calendar_write is not None
+        command = args.google_calendar_write or args.google_calendar or args.google
+        if write_command:
+            manager = build_google_auth_manager_with_calendar_write()
+        elif calendar_command:
+            manager = build_google_auth_manager_with_calendar()
+        else:
+            manager = build_google_auth_manager()
         if command == "connect":
             client_config = args.google_client_config
             if client_config is None:
@@ -218,7 +224,12 @@ def _handle_google_command(args: argparse.Namespace) -> int:
         ConnectionState.REVOKED: "Credencial Google revogada; conecte novamente.",
         ConnectionState.ERROR: "Integração Google indisponível.",
     }
-    prefix = "Google Calendar" if calendar_command else "Google"
+    if write_command:
+        prefix = "Google Calendar Write"
+    elif calendar_command:
+        prefix = "Google Calendar"
+    else:
+        prefix = "Google"
     print(messages[status.state].replace("Google", prefix, 1))
     return 0 if status.state in {ConnectionState.CONNECTED, ConnectionState.DISCONNECTED} else 1
 

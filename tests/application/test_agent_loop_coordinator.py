@@ -43,6 +43,7 @@ class ResponseStub:
         _messages,
         *,
         tool_executed=False,
+        successful_tool_names=(),
         allow_retry=True,
     ):
         assert tool_executed is False

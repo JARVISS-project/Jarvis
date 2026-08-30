@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import time
 from typing import Any
+from collections.abc import Collection
 
 from jarvis.config import JarvisConfig
 from jarvis.context.active import ActiveContext, ContextRouter
@@ -209,6 +210,7 @@ class ResponseCoordinator:
         messages: list[dict[str, Any]],
         *,
         tool_executed: bool = False,
+        successful_tool_names: Collection[str] = (),
         allow_retry: bool = True,
     ) -> str:
         validated = self.final_response_firewall.validate(content)
@@ -216,6 +218,7 @@ class ResponseCoordinator:
             grounded = self.execution_claim_guard.validate(
                 validated.text,
                 tool_executed=tool_executed,
+                successful_tool_names=successful_tool_names,
             )
             if grounded.accepted:
                 return validated.text
@@ -262,6 +265,7 @@ class ResponseCoordinator:
         grounded = self.execution_claim_guard.validate(
             retried.text,
             tool_executed=tool_executed,
+            successful_tool_names=successful_tool_names,
         )
         if not grounded.accepted:
             return (

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, tzinfo
 from enum import Enum
 
@@ -19,8 +19,8 @@ class CalendarPeriodKind(str, Enum):
 @dataclass(frozen=True, slots=True)
 class CalendarPeriod:
     kind: CalendarPeriodKind
-    start: datetime
-    end: datetime
+    start: datetime = field(repr=False)
+    end: datetime = field(repr=False)
     label: str
     weekday_name: str | None = None
 
@@ -136,15 +136,20 @@ class CalendarPeriod:
 
 @dataclass(frozen=True, slots=True)
 class CalendarEvent:
-    id: str
-    summary: str
+    id: str = field(repr=False)
+    summary: str = field(repr=False)
     start: datetime
     end: datetime
     is_all_day: bool
-    calendar_id: str
-    location: str | None = None
+    calendar_id: str = field(repr=False)
+    location: str | None = field(default=None, repr=False)
     status: str = "confirmed"
     transparent: bool = False
+    timezone_name: str | None = None
+    description: str | None = field(default=None, repr=False)
+    reminders: tuple[CalendarReminder, ...] | None = field(default=None, repr=False)
+    reminders_use_default: bool | None = field(default=None, repr=False)
+    etag: str | None = field(default=None, repr=False)
 
     def to_display_string(self, timezone: tzinfo) -> str:
         local_start = self.start.astimezone(timezone)
@@ -167,17 +172,39 @@ class CalendarEventInput:
     timezone: str | None = None
     location: str | None = None
     description: str | None = None
-    reminders: list[CalendarReminder] | None = None
+    reminders: tuple[CalendarReminder, ...] | None = None
 
     def validate(self) -> None:
-        if not self.summary or not self.summary.strip():
+        if not isinstance(self.summary, str) or not self.summary.strip():
             raise ValueError("Título do evento é obrigatório.")
+        if len(self.summary) > 1024:
+            raise ValueError("Título do evento excede o limite.")
+        if type(self.is_all_day) is not bool:
+            raise ValueError("is_all_day deve ser booleano.")
+        if not isinstance(self.timezone, str) or not self.timezone:
+            raise ValueError("timezone IANA é obrigatório.")
+        if self.location is not None and not isinstance(self.location, str):
+            raise ValueError("Local do evento deve ser texto.")
+        if self.location is not None and len(self.location) > 4096:
+            raise ValueError("Local do evento excede o limite.")
+        if self.description is not None and not isinstance(self.description, str):
+            raise ValueError("Descrição do evento deve ser texto.")
+        if self.description is not None and len(self.description) > 32768:
+            raise ValueError("Descrição do evento excede o limite.")
+        if type(self.start) is not datetime or type(self.end) is not datetime:
+            raise ValueError("Início e fim devem ser datas válidas.")
         if self.start.tzinfo is None or self.end.tzinfo is None:
             raise ValueError("Início e fim devem possuir timezone.")
         if self.end <= self.start:
             raise ValueError("Fim deve ser posterior ao início.")
+        if self.reminders is not None and type(self.reminders) is not tuple:
+            raise ValueError("Lembretes devem ser uma tupla validada.")
+        if self.reminders is not None and len(self.reminders) > 5:
+            raise ValueError("No máximo 5 lembretes são permitidos.")
         if self.reminders:
             for reminder in self.reminders:
+                if not isinstance(reminder, CalendarReminder):
+                    raise ValueError("Lembrete inválido.")
                 reminder.validate()
 
 
@@ -189,8 +216,8 @@ class CalendarReminder:
     def validate(self) -> None:
         if self.method not in ("popup", "email"):
             raise ValueError("Método de lembrete deve ser 'popup' ou 'email'.")
-        if self.minutes < 0:
-            raise ValueError("Minutos do lembrete não podem ser negativos.")
+        if type(self.minutes) is not int or not 0 <= self.minutes <= 40320:
+            raise ValueError("Minutos do lembrete devem estar entre 0 e 40320.")
 
 
 @dataclass(frozen=True, slots=True)
