@@ -12,6 +12,7 @@ class Capability(str, Enum):
     DESKTOP_CONTROL = "desktop_control"
     VISION = "vision"
     BROWSER = "browser"
+    GOOGLE_CALENDAR_READ = "google_calendar_read"
 
 
 class CapabilityPolicy:
@@ -53,7 +54,7 @@ TOOL_CAPABILITIES = {
     "desktop_open_application": Capability.DESKTOP_CONTROL,
     "desktop_move_pointer_to_window": Capability.DESKTOP_CONTROL,
     "desktop_press_escape": Capability.DESKTOP_CONTROL,
-"desktop_close_window": Capability.DESKTOP_CONTROL,
+    "desktop_close_window": Capability.DESKTOP_CONTROL,
     "vision_observe_screen_change": Capability.VISION,
     "browser_list_tabs": Capability.BROWSER,
     "browser_new_tab": Capability.BROWSER,
@@ -67,4 +68,7 @@ TOOL_CAPABILITIES = {
     "browser_extract_multiple": Capability.BROWSER,
     "browser_wait_for_selector": Capability.BROWSER,
     "browser_get_snapshot": Capability.BROWSER,
+    "google_calendar_list_events": Capability.GOOGLE_CALENDAR_READ,
+    "google_calendar_get_event": Capability.GOOGLE_CALENDAR_READ,
+    "google_calendar_check_availability": Capability.GOOGLE_CALENDAR_READ,
 }

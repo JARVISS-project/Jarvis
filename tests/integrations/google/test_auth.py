@@ -294,6 +294,50 @@ def test_connect_cannot_overwrite_pending_revocation(
     assert store.material.revocation_pending is True
 
 
+def test_calendar_scope_upgrade_preserves_basic_credential() -> None:
+    handle = FakeHandle(valid=False, scopes=("openid",))
+    store = FakeStore(MATERIAL)
+    manager = GoogleAuthManager(
+        store,
+        lambda *_args: None,
+        lambda _material: handle,
+        lambda: None,
+        scopes=("openid", "calendar.readonly"),
+        upgrade_from_scopes=("openid",),
+    )
+
+    status = manager.status()
+
+    assert status.state is ConnectionState.AUTHORIZATION_REQUIRED
+    assert status.error_code == "scope_upgrade_required"
+    assert store.material == MATERIAL
+    assert store.material.revocation_pending is False
+
+
+def test_calendar_manager_rejects_credentials_with_additional_scopes() -> None:
+    from jarvis.integrations.google.scopes import CALENDAR_SCOPES
+
+    granted = (*CALENDAR_SCOPES, "https://www.googleapis.com/auth/calendar")
+    handle = FakeHandle(valid=False, scopes=granted)
+    store = FakeStore(MATERIAL)
+    manager = GoogleAuthManager(
+        store,
+        lambda *_args: None,
+        lambda _material: handle,
+        lambda: None,
+        scopes=CALENDAR_SCOPES,
+        upgrade_from_scopes=("openid",),
+        allowed_scopes=CALENDAR_SCOPES,
+    )
+
+    status = manager.status()
+
+    assert status.state is ConnectionState.ERROR
+    assert status.error_code == "credential_scope_error"
+    assert store.material is not None
+    assert store.material.revocation_pending is True
+
+
 def test_quarantine_failure_deletes_active_local_material() -> None:
     from jarvis.integrations.google.errors import GoogleCredentialStorageError
 

@@ -9,6 +9,7 @@ from jarvis.integrations.google.client import (
 )
 from jarvis.integrations.google.loopback import LoopbackOAuthReceiver
 from jarvis.integrations.google.operation_lock import GoogleOperationLock
+from jarvis.integrations.google.scopes import AUTHENTICATION_SCOPES, CALENDAR_SCOPES
 from jarvis.integrations.google.storage import (
     ProtectedFileCredentialStore,
     WindowsDPAPIProtector,
@@ -17,6 +18,9 @@ from jarvis.integrations.google.storage import (
 
 def build_google_auth_manager(
     credential_path: Path = Path("data/google/credentials.bin"),
+    scopes: tuple[str, ...] = AUTHENTICATION_SCOPES,
+    upgrade_from_scopes: tuple[str, ...] = (),
+    allowed_scopes: tuple[str, ...] | None = None,
 ) -> GoogleAuthManager:
     store = ProtectedFileCredentialStore(
         credential_path,
@@ -28,4 +32,18 @@ def build_google_auth_manager(
         credential_loader=load_google_credentials,
         callback_receiver_factory=LoopbackOAuthReceiver,
         operation_lock_factory=GoogleOperationLock,
+        scopes=scopes,
+        upgrade_from_scopes=upgrade_from_scopes,
+        allowed_scopes=allowed_scopes,
+    )
+
+
+def build_google_auth_manager_with_calendar(
+    credential_path: Path = Path("data/google/credentials.bin"),
+) -> GoogleAuthManager:
+    return build_google_auth_manager(
+        credential_path,
+        scopes=CALENDAR_SCOPES,
+        upgrade_from_scopes=AUTHENTICATION_SCOPES,
+        allowed_scopes=CALENDAR_SCOPES,
     )

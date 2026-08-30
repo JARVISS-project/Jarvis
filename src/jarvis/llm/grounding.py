@@ -42,6 +42,11 @@ class ExecutionClaimGuard:
         r"|\ba\s+janela(?:\s+[a-z0-9]+){0,8}\s+esta\s+aberta\b"
         r"|\bo\s+botao(?:\s+de)?\s+escape\s+esta\s+visivel\b"
         r"|\ba\s+tela\s+(?:mudou|nao\s+mudou|foi\s+alterada)\b"
+        r"|\b(?:a\s+|sua\s+)?agenda\s+(?:esta|ficou)\s+(?:livre|vazia)\b"
+        r"|\b(?:nao\s+ha|nao\s+existem|nenhum|nenhuma)\s+"
+        r"(?:evento|eventos|compromisso|compromissos)\b"
+        r"|\b(?:voce|o\s+periodo|esse\s+periodo|esse\s+horario)\s+"
+        r"(?:esta|ficou)\s+(?:livre|ocupado|ocupada)\b"
     )
 
     def validate(

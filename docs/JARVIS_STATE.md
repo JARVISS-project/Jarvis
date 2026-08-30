@@ -401,9 +401,9 @@ python -m pytest
 
 ## 16. Próximas prioridades
 
-Próximo sprint recomendado: **Google Calendar Read-only Foundation**, somente após decisão explícita de sprint.
+Próximo sprint recomendado: **Google Drive Read-only Foundation**, somente após decisão explícita de sprint.
 
-1. Google Calendar Read-only Foundation;
+1. Google Drive Read-only Foundation;
 2. hardening futuro de recovery/supervisão, sem restart infinito.
 
 ## 17. Control Center Foundation (concluído)
@@ -729,8 +729,8 @@ GoogleAuthManager
 - O fluxo usa client OAuth do tipo Desktop app, navegador do sistema, callback HTTP em `127.0.0.1` com porta efêmera, PKCE S256, `state` aleatório validado com comparação constante, timeout e cancelamento. Callback com state incorreto é ignorado até callback válido ou expiração.
 - O listener aceita somente `/oauth2/callback`, limita o request e aplica timeout também ao socket aceito para impedir bloqueio por request local incompleto. Nenhum authorization code é ecoado na página de sucesso.
 - A compatibilidade oficial do SDK preserva o redirect HTTP loopback, mas entrega ao parser oauthlib uma cópia HTTPS da URL recebida, como `InstalledAppFlow.run_local_server`; a troca real de token continua em endpoint Google HTTPS.
-- O scope solicitado nesta fase é somente `openid`. E-mail, profile, Calendar, Drive, Docs, Sheets e Gmail não são solicitados. `CALENDAR_READONLY_SCOPE` está apenas nomeado para o próximo sprint e não entra em `AUTHENTICATION_SCOPES`.
-- Nenhuma capability Google ou Tool foi criada. Estar conectado significa somente credencial disponível; não concede Policy, Safety, risco, confirmação ou execução.
+- O fluxo básico `--google` continua solicitando somente `openid`. Scopes operacionais são solicitados separadamente pelas integrações que realmente os utilizam.
+- Autenticação básica isolada não concede capability nem registra Tool. Estar conectado não concede Policy, Safety, risco, confirmação ou execução.
 - O storage de produção usa DPAPI do usuário Windows com UI proibida e blob atômico em `data/google/credentials.bin`. Access token não é persistido. Refresh token, client metadata necessária e scopes ficam somente dentro do blob DPAPI; modelos sensíveis omitem esses campos de `repr`.
 - Connect/status/disconnect são serializados entre processos pelo mutex Win32 `Local\\JARVIS.GoogleOAuth`. Crash libera o mutex pelo kernel.
 - Refresh é automático no restore. `invalid_grant` passa para `revoked`; falha de rede passa para `error`; corrupção de storage falha fechada. Scope ausente nunca retorna `connected`.
@@ -759,10 +759,69 @@ Aceite real no Windows em 29/08/2026:
 
 Limitações deliberadas:
 
-- ainda não há Calendar, Drive, Docs, Sheets ou Gmail funcional;
+- ainda não há Drive, Docs, Sheets ou Gmail funcional;
 - não existe identidade de conta exposta, Control Center Google ou gestão remota;
 - o storage seguro de produção desta fase é Windows/DPAPI; outros sistemas falham fechados;
 - erro de revogação remota exige retry de `disconnect` ou revisão manual das permissões da conta Google.
+
+### Google Calendar Read-only Foundation (consolidado)
+
+A primeira integração funcional do Google Workspace foi adicionada sem autoridade de escrita:
+
+```text
+Intent / Fast Path / LLM
+    ↓
+Calendar Tool
+    ↓
+ToolExecutor / Capability.GOOGLE_CALENDAR_READ / Safety / Audit
+    ↓
+CalendarProvider
+    ↓
+GoogleCalendarApiClient
+    ↓
+Google Calendar API
+```
+
+- Tools: `google_calendar_list_events`, `google_calendar_get_event` e `google_calendar_check_availability`, todas `LOW`, read-only e desabilitadas por padrão.
+- Configuração local: `/config google_calendar on|off` ou `JARVIS_GOOGLE_CALENDAR`.
+- OAuth Calendar é explícito e separado: `--google-calendar connect|status|disconnect`, com `openid + calendar.readonly`. Um upgrade vindo de credencial básica `openid` preserva a credencial anterior se o novo consentimento não for concluído; material em revogação pendente continua fail-closed.
+- Credenciais são obtidas somente no momento da chamada. Refresh após HTTP 401 volta ao `GoogleAuthManager`, sob lock interprocesso, e persiste eventual rotação de material protegido.
+- O provider normaliza eventos com horário e de dia inteiro, pagina resultados, rejeita token de paginação repetido, diferencia 404, 403, 429, rede e resposta malformada e limita o corpo HTTP recebido.
+- Timezone é obtido do calendário consultado. Períodos usam relógio injetável e limites por datas locais; horários inexistentes ou ambíguos durante transições DST falham em vez de consultar outro instante.
+- Disponibilidade usa o endpoint `freeBusy`, que não retorna títulos ou detalhes dos eventos, evitando a falsa alegação de agenda livre após paginação parcial.
+- Fast Paths determinísticos cobrem hoje, amanhã, próximos sete dias, dia da semana, próxima semana e disponibilidade com dia e intervalo explícitos. Consultas ambíguas sem dia não entram no Fast Path.
+- Audit usa somente alvos constantes (`google_calendar:events`, `google_calendar:event`, `google_calendar:availability`). IDs, calendário, período, horários e conteúdo não entram no alvo, trace de Skills ou debug de argumentos.
+- Respostas de detalhe são minimizadas para título, horário e localização. Participantes, descrição, links, tokens e IDs não são incluídos.
+- Calendar não inicia rede no startup. A capability pode ser registrada sem credencial; uma consulta sem consentimento falha fechada no caminho normal da Tool.
+- O Corrective Checkpoint declarou `tzdata` no extra Google para instalações Windows sem base IANA do sistema, tornou falhas Calendar terminais também no Agent Loop e adicionou grounding defensivo para claims de agenda, eventos e disponibilidade sem Tool bem-sucedida.
+- Paginação possui teto absoluto de 100 páginas, além da rejeição de token repetido. HTTP 403 com reason `rateLimitExceeded` ou `userRateLimitExceeded` é classificado como rate limit sem incluir o corpo da resposta no erro.
+- O manager Calendar read-only aceita somente `openid + calendar.readonly`; credenciais com scopes adicionais falham fechadas. Uma futura Calendar Write Foundation deverá usar autoridade e storage explicitamente separados, e nunca poderá elevar a autoridade destas Tools read-only.
+
+Validação automatizada em 29/08/2026:
+
+```text
+1035 passed, 1 skipped
+compileall OK
+git diff --check OK
+```
+
+Os testes cobrem scope upgrade, consentimento separado, rejeição de scopes adicionais, capability, startup sem credencial, dependência IANA no Windows, paginação limitada e replay de token, URL encoding, 404 versus rede, 403 rate limit/permission e 429, resposta malformada, timezone, all-day, DST gap/fold, `freeBusy`, falha terminal no Agent Loop, grounding Calendar, privacidade de Audit/trace, argumentos e Fast Paths com `llm_calls=0`.
+
+Aceite real no Windows em 29/08/2026:
+
+- consentimento de testador concluiu com `Google Calendar conectado` usando somente os scopes declarados;
+- status e consultas em novos processos restauraram a credencial DPAPI;
+- timezone do calendário e consultas de hoje, amanhã e próximos sete dias responderam pela API real;
+- `freeBusy` real respondeu sem conteúdo de eventos;
+- o caminho completo Harness → ToolExecutor → capability → provider → API executou lista e disponibilidade com `llm_calls=0`, `tool_calls=1` no último turno e alvos constantes no Audit;
+- nenhum token, authorization code, client secret, identidade da conta, título, ID ou horário foi impresso durante o aceite.
+
+Limitações deliberadas:
+
+- não há criação, edição, cancelamento ou exclusão de eventos;
+- não há descoberta/listagem de calendários, Control Center Calendar ou sincronização proativa;
+- disponibilidade natural exige dia e horários explícitos; intervalos vagos permanecem no fluxo conversacional;
+- conteúdo Calendar solicitado pelo usuário existe apenas na resposta operacional e não é persistido automaticamente em memória ou Skill.
 
 ## 21. Regras para continuidade
 

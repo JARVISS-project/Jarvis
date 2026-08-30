@@ -32,6 +32,7 @@ def _load_local_settings(path: Path) -> tuple[dict[str, Any], str | None]:
         "desktop_control": bool,
         "vision": bool,
         "browser": bool,
+        "google_calendar": bool,
     }
     for key, expected_type in validators.items():
         current = value.get(key)
@@ -67,6 +68,7 @@ class JarvisConfig:
     desktop_control_enabled: bool = False
     vision_enabled: bool = False
     browser_enabled: bool = False
+    google_calendar_enabled: bool = False
     browser_allowed_domains: list[str] = field(default_factory=list)
     browser_blocked_domains: list[str] = field(default_factory=list)
     browser_max_tabs: int = 10
@@ -280,6 +282,14 @@ class JarvisConfig:
             if isinstance(local_browser, bool):
                 self.browser_enabled = local_browser
 
+        environment_calendar = os.getenv("JARVIS_GOOGLE_CALENDAR")
+        if environment_calendar is not None:
+            self.google_calendar_enabled = _environment_flag("JARVIS_GOOGLE_CALENDAR")
+        else:
+            local_calendar = settings.get("google_calendar")
+            if isinstance(local_calendar, bool):
+                self.google_calendar_enabled = local_calendar
+
         environment_browser_domains = os.getenv("JARVIS_BROWSER_ALLOWED_DOMAINS")
         if environment_browser_domains is not None:
             self.browser_allowed_domains = [
@@ -384,6 +394,13 @@ class JarvisConfig:
             self.browser_blocked_domains = [d.strip().lower() for d in blocked_domains if d.strip()]
         if max_tabs is not None:
             self.browser_max_tabs = int(max_tabs)
+
+    def save_calendar_settings(self, *, enabled: bool) -> None:
+        settings, _error = _load_local_settings(self.settings_path)
+        settings["google_calendar"] = bool(enabled)
+        self._write_local_settings(settings)
+        if os.getenv("JARVIS_GOOGLE_CALENDAR") is None:
+            self.google_calendar_enabled = bool(enabled)
 
     def save_voice_settings(
         self,

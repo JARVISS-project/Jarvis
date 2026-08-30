@@ -52,7 +52,13 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--runtime-root", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--runtime-status", action="store_true")
     parser.add_argument("--runtime-stop", action="store_true")
-    parser.add_argument("--google", choices=("connect", "status", "disconnect"))
+    google_group = parser.add_mutually_exclusive_group()
+    google_group.add_argument(
+        "--google", choices=("connect", "status", "disconnect")
+    )
+    google_group.add_argument(
+        "--google-calendar", choices=("connect", "status", "disconnect")
+    )
     parser.add_argument("--google-client-config", type=Path)
     parser.add_argument("--google-timeout", type=float, default=120.0)
     parser.add_argument("--startup", choices=("install", "remove", "status"))
@@ -95,7 +101,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_handle_startup(args))
     if args.runtime_status or args.runtime_stop:
         raise SystemExit(_handle_runtime_command(args))
-    if args.google:
+    if args.google or args.google_calendar:
         raise SystemExit(_handle_google_command(args))
     if args.setup_voice or args.setup_neural_voice or args.setup_fast_voice:
         _handle_setup(args, config)
@@ -151,15 +157,24 @@ def _runtime_paths() -> tuple[Path, Path, Path]:
 
 def _handle_google_command(args: argparse.Namespace) -> int:
     from jarvis.integrations.google.errors import GoogleIntegrationError
-    from jarvis.integrations.google.factory import build_google_auth_manager
+    from jarvis.integrations.google.factory import (
+        build_google_auth_manager,
+        build_google_auth_manager_with_calendar,
+    )
     from jarvis.integrations.google.models import ConnectionState
 
     if not 5.0 <= args.google_timeout <= 600.0:
         print("--google-timeout deve estar entre 5 e 600 segundos.")
         return 1
     try:
-        manager = build_google_auth_manager()
-        if args.google == "connect":
+        calendar_command = args.google_calendar is not None
+        command = args.google_calendar or args.google
+        manager = (
+            build_google_auth_manager_with_calendar()
+            if calendar_command
+            else build_google_auth_manager()
+        )
+        if command == "connect":
             client_config = args.google_client_config
             if client_config is None:
                 configured = os.getenv("JARVIS_GOOGLE_CLIENT_CONFIG")
@@ -175,7 +190,7 @@ def _handle_google_command(args: argparse.Namespace) -> int:
                 client_config,
                 timeout_seconds=args.google_timeout,
             )
-        elif args.google == "disconnect":
+        elif command == "disconnect":
             status = manager.disconnect()
             if status.error_code == "remote_revocation_unconfirmed":
                 print(
@@ -203,7 +218,8 @@ def _handle_google_command(args: argparse.Namespace) -> int:
         ConnectionState.REVOKED: "Credencial Google revogada; conecte novamente.",
         ConnectionState.ERROR: "Integração Google indisponível.",
     }
-    print(messages[status.state])
+    prefix = "Google Calendar" if calendar_command else "Google"
+    print(messages[status.state].replace("Google", prefix, 1))
     return 0 if status.state in {ConnectionState.CONNECTED, ConnectionState.DISCONNECTED} else 1
 
 

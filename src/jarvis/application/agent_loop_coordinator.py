@@ -350,6 +350,12 @@ class AgentLoopCoordinator:
             self.memory.add_assistant_message(tool_result)
             return tool_result
         elif (
+            tool.name.startswith("google_calendar_")
+            and execution_result.status != "success"
+        ):
+            self.memory.add_assistant_message(tool_result)
+            return tool_result
+        elif (
             tool.name in {
                 "desktop_focus_window",
                 "desktop_open_application",

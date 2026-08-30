@@ -112,3 +112,32 @@ def test_google_connect_cli_never_accepts_tokens_as_arguments() -> None:
     assert "--google-access-token" not in option_names
     assert "--google-refresh-token" not in option_names
     assert "--google-client-secret" not in option_names
+
+
+def test_google_calendar_command_uses_calendar_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from jarvis.integrations.google import factory
+    from jarvis.integrations.google.models import ConnectionState, ConnectionStatus
+    from jarvis.integrations.google.scopes import CALENDAR_SCOPES
+
+    calls: list[str] = []
+
+    class FakeManager:
+        def status(self):
+            calls.append("status")
+            return ConnectionStatus(ConnectionState.CONNECTED, CALENDAR_SCOPES)
+
+    monkeypatch.setattr(
+        factory,
+        "build_google_auth_manager_with_calendar",
+        lambda: FakeManager(),
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["--google-calendar", "status"])
+
+    assert exit_info.value.code == 0
+    assert calls == ["status"]
+    assert capsys.readouterr().out.strip() == "Google Calendar conectado."

@@ -66,3 +66,18 @@ def test_desktop_state_claim_is_rejected_without_successful_tool() -> None:
     ):
         decision = guard.validate(response, tool_executed=False)
         assert decision.accepted is False
+
+
+def test_calendar_claim_is_rejected_without_successful_tool() -> None:
+    guard = ExecutionClaimGuard()
+
+    for response in (
+        "Sua agenda está livre.",
+        "Não há eventos amanhã.",
+        "Nenhum compromisso foi encontrado.",
+        "Você está livre nesse horário.",
+        "Esse período ficou ocupado.",
+    ):
+        decision = guard.validate(response, tool_executed=False)
+        assert decision.accepted is False
+        assert decision.reason == "result_claim_without_tool"

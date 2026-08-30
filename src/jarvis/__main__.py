@@ -4,6 +4,7 @@ import signal
 import sys
 import threading
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 from jarvis.activation.listener import WakeWordListener
@@ -77,6 +78,14 @@ from jarvis.vision.composite_backend import CompositeVisionBackend
 from jarvis.vision.execution_verifier import VisionToolExecutionVerifier
 from jarvis.vision.service import VisionService
 from jarvis.remote.gateway import RemoteGateway
+from jarvis.integrations.google.calendar.client import GoogleCalendarApiClient
+from jarvis.integrations.google.calendar.google_provider import GoogleCalendarProvider
+from jarvis.integrations.google.calendar.tools import (
+    GoogleCalendarListEventsTool,
+    GoogleCalendarGetEventTool,
+    GoogleCalendarCheckAvailabilityTool,
+)
+from jarvis.integrations.google.factory import build_google_auth_manager_with_calendar
 
 
 def build_harness(
@@ -105,6 +114,7 @@ def build_harness(
             Capability.DESKTOP_CONTROL: config.desktop_control_enabled,
             Capability.VISION: config.vision_enabled,
             Capability.BROWSER: config.browser_enabled,
+            Capability.GOOGLE_CALENDAR_READ: config.google_calendar_enabled,
         }
     )
     audit_logger = AuditLogger(
@@ -206,6 +216,24 @@ def build_harness(
         for tool in browser_tools(browser_service):
             if capability_policy.is_enabled(Capability.BROWSER):
                 tool_registry.register(tool)
+
+    calendar_service = None
+    if capability_policy.is_enabled(Capability.GOOGLE_CALENDAR_READ):
+        auth_manager = build_google_auth_manager_with_calendar()
+        timezone = datetime.now().astimezone().tzinfo
+        calendar_service = GoogleCalendarProvider(
+            GoogleCalendarApiClient(auth_manager)
+        )
+    if calendar_service is not None:
+        tool_registry.register(
+            GoogleCalendarListEventsTool(calendar_service, timezone)
+        )
+        tool_registry.register(
+            GoogleCalendarGetEventTool(calendar_service, timezone)
+        )
+        tool_registry.register(
+            GoogleCalendarCheckAvailabilityTool(calendar_service, timezone)
+        )
 
     note_reference_resolver = None
     obsidian_vault = None

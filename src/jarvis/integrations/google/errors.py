@@ -37,6 +37,22 @@ class GoogleNetworkError(GoogleIntegrationError):
     pass
 
 
+class GoogleResourceNotFoundError(GoogleIntegrationError):
+    pass
+
+
+class GoogleRateLimitError(GoogleIntegrationError):
+    pass
+
+
+class GooglePermissionError(GoogleIntegrationError):
+    pass
+
+
+class GoogleResponseError(GoogleIntegrationError):
+    pass
+
+
 class GoogleTokenRevokedError(GoogleIntegrationError):
     pass
 

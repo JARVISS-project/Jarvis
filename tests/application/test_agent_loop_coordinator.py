@@ -149,6 +149,29 @@ def test_agent_loop_returns_desktop_verification_error_without_llm_rewrite():
     assert memory.get_history()[-1]["content"] == failed.content
 
 
+def test_agent_loop_returns_calendar_failure_without_llm_rewrite():
+    coordinator, memory, _calls = make_coordinator(action=False, response="")
+    failed = ToolExecutionResult(
+        "Rede indisponível ao consultar Google Calendar.",
+        "error",
+        True,
+    )
+
+    result = coordinator._handle_execution_result(
+        "Consulte minha agenda.",
+        SimpleNamespace(
+            name="google_calendar_list_events",
+            risk=RiskLevel.LOW,
+        ),
+        {"period": "range:2026-09-01,2026-09-02"},
+        failed,
+        set(),
+    )
+
+    assert result == failed.content
+    assert memory.get_history()[-1]["content"] == failed.content
+
+
 def test_advisory_turn_uses_one_llm_call_without_tools_or_action_retry():
     coordinator, _memory, calls = make_coordinator(
         action=True,

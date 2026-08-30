@@ -36,3 +36,19 @@ def test_datetime_tool_result_is_formatted_for_speech() -> None:
     assert format_datetime_tool_result(content, FastIntent.DATE) == (
         "Hoje é 26 de agosto de 2026."
     )
+
+
+def test_calendar_questions_use_conservative_fast_paths() -> None:
+    router = FastPathRouter()
+
+    assert router.match("O que eu tenho amanhã?").period == "tomorrow"
+    assert router.match("Agenda da próxima semana.").intent is (
+        FastIntent.CALENDAR_NEXT_WEEK
+    )
+    availability = router.match("Estou livre amanhã das 9 às 10:30?")
+    assert availability is not None
+    assert availability.intent is FastIntent.CALENDAR_AVAILABILITY
+    assert availability.period == "tomorrow"
+    assert availability.start_time == "09:00"
+    assert availability.end_time == "10:30"
+    assert router.match("Estou livre das 9 às 10?") is None

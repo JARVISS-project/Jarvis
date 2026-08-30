@@ -5,6 +5,5 @@
 OPENID_SCOPE = "openid"
 AUTHENTICATION_SCOPES = (OPENID_SCOPE,)
 
-# Reserved for the next Calendar sprint. It is intentionally not requested by
-# GoogleAuthManager today.
 CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
+CALENDAR_SCOPES = (OPENID_SCOPE, CALENDAR_READONLY_SCOPE)

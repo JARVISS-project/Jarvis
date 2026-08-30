@@ -178,6 +178,15 @@ class GoogleCredentialHandle:
         scopes = granted or self._credentials.scopes or ()
         return tuple(sorted(set(scopes)))
 
+    @property
+    def access_token(self) -> str:
+        token = self._credentials.token
+        if not isinstance(token, str) or not token:
+            raise GoogleTokenRevokedError(
+                "Credencial Google não possui token de acesso válido."
+            )
+        return token
+
     def refresh(self) -> None:
         if not self._credentials.refresh_token:
             raise GoogleTokenRevokedError(

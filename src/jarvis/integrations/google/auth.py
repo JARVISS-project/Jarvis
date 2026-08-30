@@ -45,6 +45,8 @@ class GoogleAuthManager:
         *,
         browser_open=webbrowser.open,
         scopes: tuple[str, ...] = AUTHENTICATION_SCOPES,
+        upgrade_from_scopes: tuple[str, ...] = (),
+        allowed_scopes: tuple[str, ...] | None = None,
         operation_lock_factory: OperationLockFactory = nullcontext,
     ) -> None:
         self._store = store
@@ -53,6 +55,10 @@ class GoogleAuthManager:
         self._callback_receiver_factory = callback_receiver_factory
         self._browser_open = browser_open
         self._scopes = tuple(scopes)
+        self._upgrade_from_scopes = frozenset(upgrade_from_scopes)
+        self._allowed_scopes = (
+            frozenset(allowed_scopes) if allowed_scopes is not None else None
+        )
         self._operation_lock_factory = operation_lock_factory
         self._handle: CredentialHandle | None = None
         self._status = ConnectionStatus(ConnectionState.DISCONNECTED)
@@ -148,6 +154,19 @@ class GoogleAuthManager:
                 )
             return self._handle
 
+    def refresh_credentials(self) -> CredentialHandle:
+        with self._operation_lock_factory(), self._lock:
+            status = self._load_and_refresh()
+            if status.state is not ConnectionState.CONNECTED or self._handle is None:
+                raise GoogleTokenRevokedError("Autorização Google é necessária.")
+            self._handle.refresh()
+            self._require_scopes(self._handle)
+            self._store.save(self._handle.storage_material())
+            self._status = ConnectionStatus(
+                ConnectionState.CONNECTED, scopes=self._handle.scopes
+            )
+            return self._handle
+
     def disconnect(self) -> ConnectionStatus:
         with self._operation_lock_factory(), self._lock:
             handle = self._handle
@@ -190,6 +209,13 @@ class GoogleAuthManager:
             try:
                 self._require_scopes(self._handle)
             except GoogleScopeError:
+                if self._is_scope_upgrade(self._handle):
+                    self._handle = None
+                    self._status = ConnectionStatus(
+                        ConnectionState.AUTHORIZATION_REQUIRED,
+                        error_code="scope_upgrade_required",
+                    )
+                    return self._status
                 self._quarantine_for_revocation(self._handle)
                 self._handle = None
                 self._status = ConnectionStatus(
@@ -235,6 +261,13 @@ class GoogleAuthManager:
             )
             return self._status
         except GoogleScopeError:
+            if self._is_scope_upgrade(self._handle):
+                self._handle = None
+                self._status = ConnectionStatus(
+                    ConnectionState.AUTHORIZATION_REQUIRED,
+                    error_code="scope_upgrade_required",
+                )
+                return self._status
             self._quarantine_for_revocation(self._handle)
             self._handle = None
             self._status = ConnectionStatus(
@@ -257,10 +290,21 @@ class GoogleAuthManager:
         return self._status
 
     def _require_scopes(self, handle: CredentialHandle) -> None:
-        if not set(self._scopes).issubset(handle.scopes):
+        granted = set(handle.scopes)
+        if not set(self._scopes).issubset(granted):
             raise GoogleScopeError(
                 "Google não concedeu todos os scopes mínimos solicitados."
             )
+        if self._allowed_scopes is not None and not granted.issubset(
+            self._allowed_scopes
+        ):
+            raise GoogleScopeError(
+                "Credencial Google possui scopes fora da autoridade permitida."
+            )
+
+    def _is_scope_upgrade(self, handle: CredentialHandle) -> bool:
+        current = set(handle.scopes)
+        return bool(self._upgrade_from_scopes) and current == self._upgrade_from_scopes
 
     def _quarantine_for_revocation(self, handle: CredentialHandle) -> None:
         pending = replace(

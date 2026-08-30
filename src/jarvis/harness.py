@@ -42,6 +42,7 @@ from jarvis.runtime.resource_manager import ResourceManager
 from jarvis.runtime.cancellation import CancellationInterpreter
 from jarvis.runtime.fast_path import (
     FastPathRouter,
+    FastIntent,
     format_datetime_tool_result,
 )
 from jarvis.runtime.tool_selection import ToolSelectionRouter
@@ -828,6 +829,27 @@ skill_mirror: ObsidianSkillMirror | None = None,
             state = "habilitada" if enabled else "desabilitada"
             return f"Vision read-only {state}. Reinicie o Jarvis para aplicar."
 
+        if normalized.casefold() == "/config google_calendar":
+            state = "ENABLED" if self.config.google_calendar_enabled else "DISABLED"
+            return f"Google Calendar read-only: {state}"
+
+        calendar_match = re.fullmatch(
+            r"/config\s+google_calendar\s+(on|off)",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if calendar_match is not None:
+            enabled = calendar_match.group(1).casefold() == "on"
+            try:
+                self.config.save_calendar_settings(enabled=enabled)
+            except OSError as error:
+                return f"Não foi possível salvar a configuração: {error}."
+            state = "habilitada" if enabled else "desabilitada"
+            return (
+                f"Google Calendar read-only {state}. "
+                "Reinicie o Jarvis para aplicar."
+            )
+
         if normalized.casefold() == "/config voice":
             reference = self.config.tts_reference_audio_path
             reference_label = str(reference) if reference is not None else "nenhuma"
@@ -948,7 +970,7 @@ skill_mirror: ObsidianSkillMirror | None = None,
 
         return (
             "Uso: /config | /config obsidian | /config desktop | "
-            "/config voice | /config persona | "
+            "/config google_calendar | /config voice | /config persona | "
             '/config obsidian vault "C:\\caminho" | '
             "/config obsidian write on|off | "
             "/config desktop read on|off | "
@@ -1019,7 +1041,8 @@ skill_mirror: ObsidianSkillMirror | None = None,
                 else:
                     content = self.tool_executor.execute(tool, **arguments)
                     result = ToolExecutionResult(str(content), "success", True)
-            if result.status == "success":
+            is_calendar_tool = tool.name.startswith("google_calendar_")
+            if result.status == "success" and not is_calendar_tool:
                 self._current_tool_trace.append(
                     ToolTraceStep(tool.name, dict(arguments))
                 )
@@ -1027,7 +1050,7 @@ skill_mirror: ObsidianSkillMirror | None = None,
                 safe_arguments = {
                     key: (
                         "<redacted>"
-                        if key in {"content", "text"}
+                        if is_calendar_tool or key in {"content", "text"}
                         else value
                     )
                     for key, value in arguments.items()
@@ -1365,6 +1388,38 @@ skill_mirror: ObsidianSkillMirror | None = None,
         match = self.fast_path_router.match(message)
         if match is None:
             return None
+
+        # Handle Calendar fast paths
+        if match.intent in {
+            FastIntent.CALENDAR_TODAY,
+            FastIntent.CALENDAR_TOMORROW,
+            FastIntent.CALENDAR_UPCOMING,
+            FastIntent.CALENDAR_WEEKDAY,
+            FastIntent.CALENDAR_NEXT_WEEK,
+            FastIntent.CALENDAR_AVAILABILITY,
+        }:
+            availability = match.intent is FastIntent.CALENDAR_AVAILABILITY
+            tool = self.tool_registry.get(
+                "google_calendar_check_availability"
+                if availability
+                else "google_calendar_list_events"
+            )
+            if tool is None:
+                return "Google Calendar não está disponível nesta execução."
+            self.memory.add_user_message(message)
+            arguments = {"period": match.period or "today", "calendar_id": "primary"}
+            if availability:
+                arguments.update(
+                    start_time=match.start_time,
+                    end_time=match.end_time,
+                )
+            result = self._execute_tool(tool, arguments)
+            if result.status != "success":
+                self.memory.add_assistant_message(result.content)
+                return result.content
+            self.memory.add_assistant_message(result.content)
+            return result.content
+
         tool = self.tool_registry.get("get_datetime")
         if tool is None:
             return None
