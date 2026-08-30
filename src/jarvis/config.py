@@ -69,6 +69,7 @@ class JarvisConfig:
     vision_enabled: bool = False
     browser_enabled: bool = False
     google_calendar_enabled: bool = False
+    google_calendar_write_enabled: bool = False
     browser_allowed_domains: list[str] = field(default_factory=list)
     browser_blocked_domains: list[str] = field(default_factory=list)
     browser_max_tabs: int = 10
@@ -290,6 +291,14 @@ class JarvisConfig:
             if isinstance(local_calendar, bool):
                 self.google_calendar_enabled = local_calendar
 
+        environment_calendar_write = os.getenv("JARVIS_GOOGLE_CALENDAR_WRITE")
+        if environment_calendar_write is not None:
+            self.google_calendar_write_enabled = _environment_flag("JARVIS_GOOGLE_CALENDAR_WRITE")
+        else:
+            local_calendar_write = settings.get("google_calendar_write")
+            if isinstance(local_calendar_write, bool):
+                self.google_calendar_write_enabled = local_calendar_write
+
         environment_browser_domains = os.getenv("JARVIS_BROWSER_ALLOWED_DOMAINS")
         if environment_browser_domains is not None:
             self.browser_allowed_domains = [
@@ -401,6 +410,13 @@ class JarvisConfig:
         self._write_local_settings(settings)
         if os.getenv("JARVIS_GOOGLE_CALENDAR") is None:
             self.google_calendar_enabled = bool(enabled)
+
+    def save_calendar_write_settings(self, *, enabled: bool) -> None:
+        settings, _error = _load_local_settings(self.settings_path)
+        settings["google_calendar_write"] = bool(enabled)
+        self._write_local_settings(settings)
+        if os.getenv("JARVIS_GOOGLE_CALENDAR_WRITE") is None:
+            self.google_calendar_write_enabled = bool(enabled)
 
     def save_voice_settings(
         self,

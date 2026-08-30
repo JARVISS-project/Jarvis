@@ -15,6 +15,8 @@ from jarvis.integrations.google.calendar.models import (
 class CalendarApiClient(Protocol):
     def get(self, path: str, params: dict[str, object]) -> dict[str, Any]: ...
     def post(self, path: str, body: dict[str, object]) -> dict[str, Any]: ...
+    def patch(self, path: str, body: dict[str, object]) -> dict[str, Any]: ...
+    def delete(self, path: str) -> dict[str, Any]: ...
 
 
 class CalendarProvider(Protocol):
@@ -39,3 +41,26 @@ class CalendarProvider(Protocol):
         start: datetime,
         end: datetime,
     ) -> CalendarAvailability: ...
+
+
+class CalendarWriteProvider(Protocol):
+    def get_timezone(self, calendar_id: str) -> tzinfo: ...
+
+    def create_event(
+        self,
+        calendar_id: str,
+        event: CalendarEventInput,
+    ) -> CalendarEvent: ...
+
+    def update_event(
+        self,
+        calendar_id: str,
+        event_id: str,
+        event: CalendarEventInput,
+    ) -> CalendarEvent: ...
+
+    def get_event(
+        self,
+        calendar_id: str,
+        event_id: str,
+    ) -> CalendarEvent | None: ...

@@ -850,6 +850,27 @@ skill_mirror: ObsidianSkillMirror | None = None,
                 "Reinicie o Jarvis para aplicar."
             )
 
+        if normalized.casefold() == "/config google_calendar_write":
+            state = "ENABLED" if self.config.google_calendar_write_enabled else "DISABLED"
+            return f"Google Calendar write: {state}"
+
+        calendar_write_match = re.fullmatch(
+            r"/config\s+google_calendar_write\s+(on|off)",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if calendar_write_match is not None:
+            enabled = calendar_write_match.group(1).casefold() == "on"
+            try:
+                self.config.save_calendar_write_settings(enabled=enabled)
+            except OSError as error:
+                return f"Não foi possível salvar a configuração: {error}."
+            state = "habilitada" if enabled else "desabilitada"
+            return (
+                f"Google Calendar write {state}. "
+                "Reinicie o Jarvis para aplicar."
+            )
+
         if normalized.casefold() == "/config voice":
             reference = self.config.tts_reference_audio_path
             reference_label = str(reference) if reference is not None else "nenhuma"
@@ -970,7 +991,7 @@ skill_mirror: ObsidianSkillMirror | None = None,
 
         return (
             "Uso: /config | /config obsidian | /config desktop | "
-            "/config google_calendar | /config voice | /config persona | "
+            "/config google_calendar | /config google_calendar_write | /config voice | /config persona | "
             '/config obsidian vault "C:\\caminho" | '
             "/config obsidian write on|off | "
             "/config desktop read on|off | "

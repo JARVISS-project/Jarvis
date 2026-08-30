@@ -6,8 +6,8 @@ from collections.abc import Callable
 from datetime import datetime, time, timezone as utc_timezone, tzinfo
 from typing import Any
 
-from jarvis.integrations.google.calendar.contracts import CalendarProvider
-from jarvis.integrations.google.calendar.models import CalendarPeriod
+from jarvis.integrations.google.calendar.contracts import CalendarProvider, CalendarWriteProvider
+from jarvis.integrations.google.calendar.models import CalendarEventInput, CalendarPeriod, CalendarReminder
 from jarvis.security.risk import RiskLevel
 from jarvis.tools.base import Tool
 
@@ -16,6 +16,37 @@ def _validate_calendar_id(value: object) -> str:
     if not isinstance(value, str) or not value or len(value) > 256:
         raise ValueError("calendar_id inválido.")
     return value
+
+
+def _parse_iso_datetime(value: str, timezone: tzinfo) -> datetime:
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        raise ValueError("Formato de data/hora inválido. Use ISO 8601 com timezone.") from None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone)
+    else:
+        dt = dt.astimezone(timezone)
+    return dt
+
+
+def _parse_reminders(value: object, timezone: tzinfo) -> list[CalendarReminder] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ValueError("Lembretes devem ser uma lista.")
+    reminders = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("Cada lembrete deve ser um objeto.")
+        method = item.get("method")
+        minutes = item.get("minutes")
+        if not isinstance(method, str) or not isinstance(minutes, int):
+            raise ValueError("Lembrete inválido: method (str) e minutes (int) obrigatórios.")
+        reminder = CalendarReminder(method=method, minutes=minutes)
+        reminder.validate()
+        reminders.append(reminder)
+    return reminders
 
 
 class GoogleCalendarListEventsTool(Tool):
@@ -210,3 +241,211 @@ class GoogleCalendarCheckAvailabilityTool(Tool):
         if len(candidates) > 1:
             raise ValueError("Horário ambíguo por mudança de timezone.")
         return next(iter(candidates.values()))
+
+
+class GoogleCalendarCreateEventTool(Tool):
+    name = "google_calendar_create_event"
+    description = "Cria um evento no Google Calendar com verificação pós-escrita."
+    risk = RiskLevel.MEDIUM
+    parameters = {
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string", "description": "Título do evento"},
+            "start": {"type": "string", "description": "Início ISO 8601 com timezone (ex: 2026-09-01T14:00:00-03:00)"},
+            "end": {"type": "string", "description": "Fim ISO 8601 com timezone (ex: 2026-09-01T15:00:00-03:00)"},
+            "is_all_day": {"type": "boolean", "default": False},
+            "timezone": {"type": "string", "description": "IANA timezone opcional (ex: America/Sao_Paulo)"},
+            "location": {"type": "string", "description": "Local opcional"},
+            "description": {"type": "string", "description": "Descrição opcional"},
+            "reminders": {
+                "type": "array",
+                "description": "Lembretes opcionais: [{\"method\": \"popup|email\", \"minutes\": int}]",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "method": {"type": "string"},
+                        "minutes": {"type": "integer"},
+                    },
+                    "required": ["method", "minutes"],
+                },
+            },
+            "calendar_id": {"type": "string", "default": "primary"},
+        },
+        "required": ["summary", "start", "end"],
+        "additionalProperties": False,
+    }
+
+    def __init__(
+        self,
+        provider: CalendarWriteProvider,
+        timezone: tzinfo,
+    ) -> None:
+        self._provider = provider
+        self._timezone = timezone
+
+    def get_target(self, **kwargs: Any) -> str:
+        return "google_calendar:event"
+
+    def preflight(self, **kwargs: Any) -> None:
+        _validate_calendar_id(kwargs.get("calendar_id", "primary"))
+        summary = kwargs.get("summary")
+        if not isinstance(summary, str) or not summary.strip():
+            raise ValueError("Título do evento é obrigatório.")
+        start = kwargs.get("start")
+        end = kwargs.get("end")
+        if not isinstance(start, str) or not isinstance(end, str):
+            raise ValueError("Início e fim são obrigatórios em formato ISO 8601.")
+        _parse_iso_datetime(start, self._timezone)
+        _parse_iso_datetime(end, self._timezone)
+        is_all_day = kwargs.get("is_all_day", False)
+        if is_all_day:
+            # Para all-day, validamos apenas a data
+            pass
+
+    def execute(self, **kwargs: Any) -> str:
+        calendar_id = kwargs.get("calendar_id", "primary")
+        timezone = self._provider.get_timezone(calendar_id)
+        start_dt = _parse_iso_datetime(kwargs["start"], timezone)
+        end_dt = _parse_iso_datetime(kwargs["end"], timezone)
+        if end_dt <= start_dt:
+            raise ValueError("Fim deve ser posterior ao início.")
+
+        event_input = CalendarEventInput(
+            summary=kwargs["summary"],
+            start=start_dt,
+            end=end_dt,
+            is_all_day=kwargs.get("is_all_day", False),
+            timezone=kwargs.get("timezone"),
+            location=kwargs.get("location"),
+            description=kwargs.get("description"),
+            reminders=_parse_reminders(kwargs.get("reminders"), timezone),
+        )
+        event_input.validate()
+
+        created_event = self._provider.create_event(calendar_id, event_input)
+
+        # Pós-verificação: consultar o evento criado
+        verified = self._provider.get_event(calendar_id, created_event.id)
+        if verified is None:
+            return (
+                f"Evento criado (ID: {created_event.id}), mas a verificação "
+                f"pós-escrita falhou. Verifique manualmente."
+            )
+
+        # Comparar campos essenciais
+        if verified.summary != created_event.summary:
+            return (
+                f"Evento criado (ID: {created_event.id}), mas o título diverge "
+                f"após verificação. Esperado: {created_event.summary}, "
+                f"Encontrado: {verified.summary}."
+            )
+
+        return (
+            f"Evento criado e verificado: {verified.to_display_string(timezone)} "
+            f"(ID: {verified.id})"
+        )
+
+
+class GoogleCalendarUpdateEventTool(Tool):
+    name = "google_calendar_update_event"
+    description = "Atualiza um evento existente no Google Calendar com verificação pós-escrita."
+    risk = RiskLevel.MEDIUM
+    parameters = {
+        "type": "object",
+        "properties": {
+            "event_id": {"type": "string", "description": "ID do evento a atualizar"},
+            "summary": {"type": "string", "description": "Novo título do evento"},
+            "start": {"type": "string", "description": "Novo início ISO 8601 com timezone"},
+            "end": {"type": "string", "description": "Novo fim ISO 8601 com timezone"},
+            "is_all_day": {"type": "boolean", "default": False},
+            "timezone": {"type": "string", "description": "IANA timezone opcional"},
+            "location": {"type": "string", "description": "Novo local opcional"},
+            "description": {"type": "string", "description": "Nova descrição opcional"},
+            "reminders": {
+                "type": "array",
+                "description": "Novos lembretes opcionais: [{\"method\": \"popup|email\", \"minutes\": int}]",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "method": {"type": "string"},
+                        "minutes": {"type": "integer"},
+                    },
+                    "required": ["method", "minutes"],
+                },
+            },
+            "calendar_id": {"type": "string", "default": "primary"},
+        },
+        "required": ["event_id", "summary", "start", "end"],
+        "additionalProperties": False,
+    }
+
+    def __init__(
+        self,
+        provider: CalendarWriteProvider,
+        timezone: tzinfo,
+    ) -> None:
+        self._provider = provider
+        self._timezone = timezone
+
+    def get_target(self, **kwargs: Any) -> str:
+        return "google_calendar:event"
+
+    def preflight(self, **kwargs: Any) -> None:
+        _validate_calendar_id(kwargs.get("calendar_id", "primary"))
+        event_id = kwargs.get("event_id")
+        if not isinstance(event_id, str) or not event_id or len(event_id) > 1024:
+            raise ValueError("event_id inválido.")
+        summary = kwargs.get("summary")
+        if not isinstance(summary, str) or not summary.strip():
+            raise ValueError("Título do evento é obrigatório.")
+        start = kwargs.get("start")
+        end = kwargs.get("end")
+        if not isinstance(start, str) or not isinstance(end, str):
+            raise ValueError("Início e fim são obrigatórios em formato ISO 8601.")
+        _parse_iso_datetime(start, self._timezone)
+        _parse_iso_datetime(end, self._timezone)
+
+    def execute(self, **kwargs: Any) -> str:
+        calendar_id = kwargs.get("calendar_id", "primary")
+        timezone = self._provider.get_timezone(calendar_id)
+        start_dt = _parse_iso_datetime(kwargs["start"], timezone)
+        end_dt = _parse_iso_datetime(kwargs["end"], timezone)
+        if end_dt <= start_dt:
+            raise ValueError("Fim deve ser posterior ao início.")
+
+        event_input = CalendarEventInput(
+            summary=kwargs["summary"],
+            start=start_dt,
+            end=end_dt,
+            is_all_day=kwargs.get("is_all_day", False),
+            timezone=kwargs.get("timezone"),
+            location=kwargs.get("location"),
+            description=kwargs.get("description"),
+            reminders=_parse_reminders(kwargs.get("reminders"), timezone),
+        )
+        event_input.validate()
+
+        updated_event = self._provider.update_event(
+            calendar_id, kwargs["event_id"], event_input
+        )
+
+        # Pós-verificação: consultar o evento atualizado
+        verified = self._provider.get_event(calendar_id, updated_event.id)
+        if verified is None:
+            return (
+                f"Evento atualizado (ID: {updated_event.id}), mas a verificação "
+                f"pós-escrita falhou. Verifique manualmente."
+            )
+
+        # Comparar campos essenciais
+        if verified.summary != updated_event.summary:
+            return (
+                f"Evento atualizado (ID: {updated_event.id}), mas o título diverge "
+                f"após verificação. Esperado: {updated_event.summary}, "
+                f"Encontrado: {verified.summary}."
+            )
+
+        return (
+            f"Evento atualizado e verificado: {verified.to_display_string(timezone)} "
+            f"(ID: {verified.id})"
+        )

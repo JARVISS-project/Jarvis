@@ -158,6 +158,42 @@ class CalendarEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class CalendarEventInput:
+    """Entrada tipada para criação/atualização de eventos."""
+    summary: str
+    start: datetime
+    end: datetime
+    is_all_day: bool = False
+    timezone: str | None = None
+    location: str | None = None
+    description: str | None = None
+    reminders: list[CalendarReminder] | None = None
+
+    def validate(self) -> None:
+        if not self.summary or not self.summary.strip():
+            raise ValueError("Título do evento é obrigatório.")
+        if self.start.tzinfo is None or self.end.tzinfo is None:
+            raise ValueError("Início e fim devem possuir timezone.")
+        if self.end <= self.start:
+            raise ValueError("Fim deve ser posterior ao início.")
+        if self.reminders:
+            for reminder in self.reminders:
+                reminder.validate()
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarReminder:
+    method: str  # "popup" ou "email"
+    minutes: int
+
+    def validate(self) -> None:
+        if self.method not in ("popup", "email"):
+            raise ValueError("Método de lembrete deve ser 'popup' ou 'email'.")
+        if self.minutes < 0:
+            raise ValueError("Minutos do lembrete não podem ser negativos.")
+
+
+@dataclass(frozen=True, slots=True)
 class CalendarAvailability:
     busy: bool
     event_count: int

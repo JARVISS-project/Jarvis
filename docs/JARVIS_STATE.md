@@ -823,6 +823,56 @@ Limitações deliberadas:
 - disponibilidade natural exige dia e horários explícitos; intervalos vagos permanecem no fluxo conversacional;
 - conteúdo Calendar solicitado pelo usuário existe apenas na resposta operacional e não é persistido automaticamente em memória ou Skill.
 
+### Google Calendar Write Foundation (concluído)
+
+A autoridade de escrita foi adicionada como capability separada, sem transformar o provider read-only.
+
+```text
+Intent → Write Tool → ToolExecutor → Capability/Policy/Safety → CalendarWriteProvider → Google Calendar API
+    ↓ pós-verificação via read-only provider
+Audit → resposta
+```
+
+- Nova capability: `GOOGLE_CALENDAR_WRITE` (desabilitada por padrão).
+- Novo scope: `https://www.googleapis.com/auth/calendar.events` (somente `openid + calendar.events`).
+- Credencial e storage separados: `data/google/credentials_write.bin` via DPAPI.
+- Manager write aceita somente `CALENDAR_WRITE_SCOPES`; scopes adicionais falham fechados.
+- Tools criadas (todas `MEDIUM`, capability-gated):
+  - `google_calendar_create_event`: cria evento com `summary`, `start`, `end`, `is_all_day`, `timezone`, `location`, `description`, `reminders` (popup/email).
+  - `google_calendar_update_event`: atualiza evento existente por ID com os mesmos campos.
+- Modelo de entrada tipado (`CalendarEventInput`): sem payload Google arbitrário; campos não suportados falham explicitamente.
+- Resolução determinística de datas/timezone: ISO 8601 com timezone obrigatório; DST e horários inexistentes/ambíguos validados antes da execução.
+- Preflight valida: credencial write válida, timestamps, timezone, campos obrigatórios, operação determinada.
+- Pós-verificação obrigatória (read-after-write): após create/update, consulta o evento pelo ID retornado e compara campos essenciais (título). Só então afirma sucesso.
+- Verificação de conflitos como informação, não bloqueio automático.
+- Idempotência: retry de operação incerta primeiro determina se a escrita anterior ocorreu; estado desconhecido nunca vira sucesso.
+- Update usa identidade do evento; alteração concorrente detectada falha em vez de sobrescrever cegamente (quando suportado pela API).
+- Audit com alvo constante `google_calendar:event`; sem título, descrição, localização, participantes, tokens em trace/telemetry/Remote.
+- Grounding expandido: bloqueia claims como “marquei”, “criei”, “agendei”, “mudei”, “alterei”, “cancelei”, “adicionei evento” sem Tool + verificação real.
+- Fast Path determinístico não implementado para escrita (requer validação explícita); pedidos naturais usam Agent Loop com Tools restritas.
+- Delete/cancel, convidados, recorrência avançada, notificações em massa: fora deste sprint.
+- Configuração: `/config google_calendar_write on|off` ou `JARVIS_GOOGLE_CALENDAR_WRITE`.
+- OAuth write: `--google-calendar-write connect|status|disconnect` (a implementar no CLI se necessário).
+
+Validação automatizada em 30/08/2026:
+
+```text
+1036 passed, 1 skipped
+compileall OK
+git diff --check OK
+```
+
+Testes cobrem: scopes write isolados, read/write capability isolation, modelos tipados, validação de entrada, timezone/DST, preflight, pós-verificação, idempotência, concorrência, grounding write, Audit sem conteúdo sensível, read-only provider incapaz de escrever.
+
+Limitações deliberadas da V1:
+
+- delete/cancel não implementado;
+- convidados/participantes e envio de convites fora;
+- recorrência (edição de série vs ocorrência única) não suportada;
+- descoberta de calendários não implementada;
+- Fast Path para escrita não implementado;
+- scheduling proativo (conflito → sugestão automática) fora.
+
 ## 21. Regras para continuidade
 
 A fundação da interface de controle (Control Center) foi implementada, expandindo a Ambient HUD existente com um painel de abas dedicado à visualização agregada de telemetria, memória, skills e visão.

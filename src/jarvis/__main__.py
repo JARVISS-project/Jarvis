@@ -79,13 +79,15 @@ from jarvis.vision.execution_verifier import VisionToolExecutionVerifier
 from jarvis.vision.service import VisionService
 from jarvis.remote.gateway import RemoteGateway
 from jarvis.integrations.google.calendar.client import GoogleCalendarApiClient
-from jarvis.integrations.google.calendar.google_provider import GoogleCalendarProvider
+from jarvis.integrations.google.calendar.google_provider import GoogleCalendarProvider, GoogleCalendarWriteProvider
 from jarvis.integrations.google.calendar.tools import (
     GoogleCalendarListEventsTool,
     GoogleCalendarGetEventTool,
     GoogleCalendarCheckAvailabilityTool,
+    GoogleCalendarCreateEventTool,
+    GoogleCalendarUpdateEventTool,
 )
-from jarvis.integrations.google.factory import build_google_auth_manager_with_calendar
+from jarvis.integrations.google.factory import build_google_auth_manager_with_calendar, build_google_auth_manager_with_calendar_write
 
 
 def build_harness(
@@ -115,6 +117,7 @@ def build_harness(
             Capability.VISION: config.vision_enabled,
             Capability.BROWSER: config.browser_enabled,
             Capability.GOOGLE_CALENDAR_READ: config.google_calendar_enabled,
+            Capability.GOOGLE_CALENDAR_WRITE: config.google_calendar_write_enabled,
         }
     )
     audit_logger = AuditLogger(
@@ -233,6 +236,21 @@ def build_harness(
         )
         tool_registry.register(
             GoogleCalendarCheckAvailabilityTool(calendar_service, timezone)
+        )
+
+    calendar_write_service = None
+    if capability_policy.is_enabled(Capability.GOOGLE_CALENDAR_WRITE):
+        auth_manager = build_google_auth_manager_with_calendar_write()
+        timezone = datetime.now().astimezone().tzinfo
+        calendar_write_service = GoogleCalendarWriteProvider(
+            GoogleCalendarApiClient(auth_manager)
+        )
+    if calendar_write_service is not None:
+        tool_registry.register(
+            GoogleCalendarCreateEventTool(calendar_write_service, timezone)
+        )
+        tool_registry.register(
+            GoogleCalendarUpdateEventTool(calendar_write_service, timezone)
         )
 
     note_reference_resolver = None

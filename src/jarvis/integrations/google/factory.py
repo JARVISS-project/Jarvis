@@ -9,7 +9,7 @@ from jarvis.integrations.google.client import (
 )
 from jarvis.integrations.google.loopback import LoopbackOAuthReceiver
 from jarvis.integrations.google.operation_lock import GoogleOperationLock
-from jarvis.integrations.google.scopes import AUTHENTICATION_SCOPES, CALENDAR_SCOPES
+from jarvis.integrations.google.scopes import AUTHENTICATION_SCOPES, CALENDAR_SCOPES, CALENDAR_WRITE_SCOPES
 from jarvis.integrations.google.storage import (
     ProtectedFileCredentialStore,
     WindowsDPAPIProtector,
@@ -46,4 +46,15 @@ def build_google_auth_manager_with_calendar(
         scopes=CALENDAR_SCOPES,
         upgrade_from_scopes=AUTHENTICATION_SCOPES,
         allowed_scopes=CALENDAR_SCOPES,
+    )
+
+
+def build_google_auth_manager_with_calendar_write(
+    credential_path: Path = Path("data/google/credentials_write.bin"),
+) -> GoogleAuthManager:
+    return build_google_auth_manager(
+        credential_path,
+        scopes=CALENDAR_WRITE_SCOPES,
+        upgrade_from_scopes=(),
+        allowed_scopes=CALENDAR_WRITE_SCOPES,
     )

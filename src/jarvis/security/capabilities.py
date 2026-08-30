@@ -13,6 +13,7 @@ class Capability(str, Enum):
     VISION = "vision"
     BROWSER = "browser"
     GOOGLE_CALENDAR_READ = "google_calendar_read"
+    GOOGLE_CALENDAR_WRITE = "google_calendar_write"
 
 
 class CapabilityPolicy:
@@ -71,4 +72,6 @@ TOOL_CAPABILITIES = {
     "google_calendar_list_events": Capability.GOOGLE_CALENDAR_READ,
     "google_calendar_get_event": Capability.GOOGLE_CALENDAR_READ,
     "google_calendar_check_availability": Capability.GOOGLE_CALENDAR_READ,
+    "google_calendar_create_event": Capability.GOOGLE_CALENDAR_WRITE,
+    "google_calendar_update_event": Capability.GOOGLE_CALENDAR_WRITE,
 }

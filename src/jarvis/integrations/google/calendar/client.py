@@ -35,6 +35,12 @@ class GoogleCalendarApiClient:
     def post(self, path: str, body: dict[str, object]) -> dict[str, Any]:
         return self._request("POST", path, body=body)
 
+    def patch(self, path: str, body: dict[str, object]) -> dict[str, Any]:
+        return self._request("PATCH", path, body=body)
+
+    def delete(self, path: str) -> dict[str, Any]:
+        return self._request("DELETE", path)
+
     def _request(
         self,
         method: str,

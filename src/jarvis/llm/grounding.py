@@ -27,7 +27,9 @@ class ExecutionClaimGuard:
         r"encontrei|localizei|verifiquei|confirmei|executei|rodei|testei|"
         r"instalei|desinstalei|baixei|salvei|iniciei|encerrei|organizei|"
         r"reorganizei|formatei|estruturei|corrigi|atualizei|foquei|"
-        r"focalizei|trouxe|pressionei|observei|capturei|fechei)\b"
+        r"focalizei|trouxe|pressionei|observei|capturei|fechei|"
+        r"marquei|agendei|remarquei|alterei|modifiquei|cancelei|"
+        r"exclui|deletei|removi)\b"
     )
     _RESULT_CLAIM = re.compile(
         r"\b(?:essas|estes|esses|aqui)\s+(?:sao|estao)\s+(?:as|os)\s+"
@@ -47,6 +49,10 @@ class ExecutionClaimGuard:
         r"(?:evento|eventos|compromisso|compromissos)\b"
         r"|\b(?:voce|o\s+periodo|esse\s+periodo|esse\s+horario)\s+"
         r"(?:esta|ficou)\s+(?:livre|ocupado|ocupada)\b"
+        r"|\b(?:o\s+evento|o\s+compromisso)\s+(?:foi\s+)?(?:criado|agendado|marcado|"
+        r"atualizado|alterado|modificado|cancelado|excluido|removido)\b"
+        r"|\b(?:adicionei|coloquei|pus)\s+(?:o\s+evento|a\s+reuniao|o\s+compromisso)\b"
+        r"|\b(?:mudei|alterei|modifiquei)\s+(?:o\s+horario|a\s+data|o\s+evento)\b"
     )
 
     def validate(
