@@ -50,6 +50,7 @@ google = [
 
 [project.scripts]
 jarvis = "jarvis.__main__:main"
+orca-play = "jarvis.orca_play:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
