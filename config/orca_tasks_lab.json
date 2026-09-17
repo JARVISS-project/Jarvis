@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "task_id": "LAB-001",
+      "issue_number": 1,
+      "title": "Lab Task 1",
+      "objective": "Pass automatically.",
+      "dependencies": [],
+      "priority": 10,
+      "max_retries": 3,
+      "human_gate_required": false
+    },
+    {
+      "task_id": "LAB-002",
+      "issue_number": 2,
+      "title": "Lab Task 2",
+      "objective": "Pass automatically after 1.",
+      "dependencies": ["LAB-001"],
+      "priority": 20,
+      "max_retries": 3,
+      "human_gate_required": false
+    },
+    {
+      "task_id": "LAB-003",
+      "issue_number": 3,
+      "title": "Lab Task 3",
+      "objective": "Pass automatically after 2.",
+      "dependencies": ["LAB-002"],
+      "priority": 30,
+      "max_retries": 3,
+      "human_gate_required": false
+    },
+    {
+      "task_id": "LAB-RETRY",
+      "issue_number": 4,
+      "title": "Lab Retry",
+      "objective": "Fail first time, pass second time.",
+      "dependencies": [],
+      "priority": 40,
+      "max_retries": 3,
+      "human_gate_required": false
+    },
+    {
+      "task_id": "LAB-HUMAN",
+      "issue_number": 5,
+      "title": "Lab Human Gate",
+      "objective": "Block for human.",
+      "dependencies": [],
+      "priority": 50,
+      "max_retries": 3,
+      "human_gate_required": true
+    },
+    {
+      "task_id": "LAB-INDEPENDENT",
+      "issue_number": 6,
+      "title": "Lab Independent",
+      "objective": "Continue despite LAB-HUMAN blocked.",
+      "dependencies": [],
+      "priority": 60,
+      "max_retries": 3,
+      "human_gate_required": false
+    }
+  ]
+}

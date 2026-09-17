@@ -5,7 +5,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from jarvis.orca_tasks import TaskDefinition, TaskExecutionResult, TaskRunState
+from jarvis.orca_models import TaskDefinition, TaskExecutionResult, TaskRunState
 
 
 @dataclass(frozen=True)
