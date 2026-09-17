@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "execution_policy": {
+    "routine_approval_prompts": 0,
+    "manual_copy_required": false,
+    "automatic_test": true,
+    "automatic_review": true,
+    "automatic_fix_loop": true,
+    "automatic_memory_update": true,
+    "automatic_next_task": true,
+    "global_yolo": false,
+    "human_gates": [
+      "new_secret_or_password",
+      "mfa",
+      "payment",
+      "external_irreversible_effect",
+      "destructive_git",
+      "security_boundary_reduction",
+      "out_of_scope_decision"
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "security-s1-r2c2",
+      "issue": 103,
+      "title": "Complete S1-R2C.2 operational binding",
+      "objective": "Complete the remaining S.1 authorized-operation binding blocker without expanding scope.",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Backends consume only authorized operation fields after authorization",
+        "Missing, malformed, or wrong-type authorization fails closed",
+        "Independent review passes",
+        "S.1 is not accepted unless the full gate is explicitly satisfied"
+      ],
+      "priority": 10,
+      "max_retries": 3
+    },
+    {
+      "task_id": "security-s2",
+      "issue": 104,
+      "title": "Prompt injection defense",
+      "objective": "Implement taint/isolation and adversarial handling so external content is data, never authority.",
+      "dependencies": ["security-s1-r2c2"],
+      "acceptance_criteria": [
+        "Retrieved instructions cannot elevate permissions",
+        "Classification does not authorize actions",
+        "Adversarial tests pass",
+        "Failure is fail-closed"
+      ],
+      "priority": 20,
+      "max_retries": 3
+    },
+    {
+      "task_id": "security-s3",
+      "issue": 105,
+      "title": "Secret Broker and credential isolation",
+      "objective": "Implement reference/capability-based secret access with minimal, temporary and auditable exposure.",
+      "dependencies": ["security-s2"],
+      "acceptance_criteria": [
+        "No plaintext secrets in prompts, logs, or Markdown",
+        "Workers receive references/capabilities only",
+        "Exfiltration and persistence tests pass"
+      ],
+      "priority": 30,
+      "max_retries": 3
+    },
+    {
+      "task_id": "security-s4",
+      "issue": 106,
+      "title": "Network, download and egress controls",
+      "objective": "Bind network/download effects to capability, destination, purpose and classification with verification.",
+      "dependencies": ["security-s3"],
+      "acceptance_criteria": [
+        "UNKNOWN, SECRET and RESTRICTED follow fail-closed policy",
+        "Downloads are treated as untrusted",
+        "External success requires verification",
+        "Retries are bounded and audited"
+      ],
+      "priority": 40,
+      "max_retries": 3
+    },
+    {
+      "task_id": "security-s5",
+      "issue": 107,
+      "title": "Managed browser hardening",
+      "objective": "Complete origin/destination binding and fail-closed managed-browser execution.",
+      "dependencies": ["security-s4"],
+      "acceptance_criteria": [
+        "Navigation/fill/type use authorized fields only",
+        "Caller and authorized operations are never mixed",
+        "Independent verification passes",
+        "Adversarial browser tests pass"
+      ],
+      "priority": 50,
+      "max_retries": 3
+    },
+    {
+      "task_id": "orca-hands-off-finalize",
+      "issue": 108,
+      "title": "Finalize hands-off task execution",
+      "objective": "Close remaining process supervision, integration and memory-finalization gaps for zero-routine-prompt execution.",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Routine approval prompts are zero",
+        "No manual copy or interaction is required",
+        "Orphan worker processes are cleaned up automatically",
+        "No policy-bypass flags are used",
+        "Integrator and Memory Keeper complete durable writes and read-back"
+      ],
+      "priority": 5,
+      "max_retries": 3
+    },
+    {
+      "task_id": "opencode-canonical-sync",
+      "issue": 111,
+      "title": "Validate OpenCode Integrator and canonical sync",
+      "objective": "Validate the minimum role-scoped allowlist for canonical project-state synchronization without global write expansion.",
+      "dependencies": ["orca-hands-off-finalize"],
+      "acceptance_criteria": [
+        "OpenCode Worker runs without routine prompts",
+        "Integrator writes only the canonical allowlist",
+        "Session Summary, Handoff and project state preserve provenance",
+        "Canonical sync passes without weakening global barriers"
+      ],
+      "priority": 60,
+      "max_retries": 3
+    },
+    {
+      "task_id": "ai-memory-local",
+      "issue": 109,
+      "title": "Integrate local ai-memory in zero-LLM mode",
+      "objective": "Enable local operational session memory without cloud LLM use or personal/secret ingestion.",
+      "dependencies": ["opencode-canonical-sync"],
+      "acceptance_criteria": [
+        "AI_MEMORY_LOCAL=PASS",
+        "ZERO_LLM_MODE=PASS",
+        "Cross-agent continuity works from persisted memory",
+        "Personal, human-only and secret content is excluded"
+      ],
+      "priority": 70,
+      "max_retries": 3
+    },
+    {
+      "task_id": "second-brain-cutover",
+      "issue": 110,
+      "title": "Migrate JarvisVault and controlled cutover",
+      "objective": "Move canonical development memory to My Second Brain only after validated migration and cold-start proof.",
+      "dependencies": ["ai-memory-local"],
+      "acceptance_criteria": [
+        "History and provenance are preserved",
+        "Cold start reconstructs current project position",
+        "No split-brain remains",
+        "JarvisVault is not removed before validated cutover"
+      ],
+      "priority": 80,
+      "max_retries": 2
+    },
+    {
+      "task_id": "model-router",
+      "issue": 112,
+      "title": "Implement ModelRouter after security gates",
+      "objective": "Implement role-aware model routing only after the current security sequence is complete.",
+      "dependencies": ["security-s5", "second-brain-cutover"],
+      "acceptance_criteria": [
+        "Routine work does not consume High/Sol automatically",
+        "Provider health/fallback is explicit",
+        "Role routing is auditable",
+        "Security gates remain authoritative"
+      ],
+      "priority": 100,
+      "max_retries": 2
+    }
+  ]
+}
