@@ -5,13 +5,15 @@ from __future__ import annotations
 from typing import Protocol
 
 from jarvis.browser.models import (
+    AuthorizedFillOperation,
+    AuthorizedNavigateOperation,
+    AuthorizedTypeTextOperation,
     BrowserActionResult,
     BrowserElement,
     BrowserExtractResult,
     BrowserNavigationResult,
     BrowserPageSnapshot,
     BrowserTab,
-    PreparedBrowserTarget,
 )
 
 
@@ -36,7 +38,10 @@ class BrowserBackend(Protocol):
     async def switch_tab(self, tab_id: str) -> BrowserTab:
         """Muda para uma aba específica."""
 
-    async def navigate(self, tab_id: str, url: str) -> BrowserNavigationResult:
+    async def navigate(
+        self,
+        operation: AuthorizedNavigateOperation,
+    ) -> BrowserNavigationResult:
         """Navega para uma URL."""
 
     async def go_back(self, tab_id: str) -> BrowserNavigationResult:
@@ -51,10 +56,16 @@ class BrowserBackend(Protocol):
     async def click(self, tab_id: str, selector: str) -> BrowserActionResult:
         """Clica em um elemento."""
 
-    async def type_text(self, tab_id: str, selector: str, text: str) -> BrowserActionResult:
+    async def type_text(
+        self,
+        operation: AuthorizedTypeTextOperation,
+    ) -> BrowserActionResult:
         """Digita texto em um elemento."""
 
-    async def fill(self, tab_id: str, selector: str, text: str) -> BrowserActionResult:
+    async def fill(
+        self,
+        operation: AuthorizedFillOperation,
+    ) -> BrowserActionResult:
         """Preenche um campo de formulário."""
 
     async def press_key(self, tab_id: str, key: str) -> BrowserActionResult:

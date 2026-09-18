@@ -17,6 +17,7 @@ class Tool(ABC):
     description: str
     risk: RiskLevel
     parameters: dict[str, Any]
+    requires_authorization_receipt = False
 
     @abstractmethod
     def get_target(self, **kwargs: Any) -> str:
@@ -41,6 +42,17 @@ class Tool(ABC):
         **kwargs: Any,
     ) -> ToolPreparation:
         return preparation
+
+    def bind_authorized(
+        self,
+        preparation: ToolPreparation,
+        authorization: object | None = None,
+    ) -> ToolPreparation | None:
+        """Build an execution-only artifact after authorization, when needed."""
+        return None
+
+    def execute_authorized(self, preparation: ToolPreparation) -> str:
+        raise RuntimeError("Esta Tool não implementa execução autorizada vinculada.")
 
     def execute_prepared(
         self,

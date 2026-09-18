@@ -1,9 +1,21 @@
 """Tools de navegador deliberadamente pequenas e com validações de segurança."""
 
 import re
-from typing import Any
+from typing import Any, ClassVar
 
-from jarvis.browser.models import PreparedBrowserTarget
+from jarvis.browser.models import (
+    AuthorizedBrowserOperation,
+    AuthorizedFillOperation,
+    AuthorizedNavigateOperation,
+    AuthorizedTypeTextOperation,
+    PreparedBrowserOperation,
+    PreparedBrowserTarget,
+    PreparedFillOperation,
+    PreparedNavigateOperation,
+    PreparedTypeTextOperation,
+    bind_authorized_browser_operation,
+)
+from jarvis.security.authorization import AuthorizationReceipt
 from jarvis.browser.service import BrowserService
 from jarvis.security.risk import RiskLevel
 from jarvis.tools.base import Tool, ToolPreparation
@@ -77,6 +89,159 @@ class _PreparedBrowserTool(Tool):
         if not isinstance(context, PreparedBrowserTarget):
             raise RuntimeError("Contexto preparado do navegador ausente.")
         return context
+
+
+class _AuthorizedBrowserOperationTool(_PreparedBrowserTool):
+    requires_authorization_receipt = True
+    allowed_fields: ClassVar[frozenset[str]]
+    prepared_type: ClassVar[type]
+    authorized_type: ClassVar[type]
+
+    def prepare(self, **kwargs: Any) -> ToolPreparation:
+        unknown = set(kwargs) - self.allowed_fields
+        if unknown:
+            raise ValueError(
+                "Argumentos não suportados: " + ", ".join(sorted(unknown))
+            )
+        operation = self._build_operation(kwargs)
+        return ToolPreparation(
+            operation.public_target,
+            operation,
+            operation.binding_digest(),
+        )
+
+    def preflight(self, **kwargs: Any) -> None:
+        preparation = self.prepare(**kwargs)
+        self.preflight_prepared(preparation)
+
+    def preflight_prepared(
+        self,
+        preparation: ToolPreparation,
+        **kwargs: Any,
+    ) -> None:
+        operation = self._prepared_operation(preparation)
+        tabs = self.service.list_tabs_sync()
+        if not tabs:
+            raise RuntimeError("Nenhuma aba aberta.")
+        tab = next((item for item in tabs if item.id == operation.tab_id), None)
+        if tab is None:
+            raise ValueError(f"Aba não encontrada: {operation.tab_id}")
+        if isinstance(
+            operation,
+            (PreparedTypeTextOperation, PreparedFillOperation),
+        ) and tab.url != operation.page_url:
+            raise PermissionError("A rota da aba mudou durante a autorização.")
+
+    def bind_authorized(
+        self,
+        preparation: ToolPreparation,
+        authorization: object | None = None,
+    ) -> ToolPreparation:
+        if not isinstance(authorization, AuthorizationReceipt):
+            raise PermissionError("Comprovante de autorização ausente.")
+        operation = self._prepared_operation(preparation)
+        authorized = bind_authorized_browser_operation(
+            operation,
+            tool_name=self.name,
+            target=preparation.target,
+            binding_digest=preparation.binding_digest,
+            authorization=authorization,
+        )
+        return ToolPreparation(
+            preparation.target,
+            authorized,
+            preparation.binding_digest,
+        )
+
+    def refresh_prepared(
+        self,
+        preparation: ToolPreparation,
+        **kwargs: Any,
+    ) -> ToolPreparation:
+        self._prepared_operation(preparation)
+        return preparation
+
+    def execute(self, **kwargs: Any) -> str:
+        raise PermissionError(
+            "Operação do navegador exige payload autorizado vinculado."
+        )
+
+    def execute_prepared(
+        self,
+        preparation: ToolPreparation,
+        **kwargs: Any,
+    ) -> str:
+        raise PermissionError(
+            "Operação preparada ainda não possui autorização de execução."
+        )
+
+    def _prepared_operation(
+        self,
+        preparation: ToolPreparation,
+    ) -> PreparedBrowserOperation:
+        context = preparation.context
+        if type(context) is not self.prepared_type:
+            raise PermissionError(
+                "Tipo de operação preparada ausente ou incompatível."
+            )
+        operation = context
+        if (
+            preparation.target != operation.public_target
+            or preparation.binding_digest != operation.binding_digest()
+            or operation.tool_name != self.name
+        ):
+            raise PermissionError(
+                "Operação preparada não corresponde ao alvo autorizado."
+            )
+        return operation
+
+    def _authorized_operation(
+        self,
+        preparation: ToolPreparation,
+    ) -> AuthorizedBrowserOperation:
+        context = preparation.context
+        if type(context) is not self.authorized_type:
+            raise PermissionError(
+                "Payload autorizado ausente ou de operação incompatível."
+            )
+        authorized = context
+        authorized.require_valid()
+        if (
+            preparation.target != authorized.target
+            or preparation.binding_digest != authorized.binding_digest
+            or authorized.tool_name != self.name
+        ):
+            raise PermissionError(
+                "Payload autorizado não corresponde ao alvo de execução."
+            )
+        return authorized
+
+    def _resolve_tab(self, value: object = "active"):  # type: ignore[no-untyped-def]
+        if type(value) is not str or not value.strip():
+            raise ValueError("tab_id deve ser uma string não vazia.")
+        tabs = self.service.list_tabs_sync()
+        if not tabs:
+            raise RuntimeError("Nenhuma aba aberta.")
+        if value != "active":
+            selected = next((tab for tab in tabs if tab.id == value), None)
+            if selected is None:
+                raise ValueError(f"Aba não encontrada: {value}")
+            return selected
+        active_tabs = [tab for tab in tabs if tab.is_active]
+        if len(active_tabs) == 1:
+            return active_tabs[0]
+        if not active_tabs and len(tabs) == 1:
+            return tabs[0]
+        raise RuntimeError("Não foi possível resolver uma única aba ativa.")
+
+    def _resolve_tab_id(self, value: object = "active") -> str:
+        return self._resolve_tab(value).id
+
+    def _build_operation(
+        self,
+        kwargs: dict[str, Any],
+    ) -> PreparedBrowserOperation:
+        raise NotImplementedError
 
 
 def _get_event_loop():
@@ -278,10 +443,13 @@ class BrowserSwitchTabTool(_PreparedBrowserTool):
         return self.execute(**kwargs)
 
 
-class BrowserNavigateTool(_PreparedBrowserTool):
+class BrowserNavigateTool(_AuthorizedBrowserOperationTool):
     name = "browser_navigate"
     description = "Navega para uma URL na aba ativa ou especificada."
     risk = RiskLevel.MEDIUM
+    allowed_fields = frozenset({"url", "tab_id"})
+    prepared_type = PreparedNavigateOperation
+    authorized_type = AuthorizedNavigateOperation
     parameters = {
         "type": "object",
         "properties": {
@@ -301,40 +469,34 @@ class BrowserNavigateTool(_PreparedBrowserTool):
     def __init__(self, service: BrowserService) -> None:
         self.service = service
 
-    def get_target(self, **kwargs: Any) -> str:
-        tab_id = kwargs.get("tab_id", "active")
-        return f"browser:navigate:{tab_id}:{kwargs['url']}"
-
-    def preflight(self, **kwargs: Any) -> None:
-        self.service._check_domain(kwargs["url"])
-        tab_id = kwargs.get("tab_id", "active")
-        if tab_id != "active":
-            tabs = self.service.list_tabs_sync()
-            if not any(t.id == tab_id for t in tabs):
-                raise ValueError(f"Aba não encontrada: {tab_id}")
-
-    def execute(self, **kwargs: Any) -> str:
-        import asyncio
+    def _build_operation(
+        self,
+        kwargs: dict[str, Any],
+    ) -> PreparedNavigateOperation:
+        if "url" not in kwargs:
+            raise ValueError("url é obrigatória.")
         url = kwargs["url"]
-        tab_id = kwargs.get("tab_id", "active")
-        if tab_id == "active":
-            tabs = self.service.list_tabs_sync()
-            active_tab = next((t for t in tabs if t.is_active), None)
-            if active_tab is None:
-                raise RuntimeError("Nenhuma aba ativa.")
-            tab_id = active_tab.id
-        loop = _get_event_loop()
-        result = loop.run_until_complete(self.service.navigate(tab_id, url))
+        if type(url) is not str or not url.strip():
+            raise ValueError("url deve ser uma string não vazia.")
+        self.service._check_domain(url)
+        return PreparedNavigateOperation(
+            tab_id=self._resolve_tab_id(kwargs.get("tab_id", "active")),
+            url=url,
+        )
+
+    def execute_authorized(self, preparation: ToolPreparation) -> str:
+        operation = self._authorized_operation(preparation)
+        if not isinstance(operation, AuthorizedNavigateOperation):
+            raise PermissionError("Payload NAVIGATE autorizado ausente.")
+        operation.begin_execution()
+        try:
+            loop = _get_event_loop()
+            result = loop.run_until_complete(self.service.navigate(operation))
+        finally:
+            operation.finish_execution()
         if result.success:
             return f'Navegou para {result.url} - {result.title}'
-        return f'Erro ao navegar: {result.error}'
-
-    def execute_prepared(
-        self,
-        preparation: ToolPreparation,
-        **kwargs: Any,
-    ) -> str:
-        return self.execute(**kwargs)
+        raise RuntimeError(f"Falha ao navegar: {result.error}")
 
 
 class BrowserClickTool(_PreparedBrowserTool):
@@ -400,10 +562,13 @@ class BrowserClickTool(_PreparedBrowserTool):
         return self.execute(**kwargs)
 
 
-class BrowserTypeTool(_PreparedBrowserTool):
+class BrowserTypeTool(_AuthorizedBrowserOperationTool):
     name = "browser_type"
     description = "Digita texto em um elemento identificado por seletor CSS."
     risk = RiskLevel.MEDIUM
+    allowed_fields = frozenset({"tab_id", "selector", "text"})
+    prepared_type = PreparedTypeTextOperation
+    authorized_type = AuthorizedTypeTextOperation
     parameters = {
         "type": "object",
         "properties": {
@@ -427,35 +592,42 @@ class BrowserTypeTool(_PreparedBrowserTool):
     def __init__(self, service: BrowserService) -> None:
         self.service = service
 
-    def execute(self, **kwargs: Any) -> str:
-        import asyncio
-        tab_id = kwargs.get("tab_id", "active")
-        if tab_id == "active":
-            tabs = self.service.list_tabs_sync()
-            active_tab = next((t for t in tabs if t.is_active), None)
-            if active_tab is None:
-                raise RuntimeError("Nenhuma aba ativa.")
-            tab_id = active_tab.id
-        selector = kwargs["selector"]
-        text = kwargs["text"]
-        loop = _get_event_loop()
-        result = loop.run_until_complete(self.service.type_text(tab_id, selector, text))
-        if result.success:
-            return f"Texto digitado em {selector}"
-        return f"Erro ao digitar: {result.error}"
-
-    def execute_prepared(
+    def _build_operation(
         self,
-        preparation: ToolPreparation,
-        **kwargs: Any,
-    ) -> str:
-        return self.execute(**kwargs)
+        kwargs: dict[str, Any],
+    ) -> PreparedTypeTextOperation:
+        if "selector" not in kwargs or "text" not in kwargs:
+            raise ValueError("selector e text são obrigatórios.")
+        tab = self._resolve_tab(kwargs.get("tab_id", "active"))
+        return PreparedTypeTextOperation(
+            tab_id=tab.id,
+            page_url=tab.url,
+            selector=kwargs["selector"],
+            text=kwargs["text"],
+        )
+
+    def execute_authorized(self, preparation: ToolPreparation) -> str:
+        operation = self._authorized_operation(preparation)
+        if not isinstance(operation, AuthorizedTypeTextOperation):
+            raise PermissionError("Payload TYPE_TEXT autorizado ausente.")
+        operation.begin_execution()
+        try:
+            loop = _get_event_loop()
+            result = loop.run_until_complete(self.service.type_text(operation))
+        finally:
+            operation.finish_execution()
+        if result.success:
+            return f"Texto digitado em {operation.selector}"
+        raise RuntimeError(f"Falha ao digitar: {result.error}")
 
 
-class BrowserFillTool(_PreparedBrowserTool):
+class BrowserFillTool(_AuthorizedBrowserOperationTool):
     name = "browser_fill"
     description = "Preenche um campo de formulário identificado por seletor CSS."
     risk = RiskLevel.MEDIUM
+    allowed_fields = frozenset({"tab_id", "selector", "text"})
+    prepared_type = PreparedFillOperation
+    authorized_type = AuthorizedFillOperation
     parameters = {
         "type": "object",
         "properties": {
@@ -479,29 +651,33 @@ class BrowserFillTool(_PreparedBrowserTool):
     def __init__(self, service: BrowserService) -> None:
         self.service = service
 
-    def execute(self, **kwargs: Any) -> str:
-        import asyncio
-        tab_id = kwargs.get("tab_id", "active")
-        if tab_id == "active":
-            tabs = self.service.list_tabs_sync()
-            active_tab = next((t for t in tabs if t.is_active), None)
-            if active_tab is None:
-                raise RuntimeError("Nenhuma aba ativa.")
-            tab_id = active_tab.id
-        selector = kwargs["selector"]
-        text = kwargs["text"]
-        loop = _get_event_loop()
-        result = loop.run_until_complete(self.service.fill(tab_id, selector, text))
-        if result.success:
-            return f"Campo preenchido: {selector}"
-        return f"Erro ao preencher: {result.error}"
-
-    def execute_prepared(
+    def _build_operation(
         self,
-        preparation: ToolPreparation,
-        **kwargs: Any,
-    ) -> str:
-        return self.execute(**kwargs)
+        kwargs: dict[str, Any],
+    ) -> PreparedFillOperation:
+        if "selector" not in kwargs or "text" not in kwargs:
+            raise ValueError("selector e text são obrigatórios.")
+        tab = self._resolve_tab(kwargs.get("tab_id", "active"))
+        return PreparedFillOperation(
+            tab_id=tab.id,
+            page_url=tab.url,
+            selector=kwargs["selector"],
+            text=kwargs["text"],
+        )
+
+    def execute_authorized(self, preparation: ToolPreparation) -> str:
+        operation = self._authorized_operation(preparation)
+        if not isinstance(operation, AuthorizedFillOperation):
+            raise PermissionError("Payload FILL autorizado ausente.")
+        operation.begin_execution()
+        try:
+            loop = _get_event_loop()
+            result = loop.run_until_complete(self.service.fill(operation))
+        finally:
+            operation.finish_execution()
+        if result.success:
+            return f"Campo preenchido: {operation.selector}"
+        raise RuntimeError(f"Falha ao preencher: {result.error}")
 
 
 class BrowserExtractTextTool(_PreparedBrowserTool):

@@ -72,8 +72,12 @@ class FakeBrowserBackend:
             )
         return self.tabs[tab_id]
 
-    async def navigate(self, tab_id: str, url: str):
+    async def navigate(self, operation):
         from jarvis.browser.models import BrowserNavigationResult
+        operation.require_executing()
+        operation.claim_effect()
+        tab_id = operation.tab_id
+        url = operation.url
         if tab_id not in self.tabs:
             raise ValueError(f"Aba não encontrada: {tab_id}")
         self.tabs[tab_id] = BrowserTab(
@@ -99,14 +103,22 @@ class FakeBrowserBackend:
         self.clicks.append((tab_id, selector))
         return BrowserActionResult(success=True, message="Clique realizado")
 
-    async def type_text(self, tab_id: str, selector: str, text: str):
+    async def type_text(self, operation):
         from jarvis.browser.models import BrowserActionResult
-        self.types.append((tab_id, selector, text))
+        operation.require_executing()
+        operation.claim_effect()
+        self.types.append(
+            (operation.tab_id, operation.selector, operation.text)
+        )
         return BrowserActionResult(success=True, message="Texto digitado")
 
-    async def fill(self, tab_id: str, selector: str, text: str):
+    async def fill(self, operation):
         from jarvis.browser.models import BrowserActionResult
-        self.fills.append((tab_id, selector, text))
+        operation.require_executing()
+        operation.claim_effect()
+        self.fills.append(
+            (operation.tab_id, operation.selector, operation.text)
+        )
         return BrowserActionResult(success=True, message="Campo preenchido")
 
     async def press_key(self, tab_id: str, key: str):
@@ -571,13 +583,10 @@ class TestBrowserServiceLaunchRequired:
                 service.new_tab("https://example.com"),
                 service.close_tab("tab_1"),
                 service.switch_tab("tab_1"),
-                service.navigate("tab_1", "https://example.com"),
                 service.go_back("tab_1"),
                 service.go_forward("tab_1"),
                 service.reload("tab_1"),
                 service.click("tab_1", "button"),
-                service.type_text("tab_1", "input", "text"),
-                service.fill("tab_1", "input", "text"),
                 service.press_key("tab_1", "Enter"),
                 service.extract_text("tab_1", "h1"),
                 service.extract_attribute("tab_1", "a", "href"),
@@ -590,6 +599,14 @@ class TestBrowserServiceLaunchRequired:
 
             for coro in methods:
                 with pytest.raises(RuntimeError, match="não iniciado"):
+                    await coro
+
+            for coro in (
+                service.navigate("not-authorized"),  # type: ignore[arg-type]
+                service.type_text("not-authorized"),  # type: ignore[arg-type]
+                service.fill("not-authorized"),  # type: ignore[arg-type]
+            ):
+                with pytest.raises(PermissionError, match="autorizado"):
                     await coro
 
         import asyncio

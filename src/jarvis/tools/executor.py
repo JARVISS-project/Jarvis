@@ -43,6 +43,7 @@ class ToolExecutor:
         target = "desconhecido"
         authorized = False
         execution_started = False
+        authorization_receipt = None
 
         try:
             if self.capability_policy is not None:
@@ -75,12 +76,46 @@ class ToolExecutor:
                 if not callable(authorize_invocation):
                     authorized = False
                 else:
-                    grant = authorize_invocation(tool.name, target, tool.risk)
+                    if preparation.binding_digest is None:
+                        grant = authorize_invocation(
+                            tool.name, target, tool.risk
+                        )
+                    else:
+                        grant = authorize_invocation(
+                            tool.name,
+                            target,
+                            tool.risk,
+                            preparation.binding_digest,
+                        )
                     authorized = grant is not None
                     if authorized:
-                        authorized = self.safety_manager.consume_grant(
-                            grant, tool.name, target
-                        )
+                        if tool.requires_authorization_receipt:
+                            consume_for_execution = getattr(
+                                self.safety_manager,
+                                "consume_grant_for_execution",
+                                None,
+                            )
+                            if callable(consume_for_execution):
+                                authorization_receipt = consume_for_execution(
+                                    grant,
+                                    tool.name,
+                                    target,
+                                    preparation_digest=(
+                                        preparation.binding_digest
+                                    ),
+                                )
+                            authorized = authorization_receipt is not None
+                        elif preparation.binding_digest is None:
+                            authorized = self.safety_manager.consume_grant(
+                                grant, tool.name, target
+                            )
+                        else:
+                            authorized = self.safety_manager.consume_grant(
+                                grant,
+                                tool.name,
+                                target,
+                                preparation_digest=preparation.binding_digest,
+                            )
             else:
                 # Compatibilidade apenas para doubles antigos de teste.
                 authorized = self.safety_manager.authorize(
@@ -101,6 +136,24 @@ class ToolExecutor:
 
             if self.verifier is not None:
                 preparation = tool.refresh_prepared(preparation, **kwargs)
+            if tool.requires_authorization_receipt and (
+                preparation.target != target
+                or preparation.binding_digest
+                != getattr(authorization_receipt, "preparation_digest", None)
+            ):
+                authorization_receipt.invalidate()
+                raise PermissionError(
+                    "Preparação alterada depois da autorização."
+                )
+            try:
+                authorized_preparation = tool.bind_authorized(
+                    preparation,
+                    authorization_receipt,
+                )
+            except Exception:
+                if authorization_receipt is not None:
+                    authorization_receipt.invalidate()
+                raise
             self._notify_started(tool.name)
             execution_started = True
             verification_token = self._begin_verification(
@@ -109,7 +162,10 @@ class ToolExecutor:
                 preparation.context,
             )
             try:
-                result = tool.execute_prepared(preparation, **kwargs)
+                if authorized_preparation is None:
+                    result = tool.execute_prepared(preparation, **kwargs)
+                else:
+                    result = tool.execute_authorized(authorized_preparation)
             except Exception:
                 self._cancel_verification(verification_token)
                 raise
@@ -185,23 +241,45 @@ class ToolExecutor:
         target = "desconhecido"
         authorized = False
         execution_started = False
+        authorization_receipt = None
         try:
             if self.capability_policy is not None:
                 self.capability_policy.require_tool(tool.name)
             preparation = tool.prepare(**kwargs)
             target = preparation.target
             tool.preflight_prepared(preparation, **kwargs)
-            authorized = self.safety_manager.consume_grant(
-                grant,
-                tool.name,
-                target,
-                interaction_id,
-                getattr(grant, "session_id", None),
+            arguments_digest = (
                 digest_arguments(kwargs)
                 if getattr(grant, "arguments_digest", None) is not None
-                else None,
-                preparation.binding_digest,
+                else None
             )
+            if tool.requires_authorization_receipt:
+                consume_for_execution = getattr(
+                    self.safety_manager,
+                    "consume_grant_for_execution",
+                    None,
+                )
+                if callable(consume_for_execution):
+                    authorization_receipt = consume_for_execution(
+                        grant,
+                        tool.name,
+                        target,
+                        interaction_id,
+                        getattr(grant, "session_id", None),
+                        arguments_digest,
+                        preparation.binding_digest,
+                    )
+                authorized = authorization_receipt is not None
+            else:
+                authorized = self.safety_manager.consume_grant(
+                    grant,
+                    tool.name,
+                    target,
+                    interaction_id,
+                    getattr(grant, "session_id", None),
+                    arguments_digest,
+                    preparation.binding_digest,
+                )
             if not authorized:
                 self.audit_logger.log(
                     tool.name, target, False, "denied"
@@ -211,6 +289,24 @@ class ToolExecutor:
                 )
             if self.verifier is not None:
                 preparation = tool.refresh_prepared(preparation, **kwargs)
+            if tool.requires_authorization_receipt and (
+                preparation.target != target
+                or preparation.binding_digest
+                != getattr(authorization_receipt, "preparation_digest", None)
+            ):
+                authorization_receipt.invalidate()
+                raise PermissionError(
+                    "Preparação alterada depois da autorização."
+                )
+            try:
+                authorized_preparation = tool.bind_authorized(
+                    preparation,
+                    authorization_receipt,
+                )
+            except Exception:
+                if authorization_receipt is not None:
+                    authorization_receipt.invalidate()
+                raise
             self._notify_started(tool.name)
             execution_started = True
             verification_token = self._begin_verification(
@@ -219,7 +315,10 @@ class ToolExecutor:
                 preparation.context,
             )
             try:
-                result = tool.execute_prepared(preparation, **kwargs)
+                if authorized_preparation is None:
+                    result = tool.execute_prepared(preparation, **kwargs)
+                else:
+                    result = tool.execute_authorized(authorized_preparation)
             except Exception:
                 self._cancel_verification(verification_token)
                 raise

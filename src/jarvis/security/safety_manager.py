@@ -6,6 +6,7 @@ from jarvis.security.confirmation import security_prompt
 from jarvis.security.authorization import (
     AuthorizationGrant,
     AuthorizationGrantStore,
+    AuthorizationReceipt,
 )
 
 
@@ -24,12 +25,17 @@ class SafetyManager:
         action: str,
         target: str,
         risk: RiskLevel,
+        preparation_digest: str | None = None,
     ) -> AuthorizationGrant | None:
         if not self.policy.is_allowed(risk):
             self.invalidate_authorizations()
             return None
         if not self.policy.requires_confirmation(risk):
-            return self.grants.issue(action, target)
+            return self.grants.issue(
+                action,
+                target,
+                preparation_digest=preparation_digest,
+            )
         confirmed = self.confirmation.confirm_request(
             ConfirmationRequest(
                 action=action,
@@ -41,7 +47,11 @@ class SafetyManager:
         if not confirmed:
             self.invalidate_authorizations()
             return None
-        return self.grants.issue(action, target)
+        return self.grants.issue(
+            action,
+            target,
+            preparation_digest=preparation_digest,
+        )
 
     def consume_grant(
         self,
@@ -54,6 +64,26 @@ class SafetyManager:
         preparation_digest: str | None = None,
     ) -> bool:
         return self.grants.consume(
+            grant,
+            action,
+            target,
+            interaction_id,
+            session_id,
+            arguments_digest,
+            preparation_digest,
+        )
+
+    def consume_grant_for_execution(
+        self,
+        grant: AuthorizationGrant,
+        action: str,
+        target: str,
+        interaction_id: str | None = None,
+        session_id: str | None = None,
+        arguments_digest: str | None = None,
+        preparation_digest: str | None = None,
+    ) -> AuthorizationReceipt | None:
+        return self.grants.consume_for_execution(
             grant,
             action,
             target,

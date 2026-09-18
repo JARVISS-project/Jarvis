@@ -8,13 +8,15 @@ from typing import Callable, Any
 
 from jarvis.browser.backend import BrowserBackend
 from jarvis.browser.models import (
+    AuthorizedFillOperation,
+    AuthorizedNavigateOperation,
+    AuthorizedTypeTextOperation,
     BrowserActionResult,
     BrowserElement,
     BrowserExtractResult,
     BrowserNavigationResult,
     BrowserPageSnapshot,
     BrowserTab,
-    PreparedBrowserTarget,
 )
 from jarvis.security.capabilities import Capability, CapabilityPolicy
 
@@ -53,17 +55,33 @@ class BrowserService:
     def _check_domain(self, url: str) -> None:
         """Valida se o domínio é permitido."""
         from urllib.parse import urlparse
+        if url == "about:blank":
+            return
         parsed = urlparse(url)
-        domain = parsed.netloc.lower()
+        if (
+            parsed.scheme not in {"http", "https"}
+            or parsed.hostname is None
+            or parsed.username is not None
+            or parsed.password is not None
+            or bool(parsed.fragment)
+        ):
+            raise PermissionError("URL de navegação inválida ou não permitida.")
+        domain = parsed.hostname.rstrip(".").lower()
+
+        def matches(rule: str) -> bool:
+            normalized = rule.rstrip(".").lower()
+            return domain == normalized or domain.endswith(f".{normalized}")
 
         # Allowlist tem prioridade: se existe, só permite domínios nela
         if self.allowed_domains:
-            if not any(d in domain for d in self.allowed_domains):
+            if not any(matches(item) for item in self.allowed_domains):
                 raise PermissionError(f"Domínio não permitido: {domain}")
             return  # Se passou na allowlist, não verifica blocklist
 
         # Se não há allowlist, verifica blocklist
-        if self.blocked_domains and any(d in domain for d in self.blocked_domains):
+        if self.blocked_domains and any(
+            matches(item) for item in self.blocked_domains
+        ):
             raise PermissionError(f"Domínio bloqueado: {domain}")
 
     def _ensure_launched(self) -> None:
@@ -106,11 +124,18 @@ class BrowserService:
         self._ensure_launched()
         return await self.backend.switch_tab(tab_id)
 
-    async def navigate(self, tab_id: str, url: str) -> BrowserNavigationResult:
+    async def navigate(
+        self,
+        operation: AuthorizedNavigateOperation,
+    ) -> BrowserNavigationResult:
         """Navega para uma URL."""
+        if not isinstance(operation, AuthorizedNavigateOperation):
+            raise PermissionError("Payload NAVIGATE autorizado ausente.")
+        operation.require_executing()
+        self.capability_policy.require(Capability.BROWSER)
         self._ensure_launched()
-        self._check_domain(url)
-        return await self.backend.navigate(tab_id, url)
+        self._check_domain(operation.url)
+        return await self.backend.navigate(operation)
 
     async def go_back(self, tab_id: str) -> BrowserNavigationResult:
         """Volta no histórico."""
@@ -132,15 +157,37 @@ class BrowserService:
         self._ensure_launched()
         return await self.backend.click(tab_id, selector)
 
-    async def type_text(self, tab_id: str, selector: str, text: str) -> BrowserActionResult:
+    async def type_text(
+        self,
+        operation: AuthorizedTypeTextOperation,
+    ) -> BrowserActionResult:
         """Digita texto em um elemento."""
+        if not isinstance(operation, AuthorizedTypeTextOperation):
+            raise PermissionError("Payload TYPE_TEXT autorizado ausente.")
+        operation.require_executing()
+        self.capability_policy.require(Capability.BROWSER)
         self._ensure_launched()
-        return await self.backend.type_text(tab_id, selector, text)
+        await self._require_bound_page(operation.tab_id, operation.page_url)
+        return await self.backend.type_text(operation)
 
-    async def fill(self, tab_id: str, selector: str, text: str) -> BrowserActionResult:
+    async def fill(
+        self,
+        operation: AuthorizedFillOperation,
+    ) -> BrowserActionResult:
         """Preenche um campo de formulário."""
+        if not isinstance(operation, AuthorizedFillOperation):
+            raise PermissionError("Payload FILL autorizado ausente.")
+        operation.require_executing()
+        self.capability_policy.require(Capability.BROWSER)
         self._ensure_launched()
-        return await self.backend.fill(tab_id, selector, text)
+        await self._require_bound_page(operation.tab_id, operation.page_url)
+        return await self.backend.fill(operation)
+
+    async def _require_bound_page(self, tab_id: str, page_url: str) -> None:
+        tabs = await self.backend.list_tabs()
+        tab = next((item for item in tabs if item.id == tab_id), None)
+        if tab is None or tab.url != page_url:
+            raise PermissionError("A rota autorizada da aba não está mais ativa.")
 
     async def press_key(self, tab_id: str, key: str) -> BrowserActionResult:
         """Pressiona uma tecla."""
@@ -237,39 +284,37 @@ class BrowserService:
         """Versão síncrona de list_tabs para preflight. Retorna tupla vazia se navegador não iniciado."""
         import asyncio
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Se já está rodando, criamos uma task e aguardamos
-                import threading
-                result_container = []
-                exception_container = []
-                
-                def run_in_new_loop():
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    try:
-                        result = new_loop.run_until_complete(self.list_tabs())
-                        result_container.append(result)
-                    except Exception as e:
-                        exception_container.append(e)
-                    finally:
-                        new_loop.close()
-                
-                thread = threading.Thread(target=run_in_new_loop)
-                thread.start()
-                thread.join()
-                
-                if exception_container:
-                    raise exception_container[0]
-                return result_container[0] if result_container else ()
-            if loop.is_closed():
-                raise RuntimeError("Event loop is closed")
+            asyncio.get_running_loop()
         except RuntimeError:
             loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             try:
                 return loop.run_until_complete(self.list_tabs())
-            except RuntimeError as e:
-                if "não iniciado" in str(e):
+            except RuntimeError as error:
+                if "não iniciado" in str(error):
                     return ()
                 raise
+            finally:
+                loop.close()
+        else:
+            # Se já está rodando, criamos uma task e aguardamos
+            result_container: list[tuple[BrowserTab, ...]] = []
+            exception_container: list[Exception] = []
+
+            def run_in_new_loop() -> None:
+                new_loop = asyncio.new_event_loop()
+                try:
+                    result_container.append(
+                        new_loop.run_until_complete(self.list_tabs())
+                    )
+                except Exception as error:
+                    exception_container.append(error)
+                finally:
+                    new_loop.close()
+
+            thread = threading.Thread(target=run_in_new_loop)
+            thread.start()
+            thread.join()
+
+            if exception_container:
+                raise exception_container[0]
+            return result_container[0] if result_container else ()
