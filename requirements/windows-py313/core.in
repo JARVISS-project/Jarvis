@@ -1,0 +1,3 @@
+# Windows x64 / CPython 3.13; direct product dependencies only.
+ollama==0.6.2
+websockets==15.0.1

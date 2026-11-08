@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis"
+version = "0.1.2"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+description = "Assistente pessoal inteligente desenvolvido em Python."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "ollama",
+    "websockets>=14,<16",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+voice = [
+    "av>=11,<17",
+    "faster-whisper",
+    "numpy>=2,<3",
+    "openwakeword",
+    "pvrecorder",
+    "pyttsx3",
+    "torch>=2.6,<3",
+    "transformers>=5.2,<6",
+]
+neural-voice = [
+    "chatterbox-tts>=0.1.7",
+    "sounddevice>=0.5",
+]
+fast-voice = [
+    "piper-tts>=1.6,<2",
+    "sounddevice>=0.5",
+]
+ui = [
+    "PySide6>=6.8,<7",
+]
+vision = [
+    "Pillow>=10,<13",
+    "pytesseract>=0.3,<1",
+]
+browser = [
+    "playwright>=1.40,<2",
+]
+google = [
+    "google-auth>=2.35,<3",
+    "google-auth-oauthlib>=1.2,<2",
+    "tzdata>=2025.2,<2027",
+]
+windows-media = [
+    "winrt-Windows.Media.Control==3.2.1; platform_system == 'Windows'",
+    "winrt-Windows.Foundation==3.2.1; platform_system == 'Windows'",
+    "winrt-Windows.Foundation.Collections==3.2.1; platform_system == 'Windows'",
+    "winrt-Windows.Media==3.2.1; platform_system == 'Windows'",
+    "winrt-Windows.Storage.Streams==3.2.1; platform_system == 'Windows'",
+]
+
+[project.scripts]
+jarvis = "jarvis.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

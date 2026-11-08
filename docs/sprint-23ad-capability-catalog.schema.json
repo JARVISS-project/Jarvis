@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jarviss-project.local/schemas/sprint-23ad-capability-catalog.schema.json",
+  "title": "JARVIS diagnostic capability inventory v1",
+  "type": "object",
+  "required": ["schema_version", "read_command_contract", "local_control_contract", "source_sha256", "language", "capabilities", "planned", "not_implemented"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "read_command_contract": {"type": "object", "required": ["version", "leading_markers", "politeness", "commands"]},
+    "local_control_contract": {"type": "object", "required": ["version", "commands"]},
+    "source_sha256": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
+    "language": {"type": "object"},
+    "planned": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "not_implemented": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "human_name", "description", "tool", "implementation", "implementation_proven", "source_risk", "risk", "actions", "targets", "aliases", "parameters", "return", "side_effects", "reversibility", "network", "gui", "availability", "readiness_proven", "state", "tests", "confirmation", "runtime_confirmation"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "human_name": {"type": "string"},
+          "description": {"type": "string"},
+          "tool": {"type": "string"},
+          "implementation": {"type": "string"},
+          "implementation_proven": {"type": "boolean"},
+          "source_risk": {"enum": ["SAFE", "LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+          "risk": {"enum": ["read_only", "reversible_local", "external_effect", "sensitive", "destructive"]},
+          "actions": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+          "targets": {"type": "object", "required": ["kind", "values", "aliases"], "properties": {"kind": {"type": "string"}, "values": {"type": "array", "items": {"type": "string"}}, "aliases": {"type": "object", "additionalProperties": {"type": "string"}}}, "additionalProperties": false},
+          "aliases": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "parameters": {"type": "object", "required": ["type", "properties", "required"], "properties": {"type": {"const": "object"}, "properties": {"type": "object"}, "required": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true},
+          "return": {"type": "string"},
+          "side_effects": {"type": "boolean"},
+          "reversibility": {"type": "string"},
+          "network": {"type": "boolean"},
+          "gui": {"type": "boolean"},
+          "availability": {"enum": ["enabled_by_config", "disabled_by_config"]},
+          "readiness_proven": {"type": "boolean"},
+          "state": {"enum": ["implemented_tested", "implemented_partial"]},
+          "tests": {"type": "array", "items": {"type": "string"}},
+          "confirmation": {"enum": ["required_by_proposal", "not_required_by_proposal"]},
+          "runtime_confirmation": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,3486 @@
+{
+  "schema_version": 1,
+  "read_command_contract": {
+    "version": 1,
+    "leading_markers": [
+      "e",
+      "então",
+      "Jarvis"
+    ],
+    "politeness": [
+      "por favor",
+      "por gentileza"
+    ],
+    "commands": [
+      {
+        "capability": "get_datetime",
+        "action": "time",
+        "aliases": [
+          "que horas são",
+          "que hora é",
+          "qual é a hora"
+        ]
+      },
+      {
+        "capability": "get_datetime",
+        "action": "date",
+        "aliases": [
+          "qual é a data de hoje",
+          "qual a data de hoje",
+          "que dia é hoje"
+        ]
+      },
+      {
+        "capability": "get_datetime",
+        "action": "weekday",
+        "aliases": [
+          "qual é o dia da semana",
+          "qual o dia da semana"
+        ]
+      },
+      {
+        "capability": "get_runtime_info",
+        "action": "runtime",
+        "aliases": [
+          "qual é o status do sistema",
+          "qual é o status do runtime",
+          "qual é seu timeout",
+          "você está em game mode"
+        ]
+      }
+    ]
+  },
+  "local_control_contract": {
+    "version": 1,
+    "commands": [
+      {
+        "tool": "local_application_open",
+        "arguments": {
+          "application": "spotify"
+        },
+        "aliases": [
+          "abra o spotify",
+          "abra spotify"
+        ]
+      },
+      {
+        "tool": "local_application_open",
+        "arguments": {
+          "application": "obsidian"
+        },
+        "aliases": [
+          "abra o obsidian",
+          "abra obsidian"
+        ]
+      },
+      {
+        "tool": "local_application_open",
+        "arguments": {
+          "application": "default_browser"
+        },
+        "aliases": [
+          "abra o navegador",
+          "abra navegador"
+        ]
+      },
+      {
+        "tool": "local_application_status",
+        "arguments": {
+          "application": "spotify"
+        },
+        "aliases": [
+          "o spotify está aberto"
+        ]
+      },
+      {
+        "tool": "local_application_status",
+        "arguments": {
+          "application": "obsidian"
+        },
+        "aliases": [
+          "o obsidian está aberto"
+        ]
+      },
+      {
+        "tool": "local_application_focus",
+        "arguments": {
+          "application": "spotify"
+        },
+        "aliases": [
+          "traga o spotify para frente"
+        ]
+      },
+      {
+        "tool": "local_application_focus",
+        "arguments": {
+          "application": "obsidian"
+        },
+        "aliases": [
+          "traga o obsidian para frente"
+        ]
+      },
+      {
+        "tool": "local_application_close",
+        "arguments": {
+          "application": "spotify"
+        },
+        "aliases": [
+          "feche o spotify",
+          "feche spotify"
+        ]
+      },
+      {
+        "tool": "local_application_close",
+        "arguments": {
+          "application": "obsidian"
+        },
+        "aliases": [
+          "feche o obsidian",
+          "feche obsidian"
+        ]
+      },
+      {
+        "tool": "local_media_control",
+        "arguments": {
+          "action": "pause"
+        },
+        "aliases": [
+          "pause a música"
+        ]
+      },
+      {
+        "tool": "local_media_control",
+        "arguments": {
+          "action": "play"
+        },
+        "aliases": [
+          "continue a música",
+          "reproduza a música"
+        ]
+      },
+      {
+        "tool": "local_media_control",
+        "arguments": {
+          "action": "next"
+        },
+        "aliases": [
+          "próxima faixa",
+          "pule para a próxima faixa"
+        ]
+      },
+      {
+        "tool": "local_media_control",
+        "arguments": {
+          "action": "previous"
+        },
+        "aliases": [
+          "faixa anterior",
+          "volte para a faixa anterior"
+        ]
+      },
+      {
+        "tool": "current_media",
+        "arguments": {},
+        "aliases": [
+          "o que está tocando",
+          "qual música está tocando"
+        ]
+      },
+      {
+        "tool": "local_volume_control",
+        "arguments": {
+          "action": "increase"
+        },
+        "aliases": [
+          "aumente o volume"
+        ]
+      },
+      {
+        "tool": "local_volume_control",
+        "arguments": {
+          "action": "decrease"
+        },
+        "aliases": [
+          "diminua o volume"
+        ]
+      },
+      {
+        "tool": "local_volume_control",
+        "arguments": {
+          "action": "set",
+          "percent": 50
+        },
+        "aliases": [
+          "defina o volume para cinquenta por cento"
+        ]
+      },
+      {
+        "tool": "local_volume_control",
+        "arguments": {
+          "action": "mute"
+        },
+        "aliases": [
+          "ative o mudo"
+        ]
+      },
+      {
+        "tool": "local_volume_control",
+        "arguments": {
+          "action": "unmute"
+        },
+        "aliases": [
+          "desative o mudo"
+        ]
+      }
+    ]
+  },
+  "source_sha256": {
+    "src/jarvis/__main__.py": "97370e503a7251201a64f3d9525e7e46db701e3a34b9d396e4b935c880d9d53f",
+    "src/jarvis/application/application_dispatcher.py": "886e14121a554313e112dd758b0500f8e3bdcc9edd4549b5d3795b87f68b4cff",
+    "src/jarvis/application/intent_coordinator.py": "4b7b37e707d1cb1039897edc6cd5a486a74277d9e5c7ff5602c3f83150cf781a",
+    "src/jarvis/application/local_control_dispatcher.py": "1fb2cadf6da92d94ebc896d88d1364da265b33f0c087bd597b687bf8a0325fdf",
+    "src/jarvis/application/organization_routing.py": "b5ee92f7b8508062dd7522f43d08da2b61ac766561d31a81807f4db4769abe60",
+    "src/jarvis/application/semantic_read_dispatcher.py": "d54b79170510cc2e152703907a025b46eb5198184276137d2ecf8018958674a5",
+    "src/jarvis/config.py": "32321574dd8c7cbd79533af0d63873a0e27f6153bccbae3db109e087b6589d6f",
+    "src/jarvis/desktop/application_catalog.py": "feec53b72df1cb4c9c0405668c7914050ebd4ad2af1213326da8aa268a71b715",
+    "src/jarvis/desktop/application_control.py": "df190be251d2175ed29af25975efb217f52697d14f899bacb480318c6f224d08",
+    "src/jarvis/desktop/application_discovery.py": "5b79fb662bf6621f91eebd3f9057d60f0637ce6128cba6b98b2887826414634a",
+    "src/jarvis/desktop/application_windows.py": "38cc8b4aec46729a4367f5d253889fb01f4b239c60d4467d8065d86f3651871a",
+    "src/jarvis/desktop/catalog.py": "bd12a50265d0a773c4e41e51f04d26cfdd6f038ebbc9593a5a446cf02989bb40",
+    "src/jarvis/harness.py": "a9b49726f7badb9901a9e4559e44e8830b3a11fa3f4507e09694e6e8df643c37",
+    "src/jarvis/integrations/google/calendar/limited_write.py": "c207f1e308a347792195fdcd8a225e1f7351c4acc49aa0fda088075ca12fc60f",
+    "src/jarvis/integrations/google/calendar/read_tool.py": "6ff465e25fa7890ffec5f51ce3e87031e892171c3e8ea90c4d3c9b735ff37532",
+    "src/jarvis/integrations/google/drive_docs/tools.py": "47487947fac649ccd6e6b80fa4e772fe03b1b365da397fb383e821abd53f4d72",
+    "src/jarvis/local_control/backend.py": "332651df0158c0205d988cf3138902abea8dcb90ebe757c3b5e909b19d5890b1",
+    "src/jarvis/local_control/models.py": "c67b3f55507149b8b000914041d8c4c49c1a4da1acb19659ed0f69ff4138b324",
+    "src/jarvis/local_control/service.py": "8a260ea9d2b1414832d238c424485e41a9086560bd59712a43387a5f66082666",
+    "src/jarvis/local_control/windows.py": "64ffff1a2c2e77d0b5d5e6bc6f4404cbb666b64a81e45c22a58353098f194e16",
+    "src/jarvis/organization/service.py": "059789ad31f543c2054708d5b02cae47ed67cc79e796ce4f155abe128d59b511",
+    "src/jarvis/organization/windows.py": "8f5871f144137d9f1d45297f49ad97fb30deb908eb12cb0760a45283f744eb12",
+    "src/jarvis/security/filesystem.py": "a9b8305b1e8501c56e68aa2fbc6ff7f1c07d1f1476fd1349d6bcb1af205966f1",
+    "src/jarvis/security/permissions.py": "7cf444f3c3c4ee36e3b86dde13533e8d141e26b99ec219b5b42536d211e313aa",
+    "src/jarvis/tools/application_catalog.py": "20d32bedf9791f49eefa5cc6d77698890d113bf674f490757e8ae19630964ca8",
+    "src/jarvis/tools/browser.py": "f588b9ff169426f00efdcccfc83e3de0eaa4a7ce59397718e192561c834d0477",
+    "src/jarvis/tools/create_file.py": "3b1ed987192fc4cbf1fe793c104b880d716d95b8f9a30a9ca36d20ba5e34d55f",
+    "src/jarvis/tools/delete_file.py": "dbf7c83da1adcc466096f7f1e829c88490bd18c87f87807703a6b34ad67f358e",
+    "src/jarvis/tools/desktop.py": "1bf82285d39c54f9376db7e0769fa0b27245a8e43fd94bd3301ed18e5cbf2eef",
+    "src/jarvis/tools/edit_file.py": "cd47c393a79425900dcdfe9062e765ae04fe9ae10db6138e0606b4f63f413e40",
+    "src/jarvis/tools/get_datetime.py": "e5cfdefe4cf6ab94b86a2333b7fb69f9a87a60177df6b3d868a89ae24fd53d21",
+    "src/jarvis/tools/get_runtime_info.py": "5325cf94053c21ad5366465d0f82f0dca8229da82d1d24bda978643a5aba2ddc",
+    "src/jarvis/tools/list_files.py": "d9c2a33b5b2428ab6546b7d4473368f99a79388a72f762fbbe15d3e61321735b",
+    "src/jarvis/tools/local_control.py": "c95d59bc17fe3804848e2887fa034aa7ffe88ec9f844ad60196feafc0d703046",
+    "src/jarvis/tools/media.py": "5f67baaa42fc0c9fe1b820ed08129491e7b10f8793b101e805f2e589cdf2a4a4",
+    "src/jarvis/tools/move_file.py": "4c0c483a51f166c36a32ca240a95a6a97003af0f1daed7e23d91f2c273080d34",
+    "src/jarvis/tools/obsidian.py": "383f28c40d49ea12f7f40bfac4c642784258713d9b62a08eae9313b7d9c18651",
+    "src/jarvis/tools/organization.py": "46a5cfd4bc70f03b1e056dab0ce2b7ababef3df1bbeebdd917f2ecc5d107d905",
+    "src/jarvis/tools/read_file.py": "754d83d7282e58f18af749c09edbd11046f9186fc16c5cd8897c3e3a06b29e11",
+    "src/jarvis/tools/registry.py": "d4594f72cc981ce39a50ed59872f03f833ad52da3e1dec371a1aafce9ef8dc4d",
+    "src/jarvis/tools/safe_browser.py": "90c8af82c922846b05dd2639918b3ad6fd240eb61080b23a8a29170c694f1773",
+    "src/jarvis/tools/vision.py": "f654f37ca832def71074d051389d20f806e7f23b405f5c0921a7355bf630ceae"
+  },
+  "language": {
+    "verbs": {
+      "open": [
+        "abra",
+        "abre",
+        "abrir"
+      ],
+      "close": [
+        "feche",
+        "fecha",
+        "fechar"
+      ],
+      "on": [
+        "ligue",
+        "liga",
+        "ligar"
+      ],
+      "off": [
+        "desligue",
+        "desliga",
+        "desligar"
+      ],
+      "increase": [
+        "aumente",
+        "aumenta",
+        "aumentar"
+      ],
+      "decrease": [
+        "diminua",
+        "diminui",
+        "diminuir"
+      ],
+      "pause": [
+        "pause",
+        "pausa",
+        "pausar"
+      ],
+      "skip": [
+        "pule",
+        "pula",
+        "pular"
+      ]
+    },
+    "opposites": {
+      "open": "close",
+      "close": "open",
+      "on": "off",
+      "off": "on",
+      "increase": "decrease",
+      "decrease": "increase"
+    },
+    "distinct_actions": [
+      [
+        "pause",
+        "skip"
+      ]
+    ],
+    "negations": [
+      "não",
+      "nao",
+      "nunca",
+      "jamais"
+    ],
+    "courtesy_terminal": [
+      "por favor"
+    ],
+    "numbers": {
+      "cinco": 5,
+      "quinze": 15,
+      "cinquenta": 50
+    },
+    "units": [
+      "minuto",
+      "minutos"
+    ],
+    "allowed_normalizations": [
+      "case",
+      "punctuation",
+      "terminal_courtesy",
+      "equal_number_value"
+    ],
+    "forbidden": [
+      "opposite_verb",
+      "different_target",
+      "missing_negation",
+      "different_number",
+      "phonetic_guess",
+      "unknown_application"
+    ]
+  },
+  "capabilities": [
+    {
+      "id": "app_catalog_close",
+      "human_name": "App Catalog Close",
+      "description": "Fecha graciosamente a janela selecionada após confirmação vinculada.",
+      "tool": "app_catalog_close",
+      "implementation": "src\\jarvis\\tools\\application_catalog.py",
+      "implementation_proven": true,
+      "source_risk": "SENSITIVE",
+      "risk": "sensitive",
+      "actions": [
+        "close"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "type": "string",
+            "pattern": "^app-[a-f0-9]{32}$"
+          },
+          "reference": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          }
+        },
+        "required": [
+          "application"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/desktop/test_application_catalog_23bi.py",
+        "tests/speech/test_capability_catalog_23ad.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "app_catalog_open",
+      "human_name": "App Catalog Open",
+      "description": "Abre somente ID descoberto/autorizado e verifica uma janela compatível.",
+      "tool": "app_catalog_open",
+      "implementation": "src\\jarvis\\tools\\application_catalog.py",
+      "implementation_proven": true,
+      "source_risk": "REVERSIBLE_LOCAL",
+      "risk": "reversible_local",
+      "actions": [
+        "open"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "type": "string",
+            "pattern": "^app-[a-f0-9]{32}$"
+          },
+          "reference": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          }
+        },
+        "required": [
+          "application"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/desktop/test_application_catalog_23bi.py",
+        "tests/speech/test_capability_catalog_23ad.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "app_catalog_status",
+      "human_name": "App Catalog Status",
+      "description": "Consulta instâncias da identidade autorizada, sem ler conteúdo do aplicativo.",
+      "tool": "app_catalog_status",
+      "implementation": "src\\jarvis\\tools\\application_catalog.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "app_catalog_status"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "type": "string",
+            "pattern": "^app-[a-f0-9]{32}$"
+          },
+          "reference": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          }
+        },
+        "required": [
+          "application"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/speech/test_capability_catalog_23ad.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "app_catalog_window",
+      "human_name": "App Catalog Window",
+      "description": "Foca/minimiza/maximiza/restaura/posiciona somente janela validada e autorizada.",
+      "tool": "app_catalog_window",
+      "implementation": "src\\jarvis\\tools\\application_catalog.py",
+      "implementation_proven": true,
+      "source_risk": "REVERSIBLE_LOCAL",
+      "risk": "reversible_local",
+      "actions": [
+        "app_catalog_window"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "type": "string",
+            "pattern": "^app-[a-f0-9]{32}$"
+          },
+          "reference": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "focus",
+              "minimize",
+              "maximize",
+              "restore",
+              "place"
+            ]
+          }
+        },
+        "required": [
+          "application",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/speech/test_capability_catalog_23ad.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "browser_click",
+      "human_name": "Browser Click",
+      "description": "Clica em um elemento identificado por seletor CSS.",
+      "tool": "browser_click",
+      "implementation": "src\\jarvis\\tools\\browser.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "external_effect",
+      "actions": [
+        "click"
+      ],
+      "targets": {
+        "kind": "bound_tab_domain_or_element",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "string",
+            "description": "ID da aba (opcional, usa a ativa se omitido)."
+          },
+          "selector": {
+            "type": "string",
+            "description": "Seletor CSS do elemento a clicar."
+          }
+        },
+        "required": [
+          "selector"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": true,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/tools/test_browser.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "browser_close_tab",
+      "human_name": "Browser Close Tab",
+      "description": "Fecha uma aba do navegador pelo seu ID.",
+      "tool": "browser_close_tab",
+      "implementation": "src\\jarvis\\tools\\browser.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "destructive",
+      "actions": [
+        "close"
+      ],
+      "targets": {
+        "kind": "bound_tab_domain_or_element",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "string",
+            "description": "ID da aba a fechar."
+          }
+        },
+        "required": [
+          "tab_id"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "not_guaranteed; may lose data",
+      "network": true,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/tools/test_browser.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "browser_extract_multiple",
+      "human_name": "Browser Extract Multiple",
+      "description": "Extrai múltiplos elementos e seus atributos.",
+      "tool": "browser_extract_multiple",
+      "implementation": "src\\jarvis\\tools\\browser.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "extract"
+      ],
+      "targets": {
+        "kind": "bound_tab_domain_or_element",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "string",
+            "description": "ID da aba (opcional, usa a ativa se omitido)."
+          },
+          "selector": {
+            "type": "string",
+            "description": "Seletor CSS dos elementos."
+          },
+          "attributes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lista de atributos a extrair (ex: ['text', 'href', 'src'])."
+          }
+        },
+        "required": [
+          "selector",
+          "attributes"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": true,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/tools/test_frente_f.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "browser_extract_text",
+      "human_name": "Browser Extract Text",
+      "description": "Extrai o texto de um elemento identificado por seletor CSS.",
+      "tool": "browser_extract_text",
+      "implementation": "src\\jarvis\\tools\\browser.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "extract"
+      ],
+      "targets": {
+        "kind": "bound_tab_domain_or_element",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "string",
+            "description": "ID da aba (opcional, usa a ativa se omitido)."
+          },
+          "selector": {
+            "type": "string",
+            "description": "Seletor CSS do elemento."
+          }
+        },
+        "required": [
+          "selector"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": true,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/tools/test_browser.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "browser_fill",
+      "human_name": "Browser Fill",
+      "description": "Preenche um campo de formulário identificado por seletor CSS.",
+      "tool": "browser_fill",
+      "implementation": "src\\jarvis\\tools\\browser.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "external_effect",
+      "actions": [
+        "fill"
+      ],
+      "targets": {
+        "kind": "bound_tab_domain_or_element",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "string",
+            "description": "ID da aba (opcional, usa a ativa se omitido)."
+          },
+          "selector": {
+            "type": "string",
+            "description": "Seletor CSS do campo."
+          },
+          "text": {
+            "type": "string",
+            "description": "Texto a preencher."
+          }
+        },
+        "required": [
+          "selector",
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": true,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/security/test_browser_authorized_operations.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "browser_get_snapshot",
+      "human_name": "Browser Get Snapshot",
+      "description": "Obtém um snapshot da página atual (URL, título, abas, texto selecionado).",
+      "tool": "browser_get_snapshot",
+      "implementation": "src\\jarvis\\tools\\browser.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "get"
+      ],
+      "targets": {
+        "kind": "bound_tab_domain_or_element",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "string",
+            "description": "ID da aba (opcional, usa a ativa se omitido)."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": true,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/tools/test_frente_f.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "browser_list_tabs",
+      "human_name": "Browser List Tabs",
+      "description": "Lista todas as abas abertas no navegador com seus IDs, URLs e títulos.",
+      "tool": "browser_list_tabs",
+      "implementation": "src\\jarvis\\tools\\browser.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "list"
+      ],
+      "targets": {
+        "kind": "bound_tab_domain_or_element",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": true,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/tools/test_browser.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "browser_navigate",
+      "human_name": "Browser Navigate",
+      "description": "Navega para uma URL na aba ativa ou especificada.",
+      "tool": "browser_navigate",
+      "implementation": "src\\jarvis\\tools\\browser.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "external_effect",
+      "actions": [
+        "navigate"
+      ],
+      "targets": {
+        "kind": "bound_tab_domain_or_element",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL para navegar."
+          },
+          "tab_id": {
+            "type": "string",
+            "description": "ID da aba (opcional, usa a ativa se omitido)."
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": true,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/security/test_browser_authorized_operations.py",
+        "tests/security/test_external_content_authority.py",
+        "tests/security/test_permissions_23bh.py",
+        "tests/tools/test_browser.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "browser_new_tab",
+      "human_name": "Browser New Tab",
+      "description": "Abre uma nova aba no navegador. Opcionalmente navega para uma URL.",
+      "tool": "browser_new_tab",
+      "implementation": "src\\jarvis\\tools\\browser.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "external_effect",
+      "actions": [
+        "browser_new_tab"
+      ],
+      "targets": {
+        "kind": "bound_tab_domain_or_element",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL para navegar (opcional, padrão: about:blank)",
+            "default": "about:blank"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "compensating_delete_or_close_possible; not automatic",
+      "network": true,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/speech/test_semantic_resolver_23ac.py",
+        "tests/tools/test_browser.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "browser_switch_tab",
+      "human_name": "Browser Switch Tab",
+      "description": "Muda para uma aba específica pelo seu ID.",
+      "tool": "browser_switch_tab",
+      "implementation": "src\\jarvis\\tools\\browser.py",
+      "implementation_proven": true,
+      "source_risk": "REVERSIBLE_LOCAL",
+      "risk": "external_effect",
+      "actions": [
+        "switch"
+      ],
+      "targets": {
+        "kind": "bound_tab_domain_or_element",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "string",
+            "description": "ID da aba para ativar."
+          }
+        },
+        "required": [
+          "tab_id"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": true,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/tools/test_browser.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "browser_type",
+      "human_name": "Browser Type",
+      "description": "Digita texto em um elemento identificado por seletor CSS.",
+      "tool": "browser_type",
+      "implementation": "src\\jarvis\\tools\\browser.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "external_effect",
+      "actions": [
+        "type"
+      ],
+      "targets": {
+        "kind": "bound_tab_domain_or_element",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "string",
+            "description": "ID da aba (opcional, usa a ativa se omitido)."
+          },
+          "selector": {
+            "type": "string",
+            "description": "Seletor CSS do elemento."
+          },
+          "text": {
+            "type": "string",
+            "description": "Texto a digitar."
+          }
+        },
+        "required": [
+          "selector",
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": true,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/security/test_browser_authorized_operations.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "browser_wait_for_selector",
+      "human_name": "Browser Wait For Selector",
+      "description": "Aguarda um elemento aparecer na página.",
+      "tool": "browser_wait_for_selector",
+      "implementation": "src\\jarvis\\tools\\browser.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "wait"
+      ],
+      "targets": {
+        "kind": "bound_tab_domain_or_element",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "string",
+            "description": "ID da aba (opcional, usa a ativa se omitido)."
+          },
+          "selector": {
+            "type": "string",
+            "description": "Seletor CSS do elemento a aguardar."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Timeout em segundos (padrão: 30).",
+            "default": 30
+          }
+        },
+        "required": [
+          "selector"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": true,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/tools/test_frente_f.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "create_file",
+      "human_name": "Create File",
+      "description": "Cria um novo arquivo de texto dentro do diretório permitido.",
+      "tool": "create_file",
+      "implementation": "src\\jarvis\\tools\\create_file.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "reversible_local",
+      "actions": [
+        "create"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Caminho relativo do novo arquivo dentro do diretório permitido."
+          },
+          "content": {
+            "type": "string",
+            "description": "Conteúdo de texto a ser escrito no arquivo."
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "compensating_delete_or_close_possible; not automatic",
+      "network": false,
+      "gui": false,
+      "availability": "enabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_agent_loop_coordinator.py",
+        "tests/application/test_conversation_preferences_23bm.py",
+        "tests/integration/test_administration_23bh.py",
+        "tests/integration/test_filesystem_tools_security.py",
+        "tests/security/test_capabilities.py",
+        "tests/security/test_external_content_authority.py",
+        "tests/security/test_permissions_23bh.py",
+        "tests/security/test_voice_confirmation.py",
+        "tests/tools/test_create_file.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "current_media",
+      "human_name": "Current Media",
+      "description": "Consulta a sessão de mídia atual indicada pelo Windows.",
+      "tool": "current_media",
+      "implementation": "src\\jarvis\\tools\\media.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "current_media"
+      ],
+      "targets": {
+        "kind": "windows_current_media_session",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": true,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_local_control_dispatcher.py",
+        "tests/integration/test_local_control_e2e.py",
+        "tests/media/test_gsmtc_service.py",
+        "tests/security/test_permissions_23bh.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "delete_file",
+      "human_name": "Delete File",
+      "description": "Exclui um arquivo dentro do diretório permitido.",
+      "tool": "delete_file",
+      "implementation": "src\\jarvis\\tools\\delete_file.py",
+      "implementation_proven": true,
+      "source_risk": "DESTRUCTIVE",
+      "risk": "destructive",
+      "actions": [
+        "delete"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Caminho relativo do arquivo dentro do diretório permitido."
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "not_guaranteed; may lose data",
+      "network": false,
+      "gui": false,
+      "availability": "enabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/context/test_pending_action.py",
+        "tests/integration/test_file_target_confirmation.py",
+        "tests/integration/test_filesystem_tools_security.py",
+        "tests/integration/test_pending_file_action.py",
+        "tests/llm/test_sanitizer.py",
+        "tests/security/test_authorization_grant.py",
+        "tests/security/test_high_fail_closed_regression.py",
+        "tests/security/test_permissions_23bh.py",
+        "tests/security/test_voice_confirmation.py",
+        "tests/test_hardening.py",
+        "tests/tools/test_delete_file.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "desktop_close_window",
+      "human_name": "Desktop Close Window",
+      "description": "Solicita fechamento cooperativo de uma janela aberta e inequívoca. Não força processo nem responde diálogos de salvamento.",
+      "tool": "desktop_close_window",
+      "implementation": "src\\jarvis\\tools\\desktop.py",
+      "implementation_proven": true,
+      "source_risk": "SENSITIVE",
+      "risk": "destructive",
+      "actions": [
+        "close"
+      ],
+      "targets": {
+        "kind": "bound_window_or_allowlist",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Título ou trecho inequívoco da janela aberta."
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "not_guaranteed; may lose data",
+      "network": false,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_application_channels_23bi.py",
+        "tests/runtime/test_tool_selection.py",
+        "tests/security/test_capabilities.py",
+        "tests/speech/test_semantic_resolver_23ac.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "desktop_focus_window",
+      "human_name": "Desktop Focus Window",
+      "description": "Traz para primeiro plano uma única janela já aberta. Use um trecho inequívoco do título; se houver ambiguidade, a ação é recusada.",
+      "tool": "desktop_focus_window",
+      "implementation": "src\\jarvis\\tools\\desktop.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "external_effect",
+      "actions": [
+        "focus"
+      ],
+      "targets": {
+        "kind": "bound_window_or_allowlist",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Título ou trecho inequívoco da janela aberta."
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": false,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_agent_loop_coordinator.py",
+        "tests/application/test_tool_execution_state.py",
+        "tests/integration/test_application_channels_23bi.py",
+        "tests/runtime/test_tool_selection.py",
+        "tests/tools/test_execution_verifier.py",
+        "tests/vision/test_vision_execution_verifier.py",
+        "tests/vision/test_vision_service.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "desktop_list_applications",
+      "human_name": "Desktop List Applications",
+      "description": "Lista os aplicativos explicitamente permitidos para abertura pelo Jarvis.",
+      "tool": "desktop_list_applications",
+      "implementation": "src\\jarvis\\tools\\desktop.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "list"
+      ],
+      "targets": {
+        "kind": "bound_window_or_allowlist",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/tools/test_frente_f.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "desktop_list_windows",
+      "human_name": "Desktop List Windows",
+      "description": "Lista títulos das janelas visíveis atualmente no desktop local.",
+      "tool": "desktop_list_windows",
+      "implementation": "src\\jarvis\\tools\\desktop.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "list"
+      ],
+      "targets": {
+        "kind": "bound_window_or_allowlist",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/runtime/test_tool_selection.py",
+        "tests/security/test_capabilities.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "desktop_move_pointer_to_window",
+      "human_name": "Desktop Move Pointer To Window",
+      "description": "Move o ponteiro somente para o centro de uma janela aberta e inequívoca. Não aceita coordenadas nem realiza cliques.",
+      "tool": "desktop_move_pointer_to_window",
+      "implementation": "src\\jarvis\\tools\\desktop.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "external_effect",
+      "actions": [
+        "move"
+      ],
+      "targets": {
+        "kind": "bound_window_or_allowlist",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Título ou trecho inequívoco da janela aberta."
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": false,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_application_channels_23bi.py",
+        "tests/integration/test_desktop_runtime_observability.py",
+        "tests/runtime/test_tool_selection.py",
+        "tests/security/test_capabilities.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "desktop_open_application",
+      "human_name": "Desktop Open Application",
+      "description": "Abre um aplicativo somente quando ele pertence ao catálogo local permitido. Nunca executa comandos, argumentos ou paths arbitrários.",
+      "tool": "desktop_open_application",
+      "implementation": "src\\jarvis\\tools\\desktop.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "external_effect",
+      "actions": [
+        "open"
+      ],
+      "targets": {
+        "kind": "allowlist",
+        "values": [
+          "calculator",
+          "default_browser",
+          "explorer",
+          "notepad",
+          "obsidian",
+          "spotify"
+        ],
+        "aliases": {
+          "bloco de notas": "notepad",
+          "calculadora": "calculator",
+          "explorador": "explorer",
+          "explorador de arquivos": "explorer",
+          "file explorer": "explorer",
+          "notas": "notepad"
+        }
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "type": "string",
+            "enum": [
+              "calculator",
+              "default_browser",
+              "explorer",
+              "notepad",
+              "obsidian",
+              "spotify"
+            ]
+          }
+        },
+        "required": [
+          "application"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": false,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_agent_loop_coordinator.py",
+        "tests/application/test_tool_execution_state.py",
+        "tests/integration/test_application_channels_23bi.py",
+        "tests/runtime/test_tool_selection.py",
+        "tests/security/test_capabilities.py",
+        "tests/security/test_permissions_23bh.py",
+        "tests/speech/test_capability_catalog_23ad.py",
+        "tests/speech/test_semantic_resolver_23ac.py",
+        "tests/vision/test_vision_execution_verifier.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "desktop_press_escape",
+      "human_name": "Desktop Press Escape",
+      "description": "Envia somente a tecla Escape para uma janela aberta e inequívoca. Não aceita outras teclas, texto, repetição ou modificadores.",
+      "tool": "desktop_press_escape",
+      "implementation": "src\\jarvis\\tools\\desktop.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "external_effect",
+      "actions": [
+        "press"
+      ],
+      "targets": {
+        "kind": "bound_window_or_allowlist",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Título ou trecho inequívoco da janela aberta."
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": false,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_desktop_runtime_observability.py",
+        "tests/runtime/test_tool_selection.py",
+        "tests/security/test_capabilities.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "edit_file",
+      "human_name": "Edit File",
+      "description": "Edita um arquivo de texto existente no diretório permitido.",
+      "tool": "edit_file",
+      "implementation": "src\\jarvis\\tools\\edit_file.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "reversible_local",
+      "actions": [
+        "edit"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Caminho relativo do arquivo dentro do diretório permitido."
+          },
+          "content": {
+            "type": "string",
+            "description": "Novo conteúdo de texto do arquivo."
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "requires original state or backup; not automatic",
+      "network": false,
+      "gui": false,
+      "availability": "enabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_filesystem_tools_security.py",
+        "tests/integration/test_obsidian_voice_conversation.py",
+        "tests/runtime/test_tool_selection.py",
+        "tests/security/test_authorization_grant.py",
+        "tests/security/test_voice_confirmation.py",
+        "tests/test_context_routing.py",
+        "tests/tools/test_edit_file.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "get_datetime",
+      "human_name": "Get Datetime",
+      "description": "Obtém a data, a hora e o fuso horário locais atuais. Use para perguntas sobre hoje, horário ou data atual.",
+      "tool": "get_datetime",
+      "implementation": "src\\jarvis\\tools\\get_datetime.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "get"
+      ],
+      "targets": {
+        "kind": "local_context",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": false,
+      "availability": "enabled_by_config",
+      "readiness_proven": true,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_conversation_preferences_23bm.py",
+        "tests/application/test_read_command_normalizer.py",
+        "tests/application/test_semantic_read_dispatcher.py",
+        "tests/integration/test_daily_briefing_23bf.py",
+        "tests/integration/test_routines_23bq.py",
+        "tests/integration/test_semantic_read_e2e.py",
+        "tests/runtime/test_tool_selection.py",
+        "tests/speech/test_semantic_resolver_23ac.py",
+        "tests/test_harness_runtime.py",
+        "tests/tools/test_get_datetime.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "get_runtime_info",
+      "human_name": "Get Runtime Info",
+      "description": "Consulta configuração real de timeouts, Game Mode, modelo, STT e capacidades do Obsidian. Use para perguntas sobre o runtime.",
+      "tool": "get_runtime_info",
+      "implementation": "src\\jarvis\\tools\\get_runtime_info.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "get"
+      ],
+      "targets": {
+        "kind": "local_context",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": false,
+      "availability": "enabled_by_config",
+      "readiness_proven": true,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_read_command_normalizer.py",
+        "tests/application/test_semantic_read_dispatcher.py",
+        "tests/integration/test_semantic_read_e2e.py",
+        "tests/runtime/test_tool_selection.py",
+        "tests/test_natural_tool_retry.py",
+        "tests/test_reliability_regressions.py",
+        "tests/tools/test_get_runtime_info.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "google_calendar_create_event",
+      "human_name": "Google Calendar Create Event",
+      "description": "Cria evento simples em calendário autorizado após prévia e confirmação.",
+      "tool": "google_calendar_create_event",
+      "implementation": "src\\jarvis\\integrations\\google\\calendar\\limited_write.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "external_effect",
+      "actions": [
+        "create"
+      ],
+      "targets": {
+        "kind": "configured_calendar",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "calendar_id": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "calendar_id",
+          "summary",
+          "start",
+          "end",
+          "timezone"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": true,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_administration_23bh.py",
+        "tests/integration/test_google_calendar_runtime.py",
+        "tests/integrations/google/test_scopes.py",
+        "tests/llm/test_grounding.py"
+      ],
+      "confirmation": "required_by_policy",
+      "runtime_confirmation": "external_effect; prepared account/calendar/payload/version binding; one-use executor receipt"
+    },
+    {
+      "id": "google_calendar_list_events",
+      "human_name": "Google Calendar List Events",
+      "description": "Lista eventos read-only em um período determinístico.",
+      "tool": "google_calendar_list_events",
+      "implementation": "src\\jarvis\\integrations\\google\\calendar\\read_tool.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "list"
+      ],
+      "targets": {
+        "kind": "configured_calendar",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string",
+            "enum": [
+              "today",
+              "tomorrow",
+              "upcoming"
+            ]
+          },
+          "calendar_id": {
+            "type": "string"
+          },
+          "max_results": {
+            "type": "integer",
+            "default": 20
+          }
+        },
+        "required": [
+          "period",
+          "calendar_id"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": true,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_agent_loop_coordinator.py",
+        "tests/integration/test_calendar_read_23ba.py",
+        "tests/integration/test_google_calendar_runtime.py",
+        "tests/integrations/google/test_scopes.py",
+        "tests/speech/test_capability_catalog_23ad.py",
+        "tests/ui/test_accounts_widgets_23bk.py",
+        "tests/ui/test_calendar_guided_23bl.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "google_calendar_update_event",
+      "human_name": "Google Calendar Update Event",
+      "description": "Altera título ou horário de evento explicitamente selecionado.",
+      "tool": "google_calendar_update_event",
+      "implementation": "src\\jarvis\\integrations\\google\\calendar\\limited_write.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "external_effect",
+      "actions": [
+        "update"
+      ],
+      "targets": {
+        "kind": "configured_calendar",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "calendar_id": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "event_id": {
+            "type": "string"
+          },
+          "selection": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "calendar_id",
+          "event_id",
+          "selection"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": true,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integrations/google/test_scopes.py",
+        "tests/llm/test_grounding.py"
+      ],
+      "confirmation": "required_by_policy",
+      "runtime_confirmation": "external_effect; prepared account/calendar/payload/version binding; one-use executor receipt"
+    },
+    {
+      "id": "google_docs_read",
+      "human_name": "Google Docs Read",
+      "description": "Texto limitado do Google Docs selecionado; nunca executa instruções do conteúdo.",
+      "tool": "google_docs_read",
+      "implementation": "src\\jarvis\\integrations\\google\\drive_docs\\tools.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "read"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "interaction": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          },
+          "continuation": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "interaction"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": true,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_drive_docs_read_23bc.py",
+        "tests/integrations/google/test_drive_docs_transport.py",
+        "tests/integrations/google/test_picker_23bd.py",
+        "tests/speech/test_capability_catalog_23ad.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "google_drive_find_files",
+      "human_name": "Google Drive Find Files",
+      "description": "Lista/busca somente documentos explicitamente autorizados; uso local determinístico.",
+      "tool": "google_drive_find_files",
+      "implementation": "src\\jarvis\\integrations\\google\\drive_docs\\tools.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "google_drive_find_files"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "interaction": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "interaction",
+          "scope",
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": true,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/speech/test_capability_catalog_23ad.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "google_drive_metadata",
+      "human_name": "Google Drive Metadata",
+      "description": "Metadados mínimos do documento selecionado e autorizado.",
+      "tool": "google_drive_metadata",
+      "implementation": "src\\jarvis\\integrations\\google\\drive_docs\\tools.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "google_drive_metadata"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "interaction": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          }
+        },
+        "required": [
+          "interaction"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": true,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/speech/test_capability_catalog_23ad.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "google_drive_select_file",
+      "human_name": "Google Drive Select File",
+      "description": "Seleciona explicitamente um candidato do fluxo atual, sem autoridade por ID arbitrário.",
+      "tool": "google_drive_select_file",
+      "implementation": "src\\jarvis\\integrations\\google\\drive_docs\\tools.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "google_drive_select_file"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "interaction": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          }
+        },
+        "required": [
+          "interaction",
+          "index"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": true,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/speech/test_capability_catalog_23ad.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "list_files",
+      "human_name": "List Files",
+      "description": "Lista arquivos e pastas existentes em um diretório.",
+      "tool": "list_files",
+      "implementation": "src\\jarvis\\tools\\list_files.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "list"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Caminho relativo do diretório. Use '.' para o diretório atual."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": false,
+      "availability": "enabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_filesystem_tools_security.py",
+        "tests/security/test_permissions_23bh.py",
+        "tests/test_context_routing.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "local_application_close",
+      "human_name": "Local Application Close",
+      "description": "Solicita fechamento gracioso de uma instância comprovada; pode haver trabalho não salvo.",
+      "tool": "local_application_close",
+      "implementation": "src\\jarvis\\tools\\local_control.py",
+      "implementation_proven": true,
+      "source_risk": "SENSITIVE",
+      "risk": "sensitive",
+      "actions": [
+        "close"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "type": "string",
+            "enum": [
+              "default_browser",
+              "obsidian",
+              "spotify"
+            ]
+          }
+        },
+        "required": [
+          "application"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": true,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_local_control_dispatcher.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "local_application_focus",
+      "human_name": "Local Application Focus",
+      "description": "Traz para frente uma única instância comprovada de aplicativo permitido.",
+      "tool": "local_application_focus",
+      "implementation": "src\\jarvis\\tools\\local_control.py",
+      "implementation_proven": true,
+      "source_risk": "REVERSIBLE_LOCAL",
+      "risk": "reversible_local",
+      "actions": [
+        "focus"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "type": "string",
+            "enum": [
+              "default_browser",
+              "obsidian",
+              "spotify"
+            ]
+          }
+        },
+        "required": [
+          "application"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": true,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_local_control_dispatcher.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "local_application_open",
+      "human_name": "Local Application Open",
+      "description": "Abre somente um ID de aplicativo da allowlist local, sem argumentos.",
+      "tool": "local_application_open",
+      "implementation": "src\\jarvis\\tools\\local_control.py",
+      "implementation_proven": true,
+      "source_risk": "REVERSIBLE_LOCAL",
+      "risk": "reversible_local",
+      "actions": [
+        "open"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "type": "string",
+            "enum": [
+              "default_browser",
+              "obsidian",
+              "spotify"
+            ]
+          }
+        },
+        "required": [
+          "application"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": true,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_local_control_dispatcher.py",
+        "tests/integration/test_administration_23bh.py",
+        "tests/security/test_permissions_23bh.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "local_application_status",
+      "human_name": "Local Application Status",
+      "description": "Consulta se um aplicativo permitido está aberto.",
+      "tool": "local_application_status",
+      "implementation": "src\\jarvis\\tools\\local_control.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "local_application_status"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "type": "string",
+            "enum": [
+              "default_browser",
+              "obsidian",
+              "spotify"
+            ]
+          }
+        },
+        "required": [
+          "application"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": true,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_local_control_dispatcher.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "local_media_control",
+      "human_name": "Local Media Control",
+      "description": "Controla a sessão GSMTC atual sem toggle ou seleção arbitrária.",
+      "tool": "local_media_control",
+      "implementation": "src\\jarvis\\tools\\media.py",
+      "implementation_proven": true,
+      "source_risk": "REVERSIBLE_LOCAL",
+      "risk": "reversible_local",
+      "actions": [
+        "local_media_control"
+      ],
+      "targets": {
+        "kind": "windows_current_media_session",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "play",
+              "pause",
+              "next",
+              "previous"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": true,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_daily_availability_23bv.py",
+        "tests/application/test_local_control_dispatcher.py",
+        "tests/integration/test_local_control_e2e.py",
+        "tests/integration/test_routines_23bq.py",
+        "tests/security/test_permissions_23bh.py",
+        "tests/speech/test_semantic_resolver_23ac.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "local_volume_control",
+      "human_name": "Local Volume Control",
+      "description": "Consulta ou altera volume/mudo com valores enumerados e limitados.",
+      "tool": "local_volume_control",
+      "implementation": "src\\jarvis\\tools\\local_control.py",
+      "implementation_proven": true,
+      "source_risk": "REVERSIBLE_LOCAL",
+      "risk": "reversible_local",
+      "actions": [
+        "local_volume_control"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "get",
+              "increase",
+              "decrease",
+              "set",
+              "mute",
+              "unmute"
+            ]
+          },
+          "percent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": true,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_local_control_dispatcher.py",
+        "tests/integration/test_local_control_e2e.py",
+        "tests/security/test_permissions_23bh.py",
+        "tests/speech/test_semantic_resolver_23ac.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "move_file",
+      "human_name": "Move File",
+      "description": "Move um arquivo dentro do diretório permitido.",
+      "tool": "move_file",
+      "implementation": "src\\jarvis\\tools\\move_file.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "reversible_local",
+      "actions": [
+        "move"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Caminho relativo do arquivo de origem."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Caminho relativo do arquivo de destino."
+          }
+        },
+        "required": [
+          "source",
+          "destination"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "requires original state or backup; not automatic",
+      "network": false,
+      "gui": false,
+      "availability": "enabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_filesystem_tools_security.py",
+        "tests/security/test_permissions_23bh.py",
+        "tests/tools/test_move_file.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "obsidian_append_note",
+      "human_name": "Obsidian Append Note",
+      "description": "Adiciona conteúdo ao final de uma nota Markdown existente.",
+      "tool": "obsidian_append_note",
+      "implementation": "src\\jarvis\\tools\\obsidian.py",
+      "implementation_proven": true,
+      "source_risk": "REVERSIBLE_LOCAL",
+      "risk": "reversible_local",
+      "actions": [
+        "append"
+      ],
+      "targets": {
+        "kind": "configured_vault",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Título/caminho relativo da nota no Vault; .md é opcional."
+          },
+          "content": {
+            "type": "string",
+            "description": "Conteúdo Markdown."
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "requires original state or backup; not automatic",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_obsidian_deterministic_actions.py",
+        "tests/integrations/obsidian/test_obsidian.py",
+        "tests/runtime/test_tool_selection.py",
+        "tests/security/test_external_content_authority.py",
+        "tests/security/test_voice_confirmation.py",
+        "tests/test_context_routing.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "obsidian_create_note",
+      "human_name": "Obsidian Create Note",
+      "description": "Cria uma nova nota Markdown no Vault Obsidian.",
+      "tool": "obsidian_create_note",
+      "implementation": "src\\jarvis\\tools\\obsidian.py",
+      "implementation_proven": true,
+      "source_risk": "REVERSIBLE_LOCAL",
+      "risk": "reversible_local",
+      "actions": [
+        "create"
+      ],
+      "targets": {
+        "kind": "configured_vault",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Título/caminho relativo da nota no Vault; .md é opcional."
+          },
+          "content": {
+            "type": "string",
+            "description": "Conteúdo Markdown."
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "compensating_delete_or_close_possible; not automatic",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_obsidian_deterministic_actions.py",
+        "tests/integrations/obsidian/test_obsidian.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "obsidian_delete_note",
+      "human_name": "Obsidian Delete Note",
+      "description": "Exclui uma nota Markdown específica do Vault Obsidian.",
+      "tool": "obsidian_delete_note",
+      "implementation": "src\\jarvis\\tools\\obsidian.py",
+      "implementation_proven": true,
+      "source_risk": "DESTRUCTIVE",
+      "risk": "destructive",
+      "actions": [
+        "delete"
+      ],
+      "targets": {
+        "kind": "configured_vault",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Título/caminho relativo da nota no Vault; .md é opcional."
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "not_guaranteed; may lose data",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/tools/test_frente_f.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "obsidian_list_notes",
+      "human_name": "Obsidian List Notes",
+      "description": "Lista recursivamente as notas Markdown do Vault Obsidian.",
+      "tool": "obsidian_list_notes",
+      "implementation": "src\\jarvis\\tools\\obsidian.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "list"
+      ],
+      "targets": {
+        "kind": "configured_vault",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_obsidian_deterministic_actions.py",
+        "tests/integrations/obsidian/test_obsidian.py",
+        "tests/security/test_permissions_23bh.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "obsidian_open_note",
+      "human_name": "Obsidian Open Note",
+      "description": "Abre uma nota válida no aplicativo Obsidian via URI segura.",
+      "tool": "obsidian_open_note",
+      "implementation": "src\\jarvis\\tools\\obsidian.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "external_effect",
+      "actions": [
+        "open"
+      ],
+      "targets": {
+        "kind": "configured_vault",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Título/caminho relativo da nota no Vault; .md é opcional."
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": false,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/context/test_compound_actions.py",
+        "tests/integration/test_obsidian_deterministic_actions.py",
+        "tests/runtime/test_tool_selection.py",
+        "tests/security/test_permissions_23bh.py",
+        "tests/skills/test_store.py",
+        "tests/test_context_routing.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "obsidian_read_note",
+      "human_name": "Obsidian Read Note",
+      "description": "Lê uma nota Markdown específica do Vault Obsidian.",
+      "tool": "obsidian_read_note",
+      "implementation": "src\\jarvis\\tools\\obsidian.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "sensitive",
+      "actions": [
+        "read"
+      ],
+      "targets": {
+        "kind": "configured_vault",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Título/caminho relativo da nota no Vault; .md é opcional."
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_coordinator_boundaries.py",
+        "tests/context/test_compound_actions.py",
+        "tests/integration/test_obsidian_deterministic_actions.py",
+        "tests/integration/test_obsidian_voice_conversation.py",
+        "tests/runtime/test_tool_selection.py",
+        "tests/skills/test_matcher.py",
+        "tests/skills/test_store.py",
+        "tests/test_context_routing.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "obsidian_search_notes",
+      "human_name": "Obsidian Search Notes",
+      "description": "Busca texto no nome e no conteúdo das notas do Obsidian.",
+      "tool": "obsidian_search_notes",
+      "implementation": "src\\jarvis\\tools\\obsidian.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "sensitive",
+      "actions": [
+        "search"
+      ],
+      "targets": {
+        "kind": "configured_vault",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Texto buscado."
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": false,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_obsidian_voice_conversation.py",
+        "tests/integrations/obsidian/test_obsidian.py",
+        "tests/security/test_permissions_23bh.py",
+        "tests/speech/test_context.py",
+        "tests/test_context_routing.py",
+        "tests/test_reliability_regressions.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "organization_execute",
+      "human_name": "Organization Execute",
+      "description": "Organiza somente plano local revisado, dentro da raiz e regras explicitamente autorizadas.",
+      "tool": "organization_execute",
+      "implementation": "src\\jarvis\\tools\\organization.py",
+      "implementation_proven": true,
+      "source_risk": "REVERSIBLE_LOCAL",
+      "risk": "reversible_local",
+      "actions": [
+        "organization_execute"
+      ],
+      "targets": {
+        "kind": "sealed_plan_selected_root_rules",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          }
+        },
+        "required": [
+          "plan"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": false,
+      "gui": false,
+      "availability": "enabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/organization/test_channels_ui_23bj.py",
+        "tests/organization/test_organization_23bj.py",
+        "tests/speech/test_capability_catalog_23ad.py"
+      ],
+      "confirmation": "required_by_policy",
+      "runtime_confirmation": "default ask; selected root/identity/rules/plan/policy binding; persistent allow only for this scope"
+    },
+    {
+      "id": "organization_undo",
+      "human_name": "Organization Undo",
+      "description": "Desfaz somente movimentos comprovados do JARVIS, sem sobrescrever o caminho original.",
+      "tool": "organization_undo",
+      "implementation": "src\\jarvis\\tools\\organization.py",
+      "implementation_proven": true,
+      "source_risk": "REVERSIBLE_LOCAL",
+      "risk": "reversible_local",
+      "actions": [
+        "organization_undo"
+      ],
+      "targets": {
+        "kind": "sealed_plan_selected_root_rules",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          }
+        },
+        "required": [
+          "plan"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": false,
+      "gui": false,
+      "availability": "enabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/organization/test_channels_ui_23bj.py",
+        "tests/organization/test_organization_23bj.py",
+        "tests/speech/test_capability_catalog_23ad.py"
+      ],
+      "confirmation": "required_by_policy",
+      "runtime_confirmation": "default ask; selected root/identity/rules/plan/policy binding; persistent allow only for this scope"
+    },
+    {
+      "id": "read_file",
+      "human_name": "Read File",
+      "description": "Lê o conteúdo de um arquivo de texto.",
+      "tool": "read_file",
+      "implementation": "src\\jarvis\\tools\\read_file.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "sensitive",
+      "actions": [
+        "read"
+      ],
+      "targets": {
+        "kind": "filesystem_guard_base",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Caminho relativo do arquivo dentro do diretório permitido."
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": false,
+      "availability": "enabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_coordinator_boundaries.py",
+        "tests/application/test_first_use_service_23bn.py",
+        "tests/application/test_tool_execution_state.py",
+        "tests/integration/test_administration_23bh.py",
+        "tests/integration/test_filesystem_tools_security.py",
+        "tests/llm/test_firewall.py",
+        "tests/llm/test_grounding.py",
+        "tests/runtime/test_tool_selection.py",
+        "tests/security/test_external_content_authority.py",
+        "tests/security/test_permissions_23bh.py",
+        "tests/skills/test_matcher.py",
+        "tests/test_context_routing.py",
+        "tests/ui/test_administrative_widgets_23bh.py",
+        "tests/ui/test_first_use_widgets_23bn.py",
+        "tests/vision/test_vision_execution_verifier.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "safe_browser_destinations",
+      "human_name": "Safe Browser Destinations",
+      "description": "Lista IDs de destinos web fixos disponíveis.",
+      "tool": "safe_browser_destinations",
+      "implementation": "src\\jarvis\\tools\\safe_browser.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "safe_browser_destinations"
+      ],
+      "targets": {
+        "kind": "registered_https_destination",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": true,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_safe_browser_e2e.py",
+        "tests/safe_browser/test_policy_service.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "safe_browser_open",
+      "human_name": "Safe Browser Open",
+      "description": "Entrega ao navegador padrão somente um destino HTTPS registrado.",
+      "tool": "safe_browser_open",
+      "implementation": "src\\jarvis\\tools\\safe_browser.py",
+      "implementation_proven": true,
+      "source_risk": "REVERSIBLE_LOCAL",
+      "risk": "reversible_local",
+      "actions": [
+        "open"
+      ],
+      "targets": {
+        "kind": "registered_https_destination",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "destination": {
+            "type": "string",
+            "enum": [
+              "browser_home",
+              "github",
+              "google",
+              "google_calendar",
+              "google_docs",
+              "google_drive",
+              "spotify_web",
+              "whatsapp_web",
+              "youtube"
+            ]
+          }
+        },
+        "required": [
+          "destination"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": false,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": true,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_safe_browser_dispatcher.py",
+        "tests/integration/test_safe_browser_e2e.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "safe_browser_status",
+      "human_name": "Safe Browser Status",
+      "description": "Consulta se o Windows possui navegador padrão utilizável.",
+      "tool": "safe_browser_status",
+      "implementation": "src\\jarvis\\tools\\safe_browser.py",
+      "implementation_proven": true,
+      "source_risk": "READ_ONLY",
+      "risk": "read_only",
+      "actions": [
+        "safe_browser_status"
+      ],
+      "targets": {
+        "kind": "registered_https_destination",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": true,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_safe_browser_e2e.py",
+        "tests/safe_browser/test_policy_service.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "safe_web_search",
+      "human_name": "Safe Web Search",
+      "description": "Envia termo confirmado a um provedor de busca com template fixo.",
+      "tool": "safe_web_search",
+      "implementation": "src\\jarvis\\tools\\safe_browser.py",
+      "implementation_proven": true,
+      "source_risk": "EXTERNAL_EFFECT",
+      "risk": "external_effect",
+      "actions": [
+        "search"
+      ],
+      "targets": {
+        "kind": "registered_https_destination",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "google"
+            ]
+          },
+          "term": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "term"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": true,
+      "reversibility": "operation_dependent; not guaranteed",
+      "network": true,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": true,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/application/test_conversation_preferences_23bm.py",
+        "tests/application/test_safe_browser_dispatcher.py",
+        "tests/integration/test_safe_browser_e2e.py",
+        "tests/security/test_permissions_23bh.py"
+      ],
+      "confirmation": "required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "vision_extract_text",
+      "human_name": "Vision Extract Text",
+      "description": "Extrai texto de uma região da tela usando OCR (read-only). Requer região explicitamente fornecida. Não persiste screenshot.",
+      "tool": "vision_extract_text",
+      "implementation": "src\\jarvis\\tools\\vision.py",
+      "implementation_proven": true,
+      "source_risk": "SENSITIVE",
+      "risk": "sensitive",
+      "actions": [
+        "extract"
+      ],
+      "targets": {
+        "kind": "screen_or_bound_window",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "left": {
+            "type": "integer",
+            "description": "Coordenada esquerda da região"
+          },
+          "top": {
+            "type": "integer",
+            "description": "Coordenada superior da região"
+          },
+          "right": {
+            "type": "integer",
+            "description": "Coordenada direita da região"
+          },
+          "bottom": {
+            "type": "integer",
+            "description": "Coordenada inferior da região"
+          },
+          "language": {
+            "type": "string",
+            "description": "Idioma do OCR (ex: 'por', 'eng', 'por+eng')",
+            "default": "por+eng"
+          }
+        },
+        "required": [
+          "left",
+          "top",
+          "right",
+          "bottom"
+        ],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_administration_23bh.py",
+        "tests/security/test_permissions_23bh.py",
+        "tests/tools/test_frente_f.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "vision_get_ui_tree",
+      "human_name": "Vision Get Ui Tree",
+      "description": "Captura a árvore de acessibilidade/UI de uma região (read-only). Não persiste screenshot. Requer Windows UI Automation.",
+      "tool": "vision_get_ui_tree",
+      "implementation": "src\\jarvis\\tools\\vision.py",
+      "implementation_proven": true,
+      "source_risk": "SENSITIVE",
+      "risk": "sensitive",
+      "actions": [
+        "get"
+      ],
+      "targets": {
+        "kind": "screen_or_bound_window",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "left": {
+            "type": "integer",
+            "description": "Coordenada esquerda da região (opcional)"
+          },
+          "top": {
+            "type": "integer",
+            "description": "Coordenada superior da região (opcional)"
+          },
+          "right": {
+            "type": "integer",
+            "description": "Coordenada direita da região (opcional)"
+          },
+          "bottom": {
+            "type": "integer",
+            "description": "Coordenada inferior da região (opcional)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/tools/test_frente_f.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    },
+    {
+      "id": "vision_observe_screen_change",
+      "human_name": "Vision Observe Screen Change",
+      "description": "Captura a tela somente em memória e informa se ela mudou desde a observação anterior. Não retorna pixels, texto, screenshot ou hash.",
+      "tool": "vision_observe_screen_change",
+      "implementation": "src\\jarvis\\tools\\vision.py",
+      "implementation_proven": true,
+      "source_risk": "SENSITIVE",
+      "risk": "sensitive",
+      "actions": [
+        "observe"
+      ],
+      "targets": {
+        "kind": "screen_or_bound_window",
+        "values": [],
+        "aliases": {}
+      },
+      "aliases": [],
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "return": "Tool.execute returns text; success requires verification",
+      "side_effects": false,
+      "reversibility": "no_mutation",
+      "network": false,
+      "gui": true,
+      "availability": "disabled_by_config",
+      "readiness_proven": false,
+      "state": "implemented_tested",
+      "tests": [
+        "tests/integration/test_vision_runtime.py",
+        "tests/runtime/test_tool_selection.py",
+        "tests/security/test_capabilities.py"
+      ],
+      "confirmation": "not_required_by_proposal",
+      "runtime_confirmation": "CRITICAL_only_by_default; other policy gates still apply"
+    }
+  ],
+  "semantic_read_dispatch": {
+    "enabled_by_default": false,
+    "eligible": [
+      "get_datetime",
+      "get_runtime_info"
+    ],
+    "blocked_read_only": {
+      "list_files": "readiness_not_proven_and_arbitrary_files_forbidden",
+      "desktop_list_applications": "disabled_and_desktop_forbidden",
+      "desktop_list_windows": "disabled_and_desktop_forbidden",
+      "browser_extract_multiple": "network_or_browser_forbidden",
+      "browser_extract_text": "network_or_browser_forbidden",
+      "browser_get_snapshot": "network_or_browser_forbidden",
+      "browser_list_tabs": "network_or_browser_forbidden",
+      "browser_wait_for_selector": "network_or_browser_forbidden",
+      "google_calendar_check_availability": "external_service_forbidden",
+      "google_calendar_get_event": "external_service_forbidden",
+      "google_calendar_list_events": "external_service_forbidden",
+      "obsidian_list_notes": "personal_files_forbidden"
+    }
+  },
+  "planned": [],
+  "not_implemented": [
+    "light_control",
+    "timer_control",
+    "shopping_list"
+  ]
+}

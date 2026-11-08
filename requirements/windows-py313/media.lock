@@ -1,0 +1,8 @@
+# Windows x64 CPython 3.13; closure of media.in; use together with same platform locks.
+typing_extensions==4.16.0 --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8
+winrt-runtime==3.2.1 --hash=sha256:3c1fdcaeedeb2920dc3b9039db64089a6093cad2be56a3e64acc938849245a6d
+winrt-Windows.Foundation==3.2.1 --hash=sha256:6e98617c1e46665c7a56ce3f5d28e252798416d1ebfee3201267a644a4e3c479
+winrt-Windows.Foundation.Collections==3.2.1 --hash=sha256:5e12a6e75036ee90484c33e204b85fb6785fcc9e7c8066ad65097301f48cdd10
+winrt-Windows.Media==3.2.1 --hash=sha256:3903ecde3c46abfe1f0572f7a95d205550dea19f7f229186cb89eb309ba26d45
+winrt-Windows.Media.Control==3.2.1 --hash=sha256:a586af02d1684fda70cdc3fef8fd74c6db50522454077bad7317295d1a87b82d
+winrt-Windows.Storage.Streams==3.2.1 --hash=sha256:202c5875606398b8bfaa2a290831458bb55f2196a39c1d4e5fa88a03d65ef915

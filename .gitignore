@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+
+# Environment variables
+.env
+
+# IDE
+.idea/
+.vscode/
+
+# System
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+/audit.log
+/*.log
+/report.xml
+/test_health.json
+/workers.json
+/workers.txt
+/opencode_*.txt
+/tmp_test*/
+/tmp_demo_debug/
+
+# Local application data
+data/
+dist/
+build/
+.orca/
+
+# Python package metadata
+*.egg-info/
+
+# Local recovery / patch artifacts
+/*.patch
+/JARVIS_STATE.md
+/jarvis_state.txt
+/README-JARVIS-RECOVERY.txt
+/apply-jarvis-*.ps1
+/AGENTS_HEAD.md
+/AGENTS_HEAD.m
+/debug_test*.py
+/test_mutex.py
+/test_audit.log
+/jarvis-diff-stat.txt
+/jarvis-git-log.txt
+/jarvis-git-status.txt

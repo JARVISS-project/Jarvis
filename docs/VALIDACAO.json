@@ -1,0 +1,66 @@
+{
+  "version": "0.1.2-public1",
+  "tests": {
+    "passed": 2502,
+    "skipped": 1,
+    "failed": 0,
+    "seconds": 136.17
+  },
+  "fresh_profile": {
+    "display_name": "empty until user configuration",
+    "address_mode": "natural",
+    "notes_connected": false,
+    "tts_enabled": false
+  },
+  "portable": {
+    "status": "passed",
+    "native_windows_ui": true,
+    "local_text": "verified",
+    "external_api_calls": 0,
+    "stt": "cpu/int8",
+    "piper": "silent WAV verified",
+    "second_instance_rejected": true,
+    "graceful_shutdown": true,
+    "zero_owned_processes": true
+  },
+  "privacy": {
+    "private_development_history_in_source": false,
+    "private_operations_modules_in_executable": false,
+    "application_modules_inspected": 295,
+    "personal_markers_found": 0,
+    "all_python_modules_inspected": 2886,
+    "application_code_modules_compared_to_source": 293,
+    "source_code_equivalence": true
+  },
+  "clean_windows": "pending",
+  "cuda": "not homologated",
+  "microphone": false,
+  "playback": false,
+  "signed": false,
+  "installer": {
+    "status": "passed",
+    "habitual_profile_changed": false,
+    "production_appid_used": false,
+    "microphone_playback": false,
+    "previous_install_exit": 0,
+    "install_exit": 0,
+    "installed_files_verified": 2388,
+    "installed_package_check_exit": 0,
+    "installed_native_ui_verified": true,
+    "reinstall_exit": 0,
+    "reinstall_preserved_data": true,
+    "uninstall_exit": 0,
+    "uninstall_preserved_data": true
+  },
+  "dependencies": {
+    "certifi": "2026.10.18",
+    "filelock": "4.2.1",
+    "official_wheel_hashes_verified": true,
+    "pip_check": "passed",
+    "emsign_roots_remaining": 0
+  },
+  "focused_installation_tests_after_lock_updates": {
+    "passed": 57,
+    "failed": 0
+  }
+}
