@@ -48,6 +48,7 @@ class AdminMethod(str, Enum):
     ACCOUNT_TEST = 'accounts.test'
     ACCOUNT_CONNECT = 'accounts.connect'
     ACCOUNT_CALENDARS = 'accounts.calendars'
+    ACCOUNT_PRIMARY = 'accounts.primary_calendar'
     ACCOUNT_CALENDAR_SELECT = 'accounts.calendar_select'
     ACCOUNT_READ = 'accounts.read'
     ORGANIZATION_STATE = 'organization.state'
@@ -373,6 +374,7 @@ class AdministrationService:
                 AdminMethod.ACCOUNT_TEST: {'connection', 'revision'},
                 AdminMethod.ACCOUNT_CONNECT: {'connection', 'revision', 'client_config'},
                 AdminMethod.ACCOUNT_CALENDARS: {'connection', 'revision'},
+                AdminMethod.ACCOUNT_PRIMARY: {'connection', 'revision'},
                 AdminMethod.ACCOUNT_CALENDAR_SELECT: {'read_connection', 'write_connection', 'revision', 'calendar', 'alias'},
                 AdminMethod.ACCOUNT_READ: {'enabled'},
                 AdminMethod.ORGANIZATION_STATE: set(), AdminMethod.ORGANIZATION_SELECT: {'path'},
@@ -454,12 +456,18 @@ class AdministrationService:
                     raise PermissionError('Central de contas indisponível neste runtime.')
                 if method is AdminMethod.ACCOUNTS:
                     return self.account_policies(self.accounts.inventory())
-                if method in {AdminMethod.ACCOUNT_CALENDARS, AdminMethod.ACCOUNT_CALENDAR_SELECT, AdminMethod.ACCOUNT_GUIDE}:
-                    if not self.config.google_calendar_enabled:
-                        raise PermissionError('Leitura Calendar desabilitada; revise Permissões.')
+                if method in {AdminMethod.ACCOUNT_CALENDARS, AdminMethod.ACCOUNT_PRIMARY,
+                              AdminMethod.ACCOUNT_CALENDAR_SELECT, AdminMethod.ACCOUNT_GUIDE}:
                     if self.permissions.decision('tool:google_calendar_list_events').mode == 'block':
                         raise PermissionError('Consulta Calendar bloqueada pela política.')
                 if method is AdminMethod.ACCOUNT_GUIDE:
+                    if not self.config.google_calendar_enabled:
+                        # Opening setup while disabled must not contact Google.
+                        data = self.accounts.inventory()
+                        data.update(candidate=self.accounts.default('calendar_read')[0],
+                            matching_writer=None, calendars=[], calendar_state='setup_required',
+                            calendar_notice='Conecte para consulta, consulte sua agenda principal e salve a seleção. Depois ative as consultas. Nenhuma consulta ao Google foi feita ao abrir esta tela.')
+                        return self.account_policies(data)
                     self.revoke()
                     result = self.accounts.guided_calendar(calendar_allowed=lambda calendar:
                         self.permissions.decision(scoped_resource('google_calendar_list_events', 'calendar_id', calendar)).mode != 'block')
@@ -482,6 +490,7 @@ class AdministrationService:
                     AdminMethod.ACCOUNT_TEST: self.accounts.test,
                     AdminMethod.ACCOUNT_CONNECT: self.accounts.connect,
                     AdminMethod.ACCOUNT_CALENDARS: self.accounts.calendars,
+                    AdminMethod.ACCOUNT_PRIMARY: self.accounts.primary_calendar,
                     AdminMethod.ACCOUNT_CALENDAR_SELECT: self.accounts.select_calendar}
                 if method is AdminMethod.ACCOUNT_READ:
                     if type(arguments['enabled']) is not bool:
@@ -496,7 +505,8 @@ class AdministrationService:
                 else:
                     extra = {'calendar_allowed': lambda calendar:
                         self.permissions.decision(scoped_resource('google_calendar_list_events', 'calendar_id', calendar)).mode != 'block'} if method in {
-                            AdminMethod.ACCOUNT_CALENDARS, AdminMethod.ACCOUNT_CALENDAR_SELECT} else {}
+                            AdminMethod.ACCOUNT_CALENDARS, AdminMethod.ACCOUNT_PRIMARY,
+                            AdminMethod.ACCOUNT_CALENDAR_SELECT} else {}
                     result = functions[method](**arguments, **extra)
                 self.revoke()
                 self._audit('account_administration')

@@ -1,0 +1,83 @@
+{
+  "version": "0.1.3-public2",
+  "regression": {
+    "passed": 2515,
+    "skipped": 1,
+    "failed": 0,
+    "seconds": 152.55
+  },
+  "focused_google_ui": {
+    "passed": 317,
+    "overlaps_regression": true
+  },
+  "targeted_checks": {
+    "passed": 54,
+    "overlaps_regression": true
+  },
+  "demonstration": {
+    "passed": 46,
+    "total": 46,
+    "effects": "simulated external boundaries; real local components and temporary files"
+  },
+  "windows_native_ui_review": {
+    "synthetic_profile": true,
+    "contrast_and_layout_reviewed": true
+  },
+  "portable": {
+    "status": "passed",
+    "local_qwen_text": "verified",
+    "second_instance_rejected": true,
+    "graceful_shutdown": true,
+    "zero_owned_processes": true
+  },
+  "binary_privacy": {
+    "python_modules": 2886,
+    "own_code_objects_equal": 293,
+    "private_markers": 0,
+    "catalog_source_bindings_verified": 42
+  },
+  "boundaries": {
+    "real_google_login": false,
+    "real_calendar_read_or_write": false,
+    "microphone": false,
+    "playback": false,
+    "paid_api_calls": 0,
+    "personal_profile_changed": false
+  },
+  "open_issues": [
+    "Public application OAuth client and Google production readiness",
+    "Clean Windows first installation",
+    "Guided model selection and event-write activation",
+    "CUDA and broader voice hardware validation",
+    "Optional and development dependency security review"
+  ],
+  "installer": {
+    "status": "passed",
+    "habitual_profile_changed": false,
+    "production_appid_used": false,
+    "microphone_playback": false,
+    "previous_install_exit": 0,
+    "install_exit": 0,
+    "installed_files_verified": 2388,
+    "installed_package_check_exit": 0,
+    "installed_native_ui_verified": true,
+    "reinstall_exit": 0,
+    "reinstall_preserved_data": true,
+    "uninstall_exit": 0,
+    "uninstall_preserved_data": true
+  },
+  "post_localization_checks": {
+    "passed": 73,
+    "overlaps_regression": true
+  },
+  "post_resource_integrity_checks": {
+    "passed": 106,
+    "overlaps_regression": true
+  },
+  "known_failed_attempts": [
+    "New test references required catalog regeneration",
+    "LF normalization required matching frozen catalog hashes; validation rejected mismatch until corrected",
+    "Offscreen preview lacked fonts; native Windows preview used",
+    "A redundant rebuild was stopped and final isolated build used"
+  ]
+}

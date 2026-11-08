@@ -11,13 +11,18 @@ O perfil fixado usa CPython 3.13.14 x64. Consulte os locks com hashes em
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --require-hashes --only-binary=:all: -r requirements/windows-py313/build.lock
-.\.venv\Scripts\python.exe -m pip install --require-hashes --only-binary=:all: -r requirements/windows-py313/mvp.lock
+.\.venv\Scripts\python.exe -m pip install --require-hashes --only-binary=:all: -r requirements/windows-py313/package.lock
+.\.venv\Scripts\python.exe -m pip install --require-hashes --only-binary=:all: -r requirements/windows-py313/tests.lock
 .\.venv\Scripts\python.exe -m pip install --no-deps --no-build-isolation -e .
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
 Para iniciar por texto: `python -m jarvis --ui`, com o ambiente ativado.
 Dados de desenvolvimento ficam locais e não devem ser versionados.
+
+O lock `package.lock` cobre o runtime distribuído. `mvp.lock` e o extra
+`fast-voice` também abrangem componentes opcionais, incluindo Torch/Transformers,
+que ainda precisam de revisão de segurança e não são necessários para usar o `.exe`.
 
 ## Pacote Windows
 

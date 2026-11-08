@@ -18,8 +18,25 @@ class AccountsPage(AdministrativePage):
         self.data, self.selected, self.choices = {}, None, []
         self.confirmation = None
         self._calendar_timezone_valid = False
-        self.layout.addWidget(literal_label('Contas e conexões — credencial, autorização e prontidão são diferentes. '
-            'Trocar conta padrão não transfere permissões; reinicie o runtime após mudanças.'))
+        self.setStyleSheet('''
+            QLabel { color: #c9dfe8; font-size: 13px; }
+            QWidget#calendarSetup, QWidget#accountSettings { background: #0a1925; }
+            QScrollArea { border: none; background: #0a1925; }
+            QTabWidget::pane { border: 1px solid #29495b; background: #0a1925; }
+            QTabBar::tab { background: #102736; color: #b8d3df; padding: 8px 14px; }
+            QTabBar::tab:selected { background: #17445a; color: #edf7fa; }
+            QLineEdit, QComboBox, QDateTimeEdit, QListWidget {
+                min-height: 28px; padding: 4px; background: #07131e;
+                color: #e2edf2; border: 1px solid #355567; border-radius: 6px;
+            }
+            QPushButton { padding: 7px 12px; background: #123548; color: #e2edf2;
+                          border: 1px solid #355567; border-radius: 6px; }
+            QPushButton:disabled { color: #7891a0; background: #101c25; }
+            QPushButton:checked { background: #1e4c60; }
+            QCheckBox { color: #c9dfe8; padding: 4px; }
+        ''')
+        self.layout.addWidget(literal_label('Conecte somente os serviços que quiser usar. '
+            'Sua conta, suas agendas e suas permissões são individuais.'))
         tabs = QTabWidget()
         from jarvis.ui.delegation import DelegationPage
         self.delegation = DelegationPage(client, submit_command)
@@ -28,8 +45,12 @@ class AccountsPage(AdministrativePage):
         delegation_scroll.setWidget(self.delegation)
         self.layout.addWidget(tabs)
         accounts, calendar = QWidget(), QWidget()
+        accounts.setObjectName('accountSettings')
+        calendar.setObjectName('calendarSetup')
         a, c = QVBoxLayout(accounts), QVBoxLayout(calendar)
-        for content, title in ((calendar, 'Calendar'), (accounts, 'Avançado')):
+        a.setAlignment(Qt.AlignmentFlag.AlignTop)
+        c.setAlignment(Qt.AlignmentFlag.AlignTop)
+        for content, title in ((calendar, 'Agenda'), (accounts, 'Gerenciar contas')):
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
             scroll.setWidget(content)
@@ -37,7 +58,7 @@ class AccountsPage(AdministrativePage):
         tabs.addTab(delegation_scroll, 'OpenAI / Gemini')
         # Google errors describe the Google tabs, not the independent API panel.
         tabs.currentChanged.connect(lambda index: self.status.setVisible(index != 2))
-        self.refresh_button = QPushButton('Atualizar estados locais')
+        self.refresh_button = QPushButton('Atualizar conexões e agendas')
         self.refresh_button.clicked.connect(self.refresh)
         a.addWidget(self.refresh_button)
         self.rows = QListWidget()
@@ -78,15 +99,25 @@ class AccountsPage(AdministrativePage):
             'clientes do mesmo projeto OAuth; use a gestão oficial do Google conscientemente. '
             'Spotify OAuth e redes sociais: planejados, sem backend de contas pronto.'))
         c.addWidget(literal_label('1. Conta Google'))
+        self.setup_help = literal_label(
+            'Nesta prévia, o login precisa de um arquivo OAuth do tipo Desktop, criado no Google Cloud. '
+            'Esse arquivo identifica o aplicativo; não é sua senha nem substitui o login no Google. '
+            'O instalador ainda não inclui um cliente de login público pronto. '
+            'Sem esse arquivo, você pode continuar usando o assistente local. '
+            'Instruções: docs/manual/GOOGLE.md no repositório.')
+        c.addWidget(self.setup_help)
         self.account_summary = literal_label('Verificando a conexão existente…')
         c.addWidget(self.account_summary)
-        self.guided_connect = QPushButton('Conectar/reconectar…')
+        self.guided_connect = QPushButton('Conectar Google para consultas…')
         self.guided_connect.clicked.connect(self.connect_candidate)
         c.addWidget(self.guided_connect)
         self.guided_refresh = QPushButton('Atualizar conta e agendas')
         self.guided_refresh.clicked.connect(self.refresh)
         c.addWidget(self.guided_refresh)
         c.addWidget(literal_label('2. Escolher agenda'))
+        self.primary_button = QPushButton('Consultar minha agenda principal')
+        self.primary_button.clicked.connect(self.load_primary)
+        c.addWidget(self.primary_button)
         self.calendar_state = literal_label('Carregando nomes reais das agendas disponíveis…')
         c.addWidget(self.calendar_state)
         self.reader, self.writer = QComboBox(), QComboBox()
@@ -106,13 +137,29 @@ class AccountsPage(AdministrativePage):
         a.addWidget(self.writer)
         self.write_selection = QCheckBox('Selecionar este calendário para WRITE (não ativa escrita)')
         a.addWidget(self.write_selection)
-        self.select_button = QPushButton('Salvar seleção explícita de conta/calendário')
+        self.select_button = QPushButton('Salvar esta agenda')
         self.select_button.clicked.connect(self.select_calendar)
         c.addWidget(self.select_button)
-        self.read_enabled = QCheckBox('Habilitar READ para a seleção padrão — exige reinício')
+        self.read_enabled = QCheckBox('Usar a agenda salva nas consultas — reinicie o JARVIS para aplicar')
         self.read_enabled.clicked.connect(lambda enabled: self.request('accounts.read', {'enabled': enabled}, self.render))
-        a.addWidget(self.read_enabled)
-        c.addWidget(literal_label('WRITE permanece desligado até consentimento mínimo, calendário de teste escolhido '
+        c.addWidget(self.read_enabled)
+        self.show_events = QPushButton('Mostrar opções para criar ou alterar eventos')
+        self.show_events.setCheckable(True)
+        c.addWidget(self.show_events)
+        self.event_options = QWidget()
+        events = QVBoxLayout(self.event_options)
+        self.event_options.setVisible(False)
+        self.show_events.toggled.connect(self.event_options.setVisible)
+        c.addWidget(self.event_options)
+        self.write_connect = QPushButton('Autorizar criação e alteração de eventos…')
+        self.write_connect.clicked.connect(lambda: self.connect_operation('calendar_write'))
+        events.addWidget(self.write_connect)
+        self.save_events = QPushButton('Salvar esta agenda para criação e alteração')
+        self.save_events.clicked.connect(lambda: self.select_calendar(for_events=True))
+        events.addWidget(self.save_events)
+        events.addWidget(literal_label('Esta seleção é separada da agenda de consultas. '
+                                      'Salvar não ativa a criação de eventos.'))
+        events.addWidget(literal_label('A criação de eventos permanece desligada até consentimento mínimo, calendário de teste escolhido '
             'e aprovação de uma prévia concreta. Ativação não ocorre ao salvar seleção. '
             'Somente criar evento simples ou alterar título/horário selecionado; sem convidados, recorrência, '
             'anexos, notificações ou exclusão. Confirmação ocorre na página Conversa pelo executor.'))
@@ -120,8 +167,8 @@ class AccountsPage(AdministrativePage):
         for label, value in [('Criar evento simples', 'criar'), ('Alterar título selecionado', 'titulo'),
                              ('Alterar horário selecionado', 'horario')]:
             self.action.addItem(label, value)
-        c.addWidget(self.action)
-        c.addWidget(literal_label('3. Revisar evento'))
+        events.addWidget(self.action)
+        events.addWidget(literal_label('3. Revisar evento'))
         self.title, self.event = QLineEdit('JARVIS — teste de integração'), QLineEdit()
         self.start, self.end = QDateTimeEdit(), QDateTimeEdit()
         for edit in (self.start, self.end):
@@ -135,22 +182,26 @@ class AccountsPage(AdministrativePage):
         for edit, hint in ((self.title, 'Título explícito'),
                            (self.event, 'ID do evento explicitamente selecionado — somente alteração')):
             edit.setPlaceholderText(hint)
-            c.addWidget(edit)
+            events.addWidget(edit)
         for label, widget in (('Início', self.start), ('Fim', self.end), ('Fuso horário da agenda', self.timezone)):
-            c.addWidget(literal_label(label))
-            c.addWidget(widget)
+            events.addWidget(literal_label(label))
+            events.addWidget(widget)
         self.preview = literal_label('Escolha uma agenda para revisar o evento. Nada será criado ao revisar.')
-        c.addWidget(self.preview)
+        events.addWidget(self.preview)
         self.review_button = QPushButton('Revisar evento — sem criar')
         self.review_button.clicked.connect(self.review)
-        c.addWidget(self.review_button)
+        events.addWidget(self.review_button)
         self.prepare_button = QPushButton('Preparar prévia e confirmação pelo executor')
         self.prepare_button.clicked.connect(self.prepare)
-        c.addWidget(self.prepare_button)
+        events.addWidget(self.prepare_button)
+        events.addWidget(literal_label('Se a escrita estiver desligada, este painel não a ativa. '
+            'A configuração avançada e o reinício ainda são necessários nesta prévia. '
+            'Cada evento exige confirmação na Conversa.'))
         self.controls = [self.refresh_button, self.add_button, self.connect_button, self.test_button,
             self.default_button, self.rename_button, self.disconnect_button, self.list_button,
             self.select_button, self.read_enabled, self.prepare_button, self.guided_connect,
-            self.guided_refresh, self.review_button, self.calendars, self.title, self.start, self.end, self.action, self.event]
+            self.guided_refresh, self.primary_button, self.write_connect, self.save_events, self.show_events,
+            self.review_button, self.calendars, self.title, self.start, self.end, self.action, self.event]
         self.calendars.currentIndexChanged.connect(self.calendar_changed)
         self.after_request()
 
@@ -240,6 +291,16 @@ class AccountsPage(AdministrativePage):
         self.calendars.setToolTip('Abra a lista e escolha uma agenda. Nenhuma agenda é selecionada automaticamente.'
             if self.choices else self.data.get('calendar_notice', 'Aguarde o carregamento ou atualize a conexão.'))
         self.guided_connect.setEnabled(not self.busy and bool(self.data.get('rows')))
+        reader = next((r for r in self.data.get('rows', [])
+                       if r['operation'] == 'calendar_read' and r['default']), None)
+        self.primary_button.setEnabled(not self.busy and bool(reader and reader['status'] == 'conectado'))
+        self.read_enabled.setEnabled(not self.busy and (bool(self.data.get('read_enabled'))
+            or bool(reader and reader['resources'] and reader['status'] == 'conectado')))
+        self.setup_help.setVisible(not reader or reader['status'] != 'conectado')
+        self.write_connect.setEnabled(not self.busy and bool(reader and reader['status'] == 'conectado'))
+        choice = next((r for r in self.choices if r['id'] == self.calendars.currentData()), {})
+        self.save_events.setEnabled(not self.busy and bool(self.data.get('matching_writer'))
+                                    and bool(choice.get('write_candidate')))
         self.guided_connect.setToolTip('Reutiliza e verifica conexões válidas; login oficial somente quando necessário. '
             'Se indisponível, atualize os estados ou reconecte o runtime.')
         for button in (self.test_button, self.default_button, self.rename_button, self.disconnect_button):
@@ -261,7 +322,7 @@ class AccountsPage(AdministrativePage):
     def connect_account(self):
         if not self.selected:
             return
-        if self.selected['status'] == 'conectado':
+        if self.selected['status'] in {'conectado', 'indisponível'}:
             self.account_request('accounts.test')
             return
         path, _ = QFileDialog.getOpenFileName(self, 'Selecionar cliente OAuth Desktop existente', '', 'JSON (*.json)')
@@ -309,10 +370,14 @@ class AccountsPage(AdministrativePage):
         self.status.setText('Agendas carregadas. Abra a lista e escolha pelo nome real; nada foi autorizado automaticamente.'
             if self.choices else 'Nenhuma agenda carregada. Confira a explicação e a próxima ação.')
 
-    def select_calendar(self):
+    def select_calendar(self, for_events=False):
         if self.choices and self.calendars.currentData():
             guided = 'candidate' in self.data
-            writer = self.data.get('matching_writer') if guided else self.writer.currentData() if self.write_selection.isChecked() else None
+            writer = (self.data.get('matching_writer') if for_events else None) if guided else (
+                self.writer.currentData() if self.write_selection.isChecked() else None)
+            if for_events and not writer:
+                self.status.setText('Autorize a criação de eventos e atualize as agendas antes de salvar.')
+                return
             if guided:
                 item = next(r for r in self.choices if r['id'] == self.calendars.currentData())
                 writer = writer if item.get('write_candidate') else None
@@ -328,11 +393,15 @@ class AccountsPage(AdministrativePage):
                 ('candidate', 'matching_writer', 'calendar_notice')}, 'calendars': list(self.choices)}
         self.render(data)
         self.calendars.setCurrentIndex(self.calendars.findData(calendar))
-        self.status.setText('Agenda selecionada. Revise o evento; WRITE não foi ativado. Reinício exigido antes da execução.')
+        self.status.setText('Agenda salva. Marque "Usar a agenda salva nas consultas" se desejar e reinicie. '
+                            'Criação e alteração de eventos não foram ativadas.')
 
     def connect_candidate(self):
-        operation = 'calendar_write' if any(r['operation'] == 'calendar_read' and r['default'] and
-            r['status'] == 'conectado' for r in self.data.get('rows', [])) else 'calendar_read'
+        self.connect_operation('calendar_read')
+
+    def connect_operation(self, operation):
+        if operation not in {'calendar_read', 'calendar_write'}:
+            return
         row = next((r for r in self.data.get('rows', []) if r['operation'] == operation and r['default']), None)
         if row:
             if row['status'] == 'conectado':
@@ -340,6 +409,13 @@ class AccountsPage(AdministrativePage):
                 return
             self.selected = row
             self.connect_account()
+
+    def load_primary(self):
+        reader = next((r for r in self.data.get('rows', [])
+                       if r['operation'] == 'calendar_read' and r['default']), None)
+        if reader:
+            self.request('accounts.primary_calendar', {'connection': reader['id'],
+                'revision': self.data['revision']}, self.render_calendars)
 
     def calendar_changed(self):
         item = next((r for r in self.choices if r['id'] == self.calendars.currentData()), None)

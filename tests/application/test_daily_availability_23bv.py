@@ -24,7 +24,7 @@ def test_dashboard_reads_local_evidence_without_loading_probing_or_executing(tmp
         rows = availability(service)
         assert set(rows) == {'Assistente local', 'Voz', 'Gemini', 'Google — leituras',
                              'Google — escrita na agenda', 'Aplicativos', 'Mídia'}
-        assert rows['Assistente local']['status'] == 'indisponível'
+        assert rows['Assistente local']['status'] == 'não verificado'
         assert rows['Gemini']['status'] == 'sem permissão'
         assert rows['Google — escrita na agenda']['status'] == 'desligado'
         assert all(r['reason'] and r['page'] and r['next_action'] for r in rows.values())
@@ -47,7 +47,7 @@ def test_credential_presence_never_implies_external_availability(tmp_path):
         assert availability(service)['Gemini']['status'] == 'não configurado'
         delegation.configure('gemini', 'gemini-3.5-flash-lite', 4096, 128, 5, 'synthetic-fixture')
         row = availability(service)['Gemini']
-        assert row['status'] == 'indisponível' and 'não verificados' in row['reason']
+        assert row['status'] == 'não verificado' and 'não verificados' in row['reason']
         change(service, 'delegation.execute', 'block')
         assert availability(service)['Gemini']['page'] == 'Permissões'
         assert not delegation.records
@@ -74,7 +74,7 @@ def test_media_distinguishes_registration_configuration_permission_and_live_stat
         if mode == 'blocked':
             change(service, 'tool:local_media_control', 'block')
         expected = {'missing': 'não configurado', 'disabled': 'desligado',
-                    'blocked': 'sem permissão', 'unverified': 'indisponível'}
+                    'blocked': 'sem permissão', 'unverified': 'não verificado'}
         assert availability(service)['Mídia']['status'] == expected[mode]
     finally:
         h.close()

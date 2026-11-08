@@ -26,6 +26,11 @@ seu próprio perfil. Microfone, conexões e ações exigem configuração/permis
 [Executar e compilar o código](docs/DESENVOLVIMENTO.md) ·
 [Privacidade](docs/PRIVACIDADE.md) · [Limitações](docs/ESTADO.md)
 
+## Estado e limites
+
+Consulte o [relatório completo do estado do projeto](docs/RELATORIO_ESTADO.md).
+A integração Google ainda exige preparação técnica: veja [conexão de contas e agenda](docs/manual/GOOGLE.md).
+
 ## Recursos
 
 - Conversa local, preferências, memória e interface em português.

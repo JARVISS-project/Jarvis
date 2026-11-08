@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 from uuid import uuid4
 
@@ -122,7 +123,12 @@ class FirstUseService:
             status = 'disponível no escopo' if ready and authorized else 'precisa conferir disponibilidade' if configured and authorized else 'precisa configurar ou autorizar'
             examples.append(dict(category=category, example=example, status=status, available=ready and authorized,
                                  next_action=('Envie em Conversa; permissões, alvo e confirmação continuam obrigatórios.' if ready and authorized else 'Abra ' + page + ' para conferir configuração, alvo e acesso.'), page=page))
+        model = self.config.model_name
+        command = ('ollama pull ' + model if isinstance(model, str)
+                   and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:/-]{0,199}', model) else '')
         return {'progress': self.progress(), 'steps': [dict(id=s[0], title=s[1], text=s[2], page=s[3]) for s in STEPS],
+                'local_setup': {'model': model, 'command': command,
+                    'download_url': 'https://ollama.com/download/windows'},
                 'examples': examples, 'diagnostic': self.latest,
                 'availability': self.availability(policy),
                 'advanced': 'Ajuda usa registro de Tools, CapabilityPolicy e política efetiva. Prontidão externa não é sondada aqui. Autenticação não concede autorização. Nenhum exemplo executa ações.'}
@@ -142,13 +148,14 @@ class FirstUseService:
                 row['mode'] == 'block' or row['effective'].startswith(('bloqueado', 'block'))))
 
         assistant = (self.latest or {}).get('assistant', {})
-        add('Assistente local', 'pronto' if assistant.get('status') == 'ready' else 'indisponível',
+        add('Assistente local', 'não verificado' if not assistant else
+            'pronto' if assistant.get('status') == 'ready' else 'indisponível',
             'Último diagnóstico local favorável; resposta do modelo não testada pelo painel.'
             if assistant.get('status') == 'ready' else 'Disponibilidade ainda não comprovada pelo diagnóstico local.',
             'Ajuda', 'Use Diagnosticar computador em Ajuda; converse por texto em Conversa.')
         voice_enabled = self.config.wake_word_enabled or self.config.tts_enabled
         add('Voz', 'sem permissão' if blocked('microphone.capture') else
-            'indisponível' if voice_enabled else 'desligado',
+            'não verificado' if voice_enabled else 'desligado',
             'Captura não autorizada; resposta falada pode ser ajustada em Ajustes.' if blocked('microphone.capture') else
             'Voz configurada; microfone, escuta, modelos e saída de áudio não testados pelo painel.' if self.config.wake_word_enabled else
             'Resposta falada configurada; ativação por voz desligada. Áudio e modelos não testados pelo painel.' if self.config.tts_enabled else
@@ -161,7 +168,7 @@ class FirstUseService:
         unreadable = bool(delegation and delegation.path.exists() and
                           not any(p['configured'] for p in providers))
         denied = any(blocked(r) for r in ('model.external', 'delegation.execute', 'tool:external_text_delegate'))
-        add('Gemini', 'sem permissão' if denied else 'indisponível' if gemini.get('configured') or unreadable else 'não configurado',
+        add('Gemini', 'sem permissão' if denied else 'indisponível' if unreadable else 'não verificado' if gemini.get('configured') else 'não configurado',
             'Envio externo bloqueado pela política local.' if denied else
             'Armazenamento protegido indisponível; revise a configuração API em Contas e conexões.' if unreadable else
             'Chave configurada localmente; disponibilidade, quota e plano não verificados.' if gemini.get('configured') else
@@ -179,7 +186,7 @@ class FirstUseService:
             allowed = [t for t in configured if not blocked('tool:' + t) and
                        self.admin.capability_policy and self.admin.capability_policy.is_enabled(TOOL_CAPABILITIES[t])]
             page = 'Contas e conexões' if name.startswith('Google') else 'Aplicativos' if name == 'Aplicativos' else 'Permissões'
-            status = 'desligado' if not enabled else 'não configurado' if not configured else 'sem permissão' if not allowed else 'indisponível'
+            status = 'desligado' if not enabled else 'não configurado' if not configured else 'sem permissão' if not allowed else 'não verificado'
             reason = ('Recurso desligado na configuração atual.' if not enabled else
                       'Componente não registrado nesta sessão.' if not configured else
                       'Política local não permite esta capacidade.' if not allowed else

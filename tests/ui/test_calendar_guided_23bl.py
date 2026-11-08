@@ -22,7 +22,7 @@ def test_guided_auto_load_real_resource_select_review_no_write_or_oauth(tmp_path
         page = window.accounts_page
         page.submit_command = sent.append
         tabs = page.findChild(QTabWidget)
-        assert tabs.tabText(0) == 'Calendar' and tabs.tabText(1) == 'Avançado'
+        assert tabs.tabText(0) == 'Agenda' and tabs.tabText(1) == 'Gerenciar contas'
         assert page.calendars.count() == 1 and page.calendars.currentIndex() == -1
         assert 'Escolha uma agenda' in page.calendars.placeholderText()
         assert page.calendars.isEnabled() and '1 agenda(s)' in page.calendar_state.text()

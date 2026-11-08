@@ -14,7 +14,7 @@ def configure_profile(root: Path | None = None) -> Path:
     if root is None:
         local = os.environ.get('LOCALAPPDATA')
         if not local:
-            raise RuntimeError('LOCALAPPDATA indisponÃ­vel.')
+            raise RuntimeError('LOCALAPPDATA indisponível.')
         root = Path(local) / 'JARVIS' / 'Desktop'
     root = root.expanduser().resolve()
     program = Path(sys.executable).resolve().parent
@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument('--endpoint', type=Path, help=argparse.SUPPRESS)
     parser.add_argument('--diagnostic', action='store_true')
     parser.add_argument('--runtime-stop', action='store_true')
-    parser.add_argument('--voice', action='store_true', help='Ativar voz explicitamente; requer permissÃµes e modelos provisionados.')
+    parser.add_argument('--voice', action='store_true', help='Ativar voz explicitamente; requer permissões e modelos provisionados.')
     parser.add_argument('--package-check', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--noninteractive', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--check-wav', type=Path, help=argparse.SUPPRESS)
@@ -90,5 +90,5 @@ def main(argv: list[str] | None = None) -> None:
         message = str(error) if isinstance(error, (SystemExit, ValueError)) else type(error).__name__
         if sys.platform == 'win32' and not args.package_check and not args.noninteractive:
             import ctypes
-            ctypes.windll.user32.MessageBoxW(None, 'JARVIS nÃ£o iniciou: ' + message + '\nUse o atalho DiagnÃ³stico ou consulte o manual.', 'JARVIS', 0x10)
+            ctypes.windll.user32.MessageBoxW(None, 'JARVIS não iniciou: ' + message + '\nUse o atalho Diagnóstico ou consulte o manual.', 'JARVIS', 0x10)
         raise SystemExit(2) from error

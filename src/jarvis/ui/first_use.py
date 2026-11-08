@@ -5,6 +5,7 @@ import json
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
+    QApplication, QSizePolicy,
     QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLineEdit,
     QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
 )
@@ -71,12 +72,21 @@ class AvailabilityPanel(AdministrativePage):
 class FirstUsePage(AdministrativePage):
     def __init__(self, client, navigate, parent=None) -> None:
         super().__init__(client, parent)
-        self.setStyleSheet('QLabel { color: #c9dfe8; font-family: "Segoe UI"; font-size: 12px; }')
+        self.setStyleSheet('''
+            QLabel { color: #c9dfe8; font-family: "Segoe UI"; font-size: 14px; }
+            QPushButton { background: #123548; color: #e2edf2; border: 1px solid #355567;
+                          border-radius: 6px; padding: 7px 10px; }
+            QPushButton:disabled { color: #7891a0; background: #101c25; }
+            QLineEdit, QListWidget, QPlainTextEdit { color: #dcebf2; background: #0a1925;
+                                                  border: 1px solid #355567; border-radius: 6px; }
+        ''')
+        self.layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.navigate = navigate
         self.data = {}
         self.confirmation = None
         self._startup_checked = False
         self.title = literal_label('Primeiro uso e Ajuda')
+        self.title.setStyleSheet('font-size: 20px; color: #e5f4fa;')
         self.instructions = literal_label('O tutorial não concede acessos nem ativa recursos.')
         self.layout.addWidget(self.title)
         self.layout.addWidget(self.instructions)
@@ -92,6 +102,17 @@ class FirstUsePage(AdministrativePage):
         self.open_page.clicked.connect(self.open_step)
         buttons.addWidget(self.open_page)
         self.layout.addLayout(buttons)
+        self.setup_card = QWidget()
+        self.setup_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        setup_layout = QVBoxLayout(self.setup_card)
+        self.setup_instructions = literal_label('')
+        setup_layout.addWidget(self.setup_instructions)
+        self.setup_summary = literal_label('Use o diagnóstico para conferir a conversa local. Nada será baixado automaticamente.')
+        setup_layout.addWidget(self.setup_summary)
+        self.copy_model = QPushButton('Copiar comando para preparar o modelo')
+        self.copy_model.clicked.connect(self.copy_model_command)
+        setup_layout.addWidget(self.copy_model)
+        self.layout.addWidget(self.setup_card)
         self.search = QLineEdit()
         self.search.setPlaceholderText('Buscar exemplos: agenda, documentos, voz…')
         self.search.textChanged.connect(self.filter_examples)
@@ -126,6 +147,10 @@ class FirstUsePage(AdministrativePage):
         self.advanced_button.setCheckable(True)
         self.advanced_button.toggled.connect(self.show_advanced)
         self.layout.addWidget(self.advanced_button)
+        self.diagnostic.hide()
+        for widget in (self.profiles, self.prepare_button, self.rollback_button):
+            widget.hide()
+        self.layout.addStretch(1)
         self.controls = [self.back, self.next, self.skip, self.resume, self.open_page,
                          self.diagnose_button, self.prepare_button, self.profiles, self.rollback_button]
         self._rollback_available = False
@@ -148,8 +173,26 @@ class FirstUsePage(AdministrativePage):
         progress = data['progress']
         step = next(s for s in data['steps'] if s['id'] == progress['step'])
         index = data['steps'].index(step)
-        self.title.setText(f"{index + 1}/6 — {step['title']}")
+        self.title.setText(f"{index + 1}/{len(data['steps'])} — {step['title']}")
         self.instructions.setText(step['text'])
+        setup = data.get('local_setup', {})
+        is_local_setup = progress['step'] == 'hardware'
+        self.setup_card.setVisible(is_local_setup)
+        self.setup_instructions.setText(
+            'Conversa local, sem chave de API paga\n'
+            '1. Instale e abra Ollama pela fonte oficial: ' + setup.get('download_url', '') + '\n'
+            '2. Prepare o modelo inicial no terminal: ' + setup.get('command', 'consulte o manual') + '\n'
+            'O modelo ocupa espaço e precisa ser baixado por você; este botão apenas copia o comando.\n'
+            '3. Clique em Diagnosticar computador e depois abra Conversa. Voz e Google são opcionais.')
+        self.copy_model.setEnabled(bool(setup.get('command')) and not self.busy)
+        self.open_page.setText('Personalizar assistente' if progress['step'] == 'welcome'
+                               else 'Abrir ' + step['page'] if step['page'] else 'Configuração nesta página')
+        self.next.setText('Concluir tutorial' if index == len(data['steps']) - 1 else 'Continuar')
+        show_help = progress['finished'] or progress['dismissed'] or progress['step'] == 'examples'
+        for widget in (self.search, self.examples, self.example_text, self.example_settings):
+            widget.setVisible(show_help)
+        self.diagnose_button.setVisible(is_local_setup or show_help)
+        self.advanced_button.setVisible(is_local_setup or show_help)
         self.status.setText('Tutorial concluído. Ajuda continua disponível.' if progress['finished'] else
                             'Tutorial pausado; retome quando quiser.' if progress['dismissed'] else
                             'Tutorial disponível. Nada será ativado automaticamente.' if progress['valid'] else
@@ -164,6 +207,12 @@ class FirstUsePage(AdministrativePage):
             self.data['progress'] = progress
             self.loaded(self.data)
         self.request('help.progress', {'action': action}, updated)
+
+    def copy_model_command(self) -> None:
+        command = self.data.get('local_setup', {}).get('command', '')
+        if command:
+            QApplication.clipboard().setText(command)
+            self.status.setText('Comando copiado. Nada foi instalado, baixado ou executado.')
 
     def after_request(self) -> None:
         if self.busy:
@@ -224,6 +273,10 @@ class FirstUsePage(AdministrativePage):
         return f'{value / 1024**3:.2f} GiB' if isinstance(value, int) else 'indisponível'
 
     def show_diagnostic(self, data) -> None:
+        self.setup_summary.setText(
+            'Modelo local encontrado. Abra Conversa para experimentar; este diagnóstico não gera uma resposta.'
+            if data['assistant']['status'] == 'ready' else
+            'Conversa local ainda indisponível. Confira Ollama e prepare o modelo indicado acima; depois repita o diagnóstico.')
         ram, disk, vram = data['ram'], data['disk'], data['vram']
         system = data['system']
         lines = [f"{system['os']} / {system['architecture']} / {system['cpu']}",
@@ -244,6 +297,9 @@ class FirstUsePage(AdministrativePage):
         self.after_request()
 
     def show_advanced(self, checked) -> None:
+        self.diagnostic.setVisible(checked)
+        for widget in (self.profiles, self.prepare_button, self.rollback_button):
+            widget.setVisible(checked)
         if checked:
             self.diagnostic.setPlainText(self.data.get('advanced', '') + '\n' + json.dumps(self.data.get('diagnostic'), ensure_ascii=False, indent=2))
         elif self.data.get('diagnostic'):

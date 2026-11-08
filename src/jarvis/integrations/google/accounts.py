@@ -440,6 +440,31 @@ class AccountService:
                                'timezone': str(item.get('timeZone', ''))})
         return {'revision': revision, 'calendars': result}
 
+    def primary_calendar(self, connection, revision, *, calendar_allowed=None):
+        """Explicit setup metadata only; does not select resources or enable reads."""
+        state = self._read()
+        row = self._row(state, connection)
+        if (state['revision'] != revision or row['operation'] != 'calendar_read'
+                or self._verified.get(connection, ('',))[0] != 'conectado'
+                or calendar_allowed is None or not calendar_allowed('primary')):
+            raise PermissionError('Conecte a leitura e confira as permissões antes de consultar.')
+        auth = BoundAccountAuth(self, connection, dict(row),
+            self.auth_factory(row['operation'], self._credential(row)), require_default=False)
+        item = self._calendar_client(auth).get('/calendars/primary', {})
+        if (not isinstance(item, dict) or not isinstance(item.get('id'), str)
+                or not item['id'] or len(item['id']) > 256
+                or any(ord(c) < 32 for c in item['id'])
+                or not isinstance(item.get('summary'), str)
+                or not isinstance(item.get('timeZone'), str)):
+            raise ValueError('Dados da agenda principal inválidos.')
+        if not calendar_allowed(item['id']) or self._read()['revision'] != revision:
+            raise PermissionError('Permissão ou seleção mudou; nenhuma agenda selecionada.')
+        auth.binding()
+        return {'revision': revision, 'calendars': [
+            {'id': item['id'], 'label': item['summary'], 'role': 'unknown',
+             'timezone': item['timeZone'], 'write_candidate': False}],
+            'notice': 'Escolha e salve a agenda. A consulta não ativa leitura nem escrita.'}
+
     def guided_calendar(self, *, calendar_allowed=None):
         """Read-only readiness using existing defaults, never OAuth or a new grant."""
         self.initialize()

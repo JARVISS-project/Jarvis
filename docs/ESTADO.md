@@ -1,36 +1,27 @@
-# Estado da ediÃ§Ã£o pÃºblica
+# Estado da edição pública
 
-PrÃ©via para Windows x64, configuraÃ§Ã£o individual e integraÃ§Ãµes opcionais.
-O programa Ã© gratuito e GPL-3.0-or-later. Modelos sÃ£o preparados separadamente.
-As notas da versÃ£o informam os testes realizados e suas limitaÃ§Ãµes.
+O JARVIS é uma prévia para Windows x64, com configuração individual e integrações opcionais.
+O núcleo local é utilizável após preparar Ollama/modelo e permissões. O fluxo de
+instalar e conectar Google sem preparação técnica ainda não está concluído.
 
-Para ampliar a validaÃ§Ã£o:
+Veja o [relatório completo de funcionalidades, correções e prioridades](RELATORIO_ESTADO.md)
+e os [resultados estruturados da revisão](REVISAO_VALIDACAO.json).
 
-- Testar instalaÃ§Ã£o/primeira configuraÃ§Ã£o em Windows limpo.
-- Melhorar a orientaÃ§Ã£o para preparar Ollama, modelo local e voz.
-- Resolver e validar dependÃªncias CUDA em hardware compatÃ­vel.
-- Avaliar precisÃ£o e desempenho da voz em mais equipamentos.
+## Revisão 0.1.3-public2
 
-Essas pendÃªncias nÃ£o significam que toda integraÃ§Ã£o estÃ¡ validada. Uma sondagem
-de hardware nÃ£o comprova inferÃªncia, precisÃ£o ou compatibilidade universal.
+- Fluxo de agenda de consulta separado das opções de criar/alterar eventos.
+- Preparação inicial desbloqueada, consulta explícita da agenda principal e seleção individual.
+- Tutorial com orientação para conversa local; detalhes técnicos recolhidos.
+- Layout de contas e primeiro uso com melhor contraste e controles agrupados.
+- Estado não verificado separado de indisponibilidade comprovada.
 
-## Prévia 0.1.2-public1
+## O que continua pendente
 
-2502 testes passaram, 1 skip por symlink indisponível, zero falhas.
-Instalador: instalação/atualização, 2388 hashes, Qt, reinstalação e
-desinstalação com perfil temporário preservado. Portátil: Qt Windows, conversa
-Qwen local, Piper/WAV e STT CPU/int8 com áudio sintético, sem microfone/playback.
-Perfil novo sem notas/contas, nome vazio e tratamento natural; preferências
-existentes preservadas. [Resultados estruturados](VALIDACAO.json).
+- Cliente OAuth público do aplicativo para um login Google simples, sem JSON manual.
+- Validação em Windows limpo e jornada Google real de uma instalação pública nova.
+- Seleção guiada de modelo, ativação de eventos pela interface e reinício orientado.
+- Voz CUDA, compatibilidade ampliada e revisão de dependências opcionais.
 
-A suíte pública cobre o produto e segurança. Ferramentas privadas de gestão
-e testes de antigos corpora pessoais não fazem parte desta edição.
-
-O pacote público atualiza certifi para 2026.10.18 e filelock para 4.2.1,
-com hashes oficiais e ambiente independente. Dependências opcionais de voz
-alternativa e ferramentas de desenvolvimento ainda precisam de revisão; os
-alertas antigos do GitHub também abrangiam componentes fora desta edição.
-Testes funcionais não substituem a revisão de vulnerabilidades conhecidas.
-
-A seleção guiada do modelo local na primeira abertura permanece no backlog.
-Nesta prévia, prepare no Ollama o modelo inicial informado no manual.
+A evidência anterior da prévia 0.1.2 está em [VALIDACAO.json](VALIDACAO.json).
+Voz CPU/Piper e conversa local foram testadas; isso não homologa todo equipamento.
+Instalador não inclui modelos, perfis ou credenciais de outra pessoa e não tem assinatura paga.
