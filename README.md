@@ -7,6 +7,9 @@ informado abaixo, preparado no computador de cada usuário.
 **Gratuito e de código aberto — GPL-3.0-or-later.** Nenhuma chave de API paga é
 necessária para conversar usando Ollama local. Serviços externos são opcionais.
 
+[Página do projeto](https://jarviss-project.github.io/Jarvis/) ·
+[Política de privacidade](https://jarviss-project.github.io/Jarvis/privacidade.html)
+
 ## Começar
 
 1. Baixe o instalador `.exe` em [Releases](https://github.com/JARVISS-project/Jarvis/releases).
@@ -29,7 +32,9 @@ seu próprio perfil. Microfone, conexões e ações exigem configuração/permis
 ## Estado e limites
 
 Consulte o [relatório completo do estado do projeto](docs/RELATORIO_ESTADO.md).
-A integração Google ainda exige preparação técnica: veja [conexão de contas e agenda](docs/manual/GOOGLE.md).
+O login Google incluído na prévia 0.1.4 está restrito às contas de teste;
+a opção de cliente próprio exige configuração. Veja [conexão de contas e agenda](docs/manual/GOOGLE.md).
+O avanço do login próprio na prévia 0.1.4 está em [Google público: implementação e validação](docs/GOOGLE_PUBLIC_PREVIEW.md).
 
 ## Recursos
 

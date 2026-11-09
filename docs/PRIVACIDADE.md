@@ -16,3 +16,7 @@ Voz só deve ser habilitada após preparar modelos e conceder permissão de capt
 
 Permissões, limites de pastas, confirmações e auditoria continuam em vigor.
 O programa não importa automaticamente notas ou contas de outra instalação.
+
+A política detalhada de acesso, uso, armazenamento, serviços externos,
+desconexão e exclusão está em [site/privacidade.html](../site/privacidade.html).
+Contato de suporte e privacidade do projeto: suportejarvis1@gmail.com.

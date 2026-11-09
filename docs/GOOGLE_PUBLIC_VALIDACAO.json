@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-08",
+  "version": "0.1.4-preview1",
+  "tests": {
+    "passed": 2545,
+    "skipped": 1,
+    "failed": 0,
+    "skip_reason": "historical Windows symlink test",
+    "focused": 357,
+    "post_ui_adjustments": 33,
+    "counts_overlap": true
+  },
+  "binary": {
+    "scanned_modules": 2887,
+    "own_modules_match_source": 294,
+    "namespace_packages": [
+      "jarvis.browser",
+      "jarvis.organization"
+    ],
+    "code_differences": [],
+    "private_marker_modules": []
+  },
+  "installer": {
+    "status": "passed",
+    "matching_files": 2389,
+    "reinstall": true,
+    "uninstall_preserved_profile": true,
+    "program_removed": true
+  },
+  "google": {
+    "mode": "external_testing",
+    "real_test_account": "dedicated_project_support_only",
+    "oauth_pkce_login_verified": true,
+    "metadata_verified": true,
+    "credentials_persisted_across_restart": true,
+    "guided_selection_and_natural_question_verified": true,
+    "query": "Qual é minha agenda de hoje?",
+    "empty_calendar_result_verified": true,
+    "write_enabled": false,
+    "personal_account_used": false,
+    "profile_shipped": false,
+    "user_tokens_shipped": false,
+    "application_identity_included": true,
+    "automatic_operations": [
+      "calendar_read"
+    ],
+    "google_verification_submitted": false,
+    "public_google_access_ready": false
+  },
+  "site": {
+    "home": "https://jarviss-project.github.io/Jarvis/",
+    "privacy": "https://jarviss-project.github.io/Jarvis/privacidade.html",
+    "public_http_verified": true,
+    "url_prefix_ownership_verified": true,
+    "paid_hosting": false
+  },
+  "limits": [
+    "Google review and production release pending",
+    "clean Windows not homologated",
+    "CUDA not homologated",
+    "Google writes not validated by this delivery"
+  ]
+}

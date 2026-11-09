@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateTimeEdit, QDialog, QDi
     QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget)
 
 from jarvis.integrations.google.accounts import LABELS
+from jarvis.integrations.google.public_login import PUBLIC_CLIENT
 from jarvis.ui.administration import AdministrativePage, literal_label
 
 
@@ -83,6 +84,8 @@ class AccountsPage(AdministrativePage):
         self.rename_button = QPushButton('Salvar nome')
         self.disconnect_button = QPushButton('Desconectar localmente…')
         self.connect_button.clicked.connect(self.connect_account)
+        self.custom_client_button = QPushButton('Usar cliente Google próprio…')
+        self.custom_client_button.clicked.connect(lambda: self.connect_account(custom_client=True))
         self.test_button.clicked.connect(lambda: self.account_request('accounts.test'))
         self.default_button.clicked.connect(lambda: self.change('default', True))
         self.rename_button.clicked.connect(lambda: self.change('label', self.label.text()))
@@ -94,17 +97,19 @@ class AccountsPage(AdministrativePage):
         secondary.addWidget(self.rename_button)
         secondary.addWidget(self.disconnect_button)
         a.addLayout(secondary)
+        a.addWidget(self.custom_client_button)
         a.addWidget(literal_label('Desconectar remove somente a credencial local e invalida aprovações. '
             'Não desfaz efeitos nem revoga no Google. Revogação remota pode afetar Calendar, Drive/Docs e outros '
             'clientes do mesmo projeto OAuth; use a gestão oficial do Google conscientemente. '
             'Spotify OAuth e redes sociais: planejados, sem backend de contas pronto.'))
         c.addWidget(literal_label('1. Conta Google'))
-        self.setup_help = literal_label(
+        self._manual_setup_help = (
             'Nesta prévia, o login precisa de um arquivo OAuth do tipo Desktop, criado no Google Cloud. '
             'Esse arquivo identifica o aplicativo; não é sua senha nem substitui o login no Google. '
             'O instalador ainda não inclui um cliente de login público pronto. '
             'Sem esse arquivo, você pode continuar usando o assistente local. '
             'Instruções: docs/manual/GOOGLE.md no repositório.')
+        self.setup_help = literal_label(self._manual_setup_help)
         c.addWidget(self.setup_help)
         self.account_summary = literal_label('Verificando a conexão existente…')
         c.addWidget(self.account_summary)
@@ -169,7 +174,7 @@ class AccountsPage(AdministrativePage):
             self.action.addItem(label, value)
         events.addWidget(self.action)
         events.addWidget(literal_label('3. Revisar evento'))
-        self.title, self.event = QLineEdit('JARVIS — teste de integração'), QLineEdit()
+        self.title, self.event_id = QLineEdit('JARVIS — teste de integração'), QLineEdit()
         self.start, self.end = QDateTimeEdit(), QDateTimeEdit()
         for edit in (self.start, self.end):
             edit.setCalendarPopup(True)
@@ -180,7 +185,7 @@ class AccountsPage(AdministrativePage):
         self.end.setDateTime(self.start.dateTime().addSecs(1800))
         self.timezone = literal_label(QTimeZone.systemTimeZone().id().data().decode())
         for edit, hint in ((self.title, 'Título explícito'),
-                           (self.event, 'ID do evento explicitamente selecionado — somente alteração')):
+                           (self.event_id, 'ID do evento explicitamente selecionado — somente alteração')):
             edit.setPlaceholderText(hint)
             events.addWidget(edit)
         for label, widget in (('Início', self.start), ('Fim', self.end), ('Fuso horário da agenda', self.timezone)):
@@ -201,7 +206,7 @@ class AccountsPage(AdministrativePage):
             self.default_button, self.rename_button, self.disconnect_button, self.list_button,
             self.select_button, self.read_enabled, self.prepare_button, self.guided_connect,
             self.guided_refresh, self.primary_button, self.write_connect, self.save_events, self.show_events,
-            self.review_button, self.calendars, self.title, self.start, self.end, self.action, self.event]
+            self.review_button, self.calendars, self.title, self.start, self.end, self.action, self.event_id]
         self.calendars.currentIndexChanged.connect(self.calendar_changed)
         self.after_request()
 
@@ -225,6 +230,14 @@ class AccountsPage(AdministrativePage):
             return
         selected = self.selected['id'] if self.selected else None
         self.data, self.selected, self.choices = data, None, []
+        login = data.get('google_login', {})
+        if login.get('available'):
+            self.setup_help.setText('Login JARVIS em teste: clique em Conectar Google para consultas. '
+                'O Google permite somente contas cadastradas para teste. Você escolhe a conta e autoriza '
+                'somente identificação e consulta; eventos não são alterados. '
+                'Nenhum arquivo técnico é necessário neste pacote. Você pode continuar sem Google.')
+        else:
+            self.setup_help.setText(self._manual_setup_help)
         self.rows.clear()
         self.reader.clear()
         self.writer.clear()
@@ -250,7 +263,7 @@ class AccountsPage(AdministrativePage):
             if data.get('matching_writer'):
                 self.writer.setCurrentIndex(self.writer.findData(data['matching_writer']))
             writer = next((r for r in data['rows'] if r['operation'] == 'calendar_write' and r['default']), None)
-            self.account_summary.setText(f"{candidate['account']}\nConta: {candidate['status']}. "
+            self.account_summary.setText(f"Conexão: {candidate['label']}\nConta: {candidate['status']}. "
                 f"Acesso de escrita: {writer['status'] if writer else 'indisponível'}. "
                 'Uma conexão válida será reutilizada, sem novo login.')
         if 'calendars' in data:
@@ -275,10 +288,15 @@ class AccountsPage(AdministrativePage):
         if not hasattr(self, 'prepare_button'):
             return
         for button in (self.connect_button, self.test_button, self.default_button,
-                       self.rename_button, self.disconnect_button):
+                       self.rename_button, self.disconnect_button, self.custom_client_button):
             button.setEnabled(not self.busy and self.selected is not None)
         if self.selected and self.selected['operation'] in {'authentication', 'legacy_calendar_write'}:
             self.connect_button.setEnabled(False)
+            self.custom_client_button.setEnabled(False)
+        if self.selected and self.selected['status'] in {'conectado', 'indisponível'}:
+            self.custom_client_button.setEnabled(False)
+        self.custom_client_button.setToolTip('Adicione uma conexão sem autorização para usar um cliente próprio; '
+            'uma conexão existente não é substituída silenciosamente.')
         self.prepare_button.setEnabled(not self.busy and bool(self.data.get('write_enabled')) and
             self.calendars.currentData() is not None)
         self.prepare_button.setToolTip('WRITE está desligado. Revise o evento; a ativação e a confirmação pelo executor são gates separados.'
@@ -319,11 +337,16 @@ class AccountsPage(AdministrativePage):
     def change(self, action, value):
         self.account_request('accounts.change', {'action': action, 'value': value})
 
-    def connect_account(self):
+    def connect_account(self, *, custom_client=False):
         if not self.selected:
             return
         if self.selected['status'] in {'conectado', 'indisponível'}:
             self.account_request('accounts.test')
+            return
+        login = self.data.get('google_login', {})
+        if (not custom_client and login.get('available')
+                and self.selected['operation'] in login.get('operations', [])):
+            self.account_request('accounts.connect', {'client_config': PUBLIC_CLIENT})
             return
         path, _ = QFileDialog.getOpenFileName(self, 'Selecionar cliente OAuth Desktop existente', '', 'JSON (*.json)')
         if path:
@@ -384,7 +407,7 @@ class AccountsPage(AdministrativePage):
             self.request('accounts.calendar_select', {'read_connection': self.reader.currentData(),
                 'write_connection': writer,
                 'revision': self.data['revision'], 'calendar': self.calendars.currentData(),
-                'alias': 'teste' if guided else self.alias.text()}, self.selection_saved)
+                'alias': ('teste' if for_events else 'principal') if guided else self.alias.text()}, self.selection_saved)
 
     def selection_saved(self, data):
         calendar = self.calendars.currentData()
@@ -483,5 +506,5 @@ class AccountsPage(AdministrativePage):
                 return
             values.update(inicio=dates['inicio'], fim=dates['fim'], timezone=dates['timezone'])
         if action != 'criar':
-            values['evento'] = self.event.text()
+            values['evento'] = self.event_id.text()
         self.submit_command('/agenda ' + ('criar' if action == 'criar' else 'alterar') + ' ' + json.dumps(values, ensure_ascii=False))

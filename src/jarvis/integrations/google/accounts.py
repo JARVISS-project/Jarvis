@@ -22,6 +22,7 @@ from jarvis.integrations.google.errors import (
 )
 from jarvis.integrations.google.models import ConnectionState
 from jarvis.integrations.google.operation_lock import GoogleOperationLock
+from jarvis.integrations.google.public_login import PUBLIC_CLIENT, public_client_path, public_login_status
 from jarvis.integrations.google.storage import ProtectedFileCredentialStore, WindowsDPAPIProtector
 
 PROFILES = {
@@ -244,6 +245,7 @@ class AccountService:
                     'legacy': row['legacy']})
             return {'revision': state['revision'], 'rows': rows, 'read_enabled': self.config.google_calendar_enabled,
                     'write_enabled': self.config.google_calendar_write_enabled,
+                    'google_login': public_login_status(),
                     'planned': ['Spotify OAuth e redes sociais: planejados; backend de contas indisponível.'],
                     'note': 'Trocar padrão exige reiniciar runtime; não transfere recursos. Desconectar é somente local; não revoga no Google.'}
 
@@ -344,6 +346,7 @@ class AccountService:
             row = self._row(state, connection)
             if row['operation'] not in {'calendar_read', 'calendar_write', 'drive_docs_read'}:
                 raise PermissionError('Fluxo legado preservado; não ampliar por esta central.')
+            client_path = public_client_path(row['operation']) if client_config == PUBLIC_CLIENT else Path(client_config)
             auth = self.auth_factory(row['operation'], self._credential(row))
             status = auth.status()
             if status.state is ConnectionState.ERROR:
@@ -360,7 +363,7 @@ class AccountService:
             # Existing valid connection is tested, not overwritten silently.
             if self._cancel.is_set():
                 raise PermissionError('Runtime fechando; nenhum OAuth iniciado.')
-            auth.connect(Path(client_config), cancel=self._cancel)
+            auth.connect(client_path, cancel=self._cancel)
         return self.test(connection, revision)
 
     def cancel_connection(self):

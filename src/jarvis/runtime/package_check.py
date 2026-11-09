@@ -90,6 +90,16 @@ def run_check(root: Path, args) -> None:
                                    'microphone_permission': h.administration.permissions.decision('microphone.capture').mode}
         assert not cfg.google_calendar_write_enabled and not cfg.tts_enabled
         assert result['fresh_profile']['microphone_permission'] == 'block'
+        window.nav_buttons['Contas e conexões'].click()
+        accounts_page = window.accounts_page
+        settle(lambda: bool(accounts_page.data.get('rows')) and not accounts_page.busy)
+        result['google_login'] = accounts_page.data.get('google_login', {})
+        assert not accounts_page.data['read_enabled'] and not accounts_page.data['write_enabled']
+        assert not list((root / 'google').glob('credentials*.bin'))
+        if result['google_login'].get('available'):
+            assert result['google_login'] == {'available': True, 'mode': 'testing', 'operations': ['calendar_read']}
+            assert 'Login JARVIS em teste' in accounts_page.setup_help.text()
+        window.grab().save(str(root / 'tmp' / 'packaged-accounts.png'))
         result['com_read_only'] = check_core_audio(True)
         result['winrt_read_only'] = check_gsmtc(True)
         import piper, onnxruntime, ctranslate2, winrt.windows.media.control, pvrecorder

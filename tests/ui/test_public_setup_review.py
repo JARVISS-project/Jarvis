@@ -51,7 +51,7 @@ def test_setup_from_disabled_read_can_select_before_enabling_without_writes(tmp_
         page.calendars.setCurrentIndex(0)
         page.select_button.click()
         settle(app, lambda: not page.busy)
-        assert service.accounts.default('calendar_read')[1]['resources'] == {'teste': 'synthetic-calendar'}
+        assert service.accounts.default('calendar_read')[1]['resources'] == {'principal': 'synthetic-calendar'}
         assert not service.config.google_calendar_enabled
         assert service.accounts.default('calendar_write')[1] == writer_before
         assert page.read_enabled.isEnabled()

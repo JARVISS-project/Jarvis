@@ -24,5 +24,16 @@ def read_request(message: str) -> tuple[str, str] | None:
         text, alias = selected.groups()
     match = FastPathRouter().match(text)
     if match is None or match.period not in {"today", "tomorrow", "upcoming"}:
-        return None
+        # Full utterance only: conversational wording never removes negations,
+        # a second intent, an unknown target or the requirement for a period.
+        common = re.fullmatch(
+            r"(?:jarvis )?(?:(?:qual(?: e)?|mostre|mostra|exiba|liste|lista) )?"
+            r"(?:a )?(?:minha )?agenda (?:de |para |pra |dos )?"
+            r"(hoje|amanha|proximos (?:sete|7) dias)",
+            FastPathRouter.normalize(text),
+        )
+        if common is None:
+            return None
+        period = {'hoje': 'today', 'amanha': 'tomorrow'}.get(common[1], 'upcoming')
+        return period, alias
     return match.period, alias

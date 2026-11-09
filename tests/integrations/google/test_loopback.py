@@ -28,6 +28,7 @@ def test_loopback_receives_callback_without_echoing_code() -> None:
     assert result.state == "expected"
     assert "authorization-secret" in result.authorization_response
     assert "authorization-secret" not in response_body[0]
+    assert "Volte ao JARVIS para verificar a conexão" in response_body[0]
 
 
 def test_loopback_timeout_is_bounded() -> None:

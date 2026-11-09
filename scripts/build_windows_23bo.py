@@ -22,9 +22,12 @@ WORK = ROOT / 'data' / 'packaging-public'
 OUTPUT = ROOT / 'dist' / '23by'
 
 
-def run(arguments: list[str]) -> None:
+def run(arguments: list[str], *, google_login: Path | None = None) -> None:
     environment = isolated_build_environment(WORK / 'venv', ROOT / 'src',
                                              Path(sys.base_prefix), Path(os.environ['SystemRoot']))
+    environment.pop('JARVIS_BUILD_GOOGLE_LOGIN', None)
+    if google_login is not None:
+        environment['JARVIS_BUILD_GOOGLE_LOGIN'] = str(google_login)
     subprocess.run(arguments, cwd=ROOT, env=environment, check=True)
 
 
@@ -149,6 +152,8 @@ def main() -> None:
     parser.add_argument('--installer', action='store_true')
     parser.add_argument('--manifest', action='store_true')
     parser.add_argument('--output-dir', type=Path, default=OUTPUT)
+    parser.add_argument('--google-client-config', type=Path,
+                        help='Explicit dedicated application Desktop JSON; testing only, never a user token/profile.')
     args = parser.parse_args()
     OUTPUT = args.output_dir.resolve()
     if args.prepare:
@@ -164,11 +169,18 @@ def main() -> None:
     elif args.manifest:
         manifest()
     else:
+        google_login = None
+        if args.google_client_config is not None:
+            from jarvis.integrations.google.public_login import validate_public_client
+            public_client = validate_public_client(args.google_client_config)
+            WORK.mkdir(parents=True, exist_ok=True)
+            google_login = WORK / ('google-login-' + OUTPUT.name + '.json')
+            google_login.write_text(json.dumps(public_client), encoding='utf-8')
         run([str(WORK / 'venv/Scripts/python.exe'), str(__file__), '--assets',
              '--output-dir', str(OUTPUT)])
         run([str(WORK / 'venv/Scripts/python.exe'), '-m', 'PyInstaller', '--noconfirm',
              '--distpath', str(OUTPUT), '--workpath', str(WORK / 'build' / OUTPUT.name),
-             str(ROOT / 'packaging/windows/jarvis.spec')])
+             str(ROOT / 'packaging/windows/jarvis.spec')], google_login=google_login)
         manifest()
 
 

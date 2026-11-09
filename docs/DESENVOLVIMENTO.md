@@ -41,3 +41,19 @@ python scripts/prepare_windows_sources.py --plan packaging/windows/sources.lock.
 Publique binários junto com fontes correspondentes, avisos e hashes.
 Nunca use o perfil pessoal como entrada do build. O teste de instalação usa
 identidade e perfil temporários; testes não devem gravar áudio nem acessar contas.
+
+## Identidade Google opcional — somente teste
+
+Para preparar um binário com o login JARVIS em teste, passe explicitamente
+`--google-client-config CAMINHO_DO_JSON_DESKTOP` ao comando de build completo.
+Use apenas o cliente do projeto público separado. O build rejeita outro projeto,
+cliente Web, tokens e campos extras. O arquivo fica fora do Git; a opção não é
+herdada do ambiente nem descoberta no perfil. Sem a opção, o pacote pede um
+cliente próprio, mesmo se um build anterior tivesse identidade incluída.
+
+O JSON registra a aplicação Desktop pública, cujo segredo não pode ser mantido
+confidencial em dispositivos distribuídos. Não é credencial de uma conta nem
+substitui consentimento; não inclua access_token, refresh_token ou dados do usuário.
+Os tokens individuais permanecem nas lojas DPAPI existentes, fora do build.
+Não publique a prévia como Google liberado: cadastro/verificação e teste real
+de consentimento continuam necessários. Consulte o fluxo oficial Desktop do Google.

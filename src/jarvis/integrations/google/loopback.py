@@ -30,9 +30,10 @@ class _CallbackHandler(BaseHTTPRequestHandler):
             return
         self.result_queue.put_nowait(self.path)
         body = (
-            b"<!doctype html><meta charset='utf-8'>"
-            b"<title>JARVIS</title>Authorization received. You may close this window."
-        )
+            "<!doctype html><html lang='pt-BR'><meta charset='utf-8'>"
+            "<title>JARVIS</title><h1>Autorização recebida</h1>"
+            "<p>Volte ao JARVIS para verificar a conexão. Você pode fechar esta janela.</p></html>"
+        ).encode('utf-8')
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))

@@ -7,6 +7,14 @@ instalar e conectar Google sem preparação técnica ainda não está concluído
 Veja o [relatório completo de funcionalidades, correções e prioridades](RELATORIO_ESTADO.md)
 e os [resultados estruturados da revisão](REVISAO_VALIDACAO.json).
 
+## Prévia 0.1.4-preview1
+
+- Login Google de consultas incluído no pacote; ainda restrito às contas de teste.
+- Login real, persistência e consulta natural validados com a conta de suporte.
+- Página e privacidade publicadas; propriedade do endereço do site confirmada.
+- 2.545 testes aprovados, 1 ignorado; instalador com reinstalação e remoção validados.
+- [Relatório e limites atuais](GOOGLE_PUBLIC_PREVIEW.md) · [Validação](GOOGLE_PUBLIC_VALIDACAO.json).
+
 ## Revisão 0.1.3-public2
 
 - Fluxo de agenda de consulta separado das opções de criar/alterar eventos.
@@ -17,8 +25,8 @@ e os [resultados estruturados da revisão](REVISAO_VALIDACAO.json).
 
 ## O que continua pendente
 
-- Cliente OAuth público do aplicativo para um login Google simples, sem JSON manual.
-- Validação em Windows limpo e jornada Google real de uma instalação pública nova.
+- Revisão Google e liberação do login para contas fora da lista de teste.
+- Validação em Windows limpo e jornada Google após a liberação pública.
 - Seleção guiada de modelo, ativação de eventos pela interface e reinício orientado.
 - Voz CUDA, compatibilidade ampliada e revisão de dependências opcionais.
 

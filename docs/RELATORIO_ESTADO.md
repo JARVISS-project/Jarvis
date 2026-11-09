@@ -3,6 +3,22 @@
 Data: 08/11/2026. Escopo: configuração inicial, contas, agenda, permissões,
 layout, fluxos existentes e distribuição Windows. Entrega: **0.1.3-public2**.
 
+## Atualização 0.1.4-preview1
+
+O login Google de consultas foi integrado ao executável e validado com a conta
+dedicada de suporte, incluindo persistência após reinício e a pergunta “Qual é
+minha agenda de hoje?”. Está em **teste externo restrito**, sem liberação geral.
+Página, privacidade e propriedade do site foram configuradas. O pacote continua
+sem perfis, notas e tokens de usuários; escrita permanece separada.
+
+A regressão atual passou com **2.545 testes e 1 ignorado**, e o instalador final
+passou por instalação, reinstalação e remoção preservando o perfil de teste.
+Consulte o [relatório desta etapa](GOOGLE_PUBLIC_PREVIEW.md) e os
+[resultados estruturados](GOOGLE_PUBLIC_VALIDACAO.json). Os detalhes abaixo
+registram a revisão 0.1.3; as limitações de Google descritas ali foram atualizadas
+pelo relatório 0.1.4. Windows limpo, modelo guiado, escrita guiada e CUDA continuam
+pendentes.
+
 ## Diagnóstico principal
 
 **O núcleo é utilizável, mas o produto ainda é uma prévia.** Uma pessoa que

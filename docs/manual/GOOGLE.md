@@ -6,9 +6,12 @@ Cada instalação guarda as próprias conexões. O JARVIS não inclui contas,
 senhas, agendas ou tokens de outra pessoa. Consulta de agenda, criação de
 eventos e documentos possuem concessões separadas.
 
-**Nesta prévia, o login ainda precisa de um arquivo OAuth Desktop.** O pacote
-não inclui um cliente de login público registrado para o aplicativo. Isso
-impede oferecer a experiência de apenas clicar em Conectar em qualquer PC.
+**A release 0.1.3 ainda pede um arquivo OAuth Desktop.** A preparação da 0.1.4
+permite incluir a identidade própria do JARVIS no pacote: nesse caso, clique
+em **Conectar Google para consultas**, sem selecionar JSON. A tela informa
+**Login JARVIS em teste**: somente contas de teste cadastradas podem entrar.
+Isso ainda não é login liberado para qualquer pessoa. Pacotes sem essa identidade
+mantêm a escolha explícita de um cliente Desktop próprio.
 Um cliente OAuth identifica o aplicativo; ele não substitui a conta e o
 consentimento de quem vai usar. O fluxo Desktop é descrito pelo
 [Google](https://developers.google.com/identity/protocols/oauth2/native-app).
@@ -27,7 +30,9 @@ de tokens, o perfil do JARVIS ou credenciais de uma instalação como solução.
 ## Consultar uma agenda
 
 1. Abra **Contas e conexões → Agenda**.
-2. Clique em **Conectar Google para consultas** e selecione o JSON Desktop.
+2. Clique em **Conectar Google para consultas**. Se o pacote não tiver a identidade
+   JARVIS, selecione seu JSON Desktop. O botão **Usar cliente Google próprio…**
+   em Gerenciar contas mantém a opção de configuração independente.
    Faça o login e dê o consentimento no navegador oficial do Google.
 3. Clique em **Consultar minha agenda principal**. Isso consulta nome e fuso;
    não seleciona automaticamente uma agenda, não lê eventos e não ativa recursos.
@@ -70,3 +75,9 @@ privacidade e a distribuição do cliente apropriado. O Google pode exigir
 verificação para os acessos solicitados. Isso precisa ser tratado antes de
 anunciar integração Google pronta para qualquer pessoa. Consulte a
 [orientação oficial de verificação](https://developers.google.com/identity/protocols/oauth2/production-readiness/sensitive-scope-verification).
+
+O cadastro separado JARVIS Public, suporte dedicado e Calendar API foram preparados.
+A identidade incluída na prévia suporta somente `calendar_read`, com `openid`,
+`calendar.events.readonly` e `calendar.calendars.readonly`. Escrita e documentos
+não usam essa identidade automaticamente. Políticas e página pública estão em
+`site/`; publicar as páginas não equivale a aprovação do Google.
