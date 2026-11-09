@@ -7,7 +7,15 @@ instalar e conectar Google sem preparação técnica ainda não está concluído
 Veja o [relatório completo de funcionalidades, correções e prioridades](RELATORIO_ESTADO.md)
 e os [resultados estruturados da revisão](REVISAO_VALIDACAO.json).
 
-## Prévia 0.1.4-preview1
+## Google — atualização de 9 de novembro de 2026
+
+Projeto em produção, sem verificação aprovada. A análise da marca aguarda o
+reconhecimento da propriedade do site; o Google pediu esperar 24 horas após a
+comprovação. O Search Console confirma o proprietário. A revisão de acesso aos
+dados permanece desabilitada até verificar/publicar a marca.
+[Preparação e pendências](GOOGLE_VERIFICACAO.md).
+
+## Prévia 0.1.4-preview1 — evidências de 8 de novembro
 
 - Login Google de consultas incluído no pacote; ainda restrito às contas de teste.
 - Login real, persistência e consulta natural validados com a conta de suporte.
@@ -25,7 +33,7 @@ e os [resultados estruturados da revisão](REVISAO_VALIDACAO.json).
 
 ## O que continua pendente
 
-- Revisão Google e liberação do login para contas fora da lista de teste.
+- Verificação da marca e dos acessos Google; validação do login público após aprovação.
 - Validação em Windows limpo e jornada Google após a liberação pública.
 - Seleção guiada de modelo, ativação de eventos pela interface e reinício orientado.
 - Voz CUDA, compatibilidade ampliada e revisão de dependências opcionais.

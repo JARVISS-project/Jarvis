@@ -32,8 +32,10 @@ seu próprio perfil. Microfone, conexões e ações exigem configuração/permis
 ## Estado e limites
 
 Consulte o [relatório completo do estado do projeto](docs/RELATORIO_ESTADO.md).
-O login Google incluído na prévia 0.1.4 está restrito às contas de teste;
-a opção de cliente próprio exige configuração. Veja [conexão de contas e agenda](docs/manual/GOOGLE.md).
+O projeto Google está em produção, mas a verificação da marca e dos acessos
+ainda está pendente; o login pode apresentar avisos e limites. A opção de
+cliente próprio exige configuração. Veja [conexão de contas e agenda](docs/manual/GOOGLE.md)
+e [situação da verificação](docs/GOOGLE_VERIFICACAO.md).
 O avanço do login próprio na prévia 0.1.4 está em [Google público: implementação e validação](docs/GOOGLE_PUBLIC_PREVIEW.md).
 
 ## Recursos

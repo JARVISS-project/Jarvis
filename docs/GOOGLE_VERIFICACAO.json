@@ -1,0 +1,22 @@
+{
+  "date": "2026-11-09",
+  "publishing_status": "production",
+  "production_change_explicitly_authorized": true,
+  "brand_verification": "pending_homepage_ownership_recognition",
+  "homepage_ownership_url_prefix_verified": true,
+  "google_requested_wait_hours": 24,
+  "data_access_verification_enabled": false,
+  "data_access_verification_submitted": false,
+  "sensitive_scopes_approved": false,
+  "oauth_user_count_observed": 2,
+  "oauth_unapproved_user_cap_observed": 100,
+  "new_real_oauth_test": false,
+  "new_runtime_build": false,
+  "draft_scope_justifications_prepared": true,
+  "owned_readonly_comparison_requires_validation": true,
+  "demo_script_prepared": true,
+  "demo_video_recorded": false,
+  "demo_video_published": false,
+  "general_google_login_homologated": false,
+  "new_billing_or_paid_services": false
+}

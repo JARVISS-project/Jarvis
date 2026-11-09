@@ -1,5 +1,18 @@
 # Estado do JARVIS — revisão de uso público
 
+## Atualização de 9 de novembro de 2026
+
+O projeto Google foi colocado em **produção**, com autorização do mantenedor.
+A marca e os acessos de agenda **ainda não foram verificados**. A primeira análise
+da marca pediu reconhecer a propriedade do site e aguardar 24 horas; o Search
+Console já mostra o proprietário verificado. A revisão dos acessos só fica
+habilitada após verificar e publicar a marca. Não houve aprovação geral do login.
+
+A prévia 0.1.4 continua com o aviso local “Login JARVIS em teste”. Esse texto do
+pacote não consulta o estado do projeto no Google. Os resultados de 8 de novembro
+abaixo registram o teste realizado antes da mudança; não comprovam uma nova
+conta fora da antiga lista de teste. Veja [preparação e pendências da revisão](GOOGLE_VERIFICACAO.md).
+
 Data: 08/11/2026. Escopo: configuração inicial, contas, agenda, permissões,
 layout, fluxos existentes e distribuição Windows. Entrega: **0.1.3-public2**.
 

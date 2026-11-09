@@ -9,8 +9,11 @@ eventos e documentos possuem concessões separadas.
 **A release 0.1.3 ainda pede um arquivo OAuth Desktop.** A preparação da 0.1.4
 permite incluir a identidade própria do JARVIS no pacote: nesse caso, clique
 em **Conectar Google para consultas**, sem selecionar JSON. A tela informa
-**Login JARVIS em teste**: somente contas de teste cadastradas podem entrar.
-Isso ainda não é login liberado para qualquer pessoa. Pacotes sem essa identidade
+**Login JARVIS em teste**. O pacote não consulta o status remoto: em 9 de
+novembro o projeto foi colocado em produção, mas marca e acessos ainda aguardam
+verificação. O Google pode apresentar avisos e aplicar limites; não há
+homologação geral do login. [Estado da revisão](../GOOGLE_VERIFICACAO.md).
+Pacotes sem essa identidade
 mantêm a escolha explícita de um cliente Desktop próprio.
 Um cliente OAuth identifica o aplicativo; ele não substitui a conta e o
 consentimento de quem vai usar. O fluxo Desktop é descrito pelo
