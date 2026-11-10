@@ -241,15 +241,15 @@
     "src/jarvis/application/local_control_dispatcher.py": "3c9ed0b80e7a8a77bdefb7be8b7a31e98e9668cebfbfc47f98cd88c143745316",
     "src/jarvis/application/organization_routing.py": "76f83f3f1521e7cc9261d4a60d1437e7b23abcf51bb2d829c0a795cdd62bc617",
     "src/jarvis/application/semantic_read_dispatcher.py": "221a20bf58ca6d3f33cbda1605838f4ff34b328a9868c3722590dfbcd288fa6c",
-    "src/jarvis/config.py": "f5d64c6df1dfee8e6fe10c088e778749fd7e5f3f516ba855960f7d11f01df90e",
+    "src/jarvis/config.py": "9da18d4bf92658f0ddb9192a34414ca5451c0fe38ed7e61d6af4102991127c0e",
     "src/jarvis/desktop/application_catalog.py": "08e98e553caeb0c17719f07af3fbf84e7f867a7afb0ff4c1af8d00b6b8ac4571",
     "src/jarvis/desktop/application_control.py": "a636df16668a73addbf12ad22eedfccd85956a720b17a762bfc4015e7449c4a4",
     "src/jarvis/desktop/application_discovery.py": "3a947e51aa534a93a105e02872b49d909977d9dde7608f7ac5b938b91595b78c",
     "src/jarvis/desktop/application_windows.py": "e7ccc0d7f6af1c88bffdc19d9bd79ef2e123e8372b513a3e77e6fd0c6d3fe018",
     "src/jarvis/desktop/catalog.py": "3e55098795aaa8fb4288b95caa50778e4ef45f0e9f35718973dfbb6c02c7e858",
-    "src/jarvis/harness.py": "bf73da0b80229877a4f778ca67b51e1bc3cc88686b54cb81732865f11a8cf794",
+    "src/jarvis/harness.py": "a5210a527bea76073dfe09c7c136b7122dd3c8bda59ff238357e2f166aa9dc98",
     "src/jarvis/integrations/google/calendar/limited_write.py": "799b3c513645bafa3d88bbab8b6bbd5d8ef21ab889511b8dc42aa0dff4b3a7c5",
-    "src/jarvis/integrations/google/calendar/read_tool.py": "f39e0572c2a9fd699453a1bcbc86260516b9364d2b039638fc95c1a1dc5e58a7",
+    "src/jarvis/integrations/google/calendar/read_tool.py": "ef4dc812321a41d0257e83b5b6b1c4df788a05a5fc52ae38db05ca25010e2c28",
     "src/jarvis/integrations/google/drive_docs/tools.py": "4294688ea9ae113c2e7e0bcf71be8ee8023ff0c08ee07c4b3ba7cdd5644c24aa",
     "src/jarvis/local_control/backend.py": "6b9147115e3e0dcaf4c1084bcb35b37d99f27ad94780e86c64453e8ae9915d6e",
     "src/jarvis/local_control/models.py": "b568de00fb111bae3ec1de8751b0c175cfd4494243c83af0f73529a87a36bbd6",
@@ -1906,6 +1906,14 @@
           "max_results": {
             "type": "integer",
             "default": 20
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "text",
+              "table"
+            ],
+            "default": "text"
           }
         },
         "required": [
@@ -1924,12 +1932,14 @@
       "state": "implemented_tested",
       "tests": [
         "tests/application/test_agent_loop_coordinator.py",
+        "tests/application/test_calendar_assistant.py",
         "tests/integration/test_calendar_read_23ba.py",
         "tests/integration/test_google_calendar_runtime.py",
         "tests/integrations/google/test_scopes.py",
         "tests/speech/test_capability_catalog_23ad.py",
         "tests/ui/test_accounts_widgets_23bk.py",
         "tests/ui/test_calendar_guided_23bl.py",
+        "tests/ui/test_calendar_table.py",
         "tests/ui/test_public_setup_review.py"
       ],
       "confirmation": "not_required_by_proposal",

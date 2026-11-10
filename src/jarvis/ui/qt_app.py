@@ -22,6 +22,14 @@ from jarvis.ui.routines import RoutinesPage
 from jarvis.ui.organization import OrganizationPage
 from jarvis.ui.runtime_control import RuntimeStopControl
 from jarvis.ui.accounts import AccountsPage
+from jarvis.ui.calendar import CalendarPage
+from jarvis.ui.theme import CONTROL_STYLE
+from jarvis.ui.calendar_workflow import WorkflowInbox, WorkflowSettingsPage
+from jarvis.ui.calendar_workflow import MessageReviewPage
+from jarvis.ui.workbench import CommandPalette, PersonalPanel, SettingsHub, InlineSurface
+from jarvis.ui.design import DesktopTheme
+from jarvis.ui.calendar_assistant import ContactsPage
+from jarvis.application.personal import PREFERENCES, SHORTCUTS
 
 from PySide6.QtCore import QObject, QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
@@ -36,6 +44,8 @@ from PySide6.QtGui import (
     QPixmap,
     QPolygonF,
     QRadialGradient,
+    QShortcut,
+    QKeySequence,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -52,6 +62,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
+    QSplitter,
     QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
@@ -990,19 +1001,29 @@ class ControlCenterWindow(QWidget):
         self._text_busy = False
         self._text_log = ConversationLogBus()
         self._conversation_snapshot = ConversationLogSnapshot()
-        self.setWindowTitle("JARVIS Control Center")
+        self._preferences = None
+        self._applying_preferences = False
+        self.shortcuts = {}
+        self.command_palette = None
+        self.review_surface = None
+        self._active_page_name = 'Início'
+        self._save_preferences_timer = QTimer(self)
+        self._save_preferences_timer.setSingleShot(True)
+        self._save_preferences_timer.setInterval(800)
+        self._save_preferences_timer.timeout.connect(self._save_view_preferences)
+        self.setWindowTitle("JARVIS — Assistente pessoal")
         self.setWindowFlag(Qt.WindowType.Window, True)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         self.resize(1180, 720)
         self.setMinimumSize(980, 620)
         self.setObjectName("controlCenter")
         self.setStyleSheet(
-            """
+            CONTROL_STYLE + """
             QWidget#controlCenter {
                 background: #07111b;
                 color: #d9e8ee;
             }
-            QFrame#sidebar {
+            QFrame#sidebar, QWidget#navigation {
                 background: rgba(5, 14, 23, 245);
                 border-right: 1px solid rgba(91, 178, 205, 34);
             }
@@ -1015,7 +1036,7 @@ class ControlCenterWindow(QWidget):
             QLabel#brandTagline {
                 color: rgba(128, 165, 178, 185);
                 font-family: "Segoe UI";
-                font-size: 9px;
+                font-size: 11px;
             }
             QPushButton#nav {
                 color: rgba(151, 184, 195, 210);
@@ -1055,7 +1076,7 @@ class ControlCenterWindow(QWidget):
             QLabel#heroSub {
                 color: rgba(123, 162, 176, 198);
                 font-family: "Segoe UI";
-                font-size: 11px;
+                font-size: 13px;
             }
             QLabel#stateTitle {
                 color: rgba(231, 244, 248, 245);
@@ -1088,7 +1109,7 @@ class ControlCenterWindow(QWidget):
             QLabel#cardSecondary {
                 color: rgba(116, 158, 173, 198);
                 font-family: "Segoe UI";
-                font-size: 10px;
+                font-size: 12px;
             }
             QLabel#conversationMessage {
                 color: rgba(190, 214, 222, 230);
@@ -1103,7 +1124,7 @@ class ControlCenterWindow(QWidget):
             QLabel#footer {
                 color: rgba(99, 137, 150, 150);
                 font-family: "Segoe UI";
-                font-size: 8px;
+                font-size: 11px;
             }
             QFrame#conversationPanel {
                 background: rgba(7, 20, 31, 218);
@@ -1174,9 +1195,9 @@ class ControlCenterWindow(QWidget):
 
         sidebar = QFrame(self)
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(205)
+        sidebar.setFixedWidth(184)
         side_layout = QVBoxLayout(sidebar)
-        side_layout.setContentsMargins(26, 32, 22, 24)
+        side_layout.setContentsMargins(16, 26, 16, 20)
         side_layout.setSpacing(8)
 
         brand = QLabel("J A R V I S")
@@ -1189,13 +1210,27 @@ class ControlCenterWindow(QWidget):
         side_layout.addSpacing(8)
         side_layout.addWidget(self.user_label)
         side_layout.addWidget(self.agent_identity_label)
-        side_layout.addSpacing(30)
+        side_layout.addSpacing(18)
+        self.command_button = QPushButton('Buscar…   Ctrl+K')
+        self.command_button.clicked.connect(self.open_commands)
+        side_layout.addWidget(self.command_button)
+
+        navigation = QWidget()
+        navigation.setObjectName('navigation')
+        navigation_layout = QVBoxLayout(navigation)
+        navigation_layout.setContentsMargins(0, 0, 0, 0)
+        navigation_layout.setSpacing(4)
+        navigation_scroll = QScrollArea()
+        navigation_scroll.setWidgetResizable(True)
+        navigation_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        navigation_scroll.setWidget(navigation)
+        side_layout.addWidget(navigation_scroll, 1)
 
         self.nav_buttons: dict[str, QPushButton] = {}
         for index, label in enumerate(
-            ("Início", "Conversa", "Memória", "Permissões", "Aplicativos", "Organização de arquivos", "Contas e conexões", "Rotinas", "Ferramentas", "Ajustes", "Ajuda")
+            ("Início", "Agenda", "Conversa", "Contatos", "Automações", "Memória", "Permissões", "Aplicativos", "Organização de arquivos", "Contas e conexões", "Rotinas", "Ferramentas", "Ajustes", "Ajuda")
         ):
-            button = QPushButton(label)
+            button = QPushButton('Hoje' if label == 'Início' else label)
             button.setObjectName("navActive" if index == 0 else "nav")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             self.nav_buttons[label] = button
@@ -1203,30 +1238,39 @@ class ControlCenterWindow(QWidget):
                 button.clicked.connect(lambda: self._show_page("Início"))
             elif label == "Conversa":
                 button.clicked.connect(lambda: self._show_page("Conversa"))
-            elif label in {"Memória", "Permissões", "Aplicativos", "Organização de arquivos", "Contas e conexões", "Rotinas", "Ajuda"}:
+            elif label in {"Contatos", "Agenda", "Automações", "Memória", "Permissões", "Aplicativos", "Organização de arquivos", "Contas e conexões", "Rotinas", "Ajuda"}:
                 button.clicked.connect(lambda _checked=False, name=label: self._show_page(name))
             elif label == "Ajustes":
                 button.clicked.connect(lambda: self._show_page("Ajustes"))
             elif label == "Ferramentas":
                 button.clicked.connect(lambda: self._show_page("Ajuda"))
-            side_layout.addWidget(button)
-        side_layout.addStretch(1)
+            button.setToolTip(label)
+            navigation_layout.addWidget(button)
+            if label not in {'Início', 'Agenda', 'Conversa', 'Contatos', 'Automações'}:
+                button.hide()
+        navigation_layout.addStretch(1)
+        self.settings_button = QPushButton('Ajustes')
+        self.settings_button.setObjectName('nav')
+        self.settings_button.clicked.connect(lambda: self._show_page('Preferências'))
+        self.nav_buttons['Preferências'] = self.settings_button
+        side_layout.addWidget(self.settings_button)
         self.google_documents_button = QPushButton('Documentos Google')
         self.google_documents_button.setToolTip('Selecionar documentos Google')
         self.google_documents_button.clicked.connect(self.open_google_documents)
-        side_layout.addWidget(self.google_documents_button)
+        self.google_documents_button.setParent(sidebar)
+        self.google_documents_button.hide()
         root.addWidget(sidebar)
 
         content = QWidget(self)
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(46, 30, 44, 26)
+        content_layout.setContentsMargins(28, 24, 28, 22)
         content_layout.setSpacing(18)
 
         header = QHBoxLayout()
         header_copy = QVBoxLayout()
         self.agent_title_label = QLabel(self.agent_name)
         self.agent_title_label.setObjectName("heroTitle")
-        subtitle = QLabel("Control Center")
+        subtitle = QLabel("Seu dia, com menos trabalho.")
         subtitle.setObjectName("heroSub")
         header_copy.addWidget(self.agent_title_label)
         header_copy.addWidget(subtitle)
@@ -1237,7 +1281,11 @@ class ControlCenterWindow(QWidget):
         header.addWidget(self.runtime_label, 0, Qt.AlignmentFlag.AlignTop)
         self.runtime_stop = RuntimeStopControl(self.administrative_client, self)
         header.addWidget(self.runtime_stop, 0, Qt.AlignmentFlag.AlignTop)
-        content_layout.addLayout(header)
+        header_bar = QWidget()
+        header_bar.setLayout(header)
+        header_bar.setMaximumHeight(96)
+        header.setContentsMargins(0, 0, 0, 0)
+        content_layout.addWidget(header_bar)
 
         body = QHBoxLayout()
         body.setSpacing(28)
@@ -1245,7 +1293,7 @@ class ControlCenterWindow(QWidget):
         center_column = QVBoxLayout()
         center_column.setSpacing(2)
         center_column.addStretch(1)
-        self.main_orb = AmbientHUDWidget(self, widget_size=360)
+        self.main_orb = AmbientHUDWidget(self, widget_size=260)
         self.main_orb.setCursor(Qt.CursorShape.ArrowCursor)
         center_column.addWidget(
             self.main_orb,
@@ -1260,8 +1308,57 @@ class ControlCenterWindow(QWidget):
         self.main_state_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         center_column.addWidget(self.main_state_label)
         center_column.addWidget(self.main_state_subtitle)
+        center_column.addSpacing(22)
+        quick_actions = QHBoxLayout()
+        quick_actions.addStretch(1)
+        for label, destination in (('Conversar', 'Conversa'), ('Abrir agenda', 'Agenda')):
+            action = QPushButton(label)
+            action.clicked.connect(lambda _checked=False, name=destination: self._show_page(name))
+            quick_actions.addWidget(action)
+        quick_actions.addStretch(1)
+        center_column.addLayout(quick_actions)
         center_column.addStretch(1)
-        body.addLayout(center_column, 1)
+        self.ambient_status = QWidget(self)
+        self.ambient_status.setLayout(center_column)
+        self.ambient_status.hide()
+        self.workflow_inbox = WorkflowInbox(self.administrative_client, self._show_page, self)
+        self.home_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.home_splitter.setChildrenCollapsible(False)
+        self.home_splitter.addWidget(self.workflow_inbox)
+        self.home_context = QStackedWidget()
+        self.home_context.setMinimumWidth(280)
+        self.home_overview = QWidget()
+        overview_layout = QVBoxLayout(self.home_overview)
+        overview_layout.setContentsMargins(4, 0, 0, 0)
+        next_card = QFrame()
+        next_card.setObjectName('detailPanel')
+        next_layout = QVBoxLayout(next_card)
+        next_layout.setContentsMargins(16, 16, 16, 16)
+        self.next_event_title = QLabel('Próximo compromisso')
+        self.next_event_title.setObjectName('cardPrimary')
+        self.next_event_title.setTextFormat(Qt.TextFormat.PlainText)
+        self.next_event_title.setWordWrap(True)
+        self.next_event_details = QLabel('Nenhum compromisso carregado. Abra a agenda para consultar.')
+        self.next_event_details.setObjectName('cardSecondary')
+        self.next_event_details.setTextFormat(Qt.TextFormat.PlainText)
+        self.next_event_details.setWordWrap(True)
+        open_agenda = QPushButton('Abrir agenda')
+        open_agenda.clicked.connect(lambda: self._show_page('Agenda'))
+        next_layout.addWidget(self.next_event_title)
+        next_layout.addWidget(self.next_event_details)
+        next_layout.addWidget(open_agenda)
+        overview_layout.addWidget(next_card)
+        self.personal_panel = PersonalPanel(self.administrative_client, self)
+        overview_layout.addWidget(self.personal_panel, 1)
+        self.home_context.addWidget(self.home_overview)
+        self.home_splitter.addWidget(self.home_context)
+        self.home_splitter.setStretchFactor(0, 2)
+        self.home_splitter.setStretchFactor(1, 1)
+        self.home_splitter.setSizes([580, 320])
+        self.home_splitter.splitterMoved.connect(lambda *_args: self._queue_view_preferences())
+        body.addWidget(self.home_splitter, 1)
+        self.workflow_inbox.review_requested = self._review_in_context
+        self.workflow_inbox.snapshot_loaded = self._home_snapshot
 
         cards = QVBoxLayout()
         cards.setSpacing(16)
@@ -1285,10 +1382,14 @@ class ControlCenterWindow(QWidget):
         focus.hide()
         self.availability_panel = AvailabilityPanel(self.administrative_client, self._show_page, self)
         self.availability_panel.setMinimumWidth(330)
-        cards.addWidget(self.availability_panel, 1)
+        self.availability_panel.hide()
+        self.connections_toggle = QPushButton('Conexões')
+        self.connections_toggle.setCheckable(True)
+        self.connections_toggle.toggled.connect(self.availability_panel.setVisible)
+        header.insertWidget(2, self.connections_toggle, 0, Qt.AlignmentFlag.AlignTop)
         system.hide()
         conversation.hide()
-        body.addLayout(cards, 0)
+        body.addWidget(self.availability_panel)
         content_layout.addLayout(body, 1)
 
         self.home_page = content
@@ -1320,21 +1421,42 @@ class ControlCenterWindow(QWidget):
         self.page_stack.addWidget(self.help_page)
         self.routines_page = RoutinesPage(self.administrative_client, self._submit_catalog_command, self._cancel_text, self)
         self.page_stack.addWidget(self.routines_page)
+        self.calendar_page = CalendarPage(self.administrative_client, self._show_page, self)
+        self.page_stack.addWidget(self.calendar_page)
+        self.workflow_page = WorkflowSettingsPage(self.administrative_client, self._show_page, self)
+        self.page_stack.addWidget(self.workflow_page)
+        self.contacts_page = ContactsPage(self.administrative_client, self)
+        self.contacts_page.layout.insertWidget(0, QLabel('Meus contatos'))
+        self.page_stack.addWidget(self.contacts_page)
+        self.settings_hub = SettingsHub(self.administrative_client, self._show_page, self._preferences_loaded, self)
+        self.page_stack.addWidget(self.settings_hub)
         root.addWidget(self.page_stack, 1)
+        self.desktop_theme = DesktopTheme(self)
+        self.desktop_theme.apply('dark', 'comfortable')
+        self._bind_shortcuts(SHORTCUTS)
+        self.escape_shortcut = QShortcut(QKeySequence('Esc'), self)
+        self.escape_shortcut.activated.connect(self._escape_view)
+        self.calendar_page.presentation_changed = self._queue_view_preferences
         self._show_page("Início")
 
     def _show_page(self, page_name: str) -> None:
         if not hasattr(self, "page_stack"):
             return
-        page_index = {"Início": 0, "Conversa": 1, "Memória": 2, "Permissões": 3, "Aplicativos": 4, "Organização de arquivos": 5, "Contas e conexões": 6, "Ajustes": 7, "Ajuda": 8, "Rotinas": 9}.get(page_name, 0)
+        self._active_page_name = page_name
+        if self.review_surface is not None and page_name != 'Início':
+            self.review_surface.reject()
+        page_index = {"Início": 0, "Conversa": 1, "Memória": 2, "Permissões": 3, "Aplicativos": 4, "Organização de arquivos": 5, "Contas e conexões": 6, "Ajustes": 7, "Ajuda": 8, "Rotinas": 9, "Agenda": 10, "Automações": 11, 'Contatos': 12, 'Preferências': 13}.get(page_name, 0)
         self.page_stack.setCurrentIndex(page_index)
         active_name = page_name if page_index else "Início"
-        if page_index in {2, 3, 4, 5, 6, 7, 8, 9}:
+        if page_index >= 2:
             self.page_stack.currentWidget().refresh()
         elif page_index == 0:
             self.availability_panel.refresh()
+            self.workflow_inbox.refresh()
+            self.personal_panel.refresh()
         for label, button in self.nav_buttons.items():
-            button.setObjectName("navActive" if label == active_name else "nav")
+            advanced = page_name not in {'Início', 'Agenda', 'Conversa', 'Contatos', 'Automações'}
+            button.setObjectName("navActive" if label == active_name or label == 'Preferências' and advanced else "nav")
             button.style().unpolish(button)
             button.style().polish(button)
             button.update()
@@ -1342,6 +1464,165 @@ class ControlCenterWindow(QWidget):
     def _on_ptt_pressed(self) -> None:
         if self.on_command:
             self.on_command({"command": "ptt_start"})
+
+    def _show_contacts(self, id=None):
+        self.contacts_page.requested_contact = id
+        self._show_page('Contatos')
+
+    def _home_snapshot(self, data):
+        rows = data.get('rows', [])
+        if rows:
+            row = rows[0]
+            self.next_event_title.setText(row['event']['title'])
+            from datetime import datetime
+            start = datetime.fromisoformat(row['event']['start'])
+            self.next_event_details.setText(f"{start:%d/%m às %H:%M} · {row['event']['location'] or 'Local não informado'}")
+        else:
+            self.next_event_title.setText('Próximo compromisso')
+            self.next_event_details.setText('Nenhum compromisso carregado. Abra a agenda para consultar.')
+
+    def _review_in_context(self, row):
+        if self.review_surface is not None:
+            self.review_surface.reject()
+        if self._active_page_name != 'Início':
+            self._show_page('Início')
+        page = MessageReviewPage(self.administrative_client, row, self.workflow_inbox.refresh, self)
+        def restore():
+            self.home_context.setCurrentWidget(self.home_overview)
+            if self.review_surface is surface:
+                self.review_surface = None
+        surface = InlineSurface(page, restore, self)
+        self.home_context.addWidget(surface)
+        self.home_context.setCurrentWidget(surface)
+        self.review_surface = surface
+        page.refresh()
+        return surface
+
+    def _bind_shortcuts(self, bindings):
+        for shortcut in self.shortcuts.values():
+            shortcut.setEnabled(False)
+            shortcut.deleteLater()
+        self.shortcuts = {}
+        handlers = {'commands': self.open_commands, 'home': lambda: self._show_page('Início'),
+            'calendar': lambda: self._show_page('Agenda'), 'conversation': lambda: self._show_page('Conversa'),
+            'contacts': self._show_contacts, 'automations': lambda: self._show_page('Automações'),
+            'find': self._focus_search, 'new_event': self._new_event_draft, 'quick_task': self._capture_personal}
+        for key, sequence in bindings.items():
+            if sequence:
+                shortcut = QShortcut(QKeySequence(sequence), self)
+                shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+                def activate(handler=handlers[key]):
+                    if QApplication.activeModalWidget() is None and self.review_surface is None:
+                        handler()
+                shortcut.activated.connect(activate)
+                self.shortcuts[key] = shortcut
+        self.command_button.setText('Buscar…   ' + bindings.get('commands', ''))
+
+    def open_commands(self):
+        if self.command_palette is not None and self.command_palette.isVisible():
+            self.command_palette.search.setFocus()
+            return
+        bindings = self._preferences['preferences']['shortcuts'] if self._preferences else SHORTCUTS
+        actions = [('Hoje', lambda: self._show_page('Início'), bindings['home']),
+            ('Agenda', lambda: self._show_page('Agenda'), bindings['calendar']),
+            ('Conversa', lambda: self._show_page('Conversa'), bindings['conversation']),
+            ('Contatos', self._show_contacts, bindings['contacts']),
+            ('Automações', lambda: self._show_page('Automações'), bindings['automations']),
+            ('Nova tarefa', self._capture_personal, bindings['quick_task']),
+            ('Novo lembrete', lambda: self._capture_personal(reminder=True), ''),
+            ('Novo compromisso (rascunho)', self._new_event_draft, bindings['new_event'])]
+        for page in ('Memória', 'Permissões', 'Aplicativos', 'Organização de arquivos', 'Contas e conexões', 'Rotinas', 'Ajustes', 'Ajuda'):
+            actions.append((page, lambda page=page: self._show_page(page), ''))
+        actions.append(('Aparência e atalhos', lambda: self._show_page('Preferências'), ''))
+        actions.append(('Documentos Google', self.open_google_documents, ''))
+        self.command_palette = CommandPalette(self.administrative_client, actions, self)
+        self.command_palette.open()
+        self.command_palette.search.setFocus()
+
+    def _capture_personal(self, *, reminder=False):
+        self._show_page('Início')
+        def open_when_loaded(event):
+            if event.get('status') == 'done':
+                self.personal_panel.loaded(event['data'])
+                self.personal_panel.capture(reminder=reminder)
+        self.administrative_client.submit('personal.list', {'query': ''}, open_when_loaded)
+
+    def _new_event_draft(self):
+        self._show_page('Contas e conexões')
+        self.accounts_page.show_events.setChecked(True)
+        self.accounts_page.event_options.setVisible(True)
+        self.accounts_page.title.setFocus()
+
+    def _focus_search(self):
+        if self._active_page_name == 'Agenda':
+            self.calendar_page.search.setFocus()
+            self.calendar_page.search.selectAll()
+        elif self._active_page_name == 'Conversa':
+            self.conversation_find.show()
+            self.conversation_find.setFocus()
+        else:
+            self.open_commands()
+
+    def _escape_view(self):
+        if self.review_surface is not None:
+            self.review_surface.reject()
+        elif self._active_page_name == 'Agenda' and self.calendar_page.assistant_window is not None:
+            self.calendar_page.assistant_window.reject()
+        elif hasattr(self, 'conversation_find'):
+            self.conversation_find.hide()
+
+    def _find_conversation(self, query):
+        for label in self.conversation_messages_container.findChildren(QLabel, 'conversationMessage'):
+            label.setSelection(0, 0)
+        if not query:
+            return
+        for label in self.conversation_messages_container.findChildren(QLabel, 'conversationMessage'):
+            position = label.text().casefold().find(query.casefold())
+            if position >= 0:
+                label.setSelection(len(label.text()[:position].encode('utf-16-le')) // 2, len(query.encode('utf-16-le')) // 2)
+                self.conversation_scroll.ensureWidgetVisible(label)
+                break
+
+    def _preferences_loaded(self, data):
+        self._preferences = data
+        value = data['preferences']
+        self._applying_preferences = True
+        try:
+            self.desktop_theme.apply(value['theme'], value['density'])
+            self._bind_shortcuts(value['shortcuts'])
+            self.calendar_page.period = value['calendar_period']
+            self.calendar_page.period_buttons[value['calendar_period']].setChecked(True)
+            from jarvis.ui.calendar import PERIODS
+            self.calendar_page.period_value.setText(dict(PERIODS)[value['calendar_period']])
+            self.calendar_page.view_mode.setCurrentIndex(self.calendar_page.view_mode.findData(value['calendar_view']))
+            self.calendar_page.apply_presentation()
+            if not self.isMaximized():
+                self.resize(*value['window_size'])
+            self.home_splitter.setSizes(value['home_split'])
+        finally:
+            self._applying_preferences = False
+
+    def _queue_view_preferences(self):
+        if self._preferences and not self._applying_preferences:
+            self._save_preferences_timer.start()
+
+    def _save_view_preferences(self):
+        if not self._preferences or not self.administrative_client.generation:
+            return
+        current = self._preferences['preferences']
+        sizes = self.home_splitter.sizes()
+        value = {**current, 'calendar_period': self.calendar_page.period,
+            'calendar_view': self.calendar_page.view_mode.currentData(),
+            'window_size': [max(980, min(2600, self.width())), max(620, min(2600, self.height()))],
+            'home_split': sizes if all(100 <= size <= 4000 for size in sizes) else current['home_split']}
+        if value != current:
+            self.administrative_client.submit('ui.save', {'preferences': value, 'revision': self._preferences['revision']},
+                lambda event: setattr(self, '_preferences', event['data']) if event.get('status') == 'done' else None)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, '_preferences'):
+            self._queue_view_preferences()
 
     def _apply_user_name(self, name: str) -> None:
         self.user_display_name = name
@@ -1407,6 +1688,7 @@ class ControlCenterWindow(QWidget):
 
     def apply_text_event(self, event: dict) -> None:
         self.administrative_client.apply_event(event)
+        self.calendar_page.connection_event(event)
         if event.get("type") == "admin":
             return
         self.applications_page.handle_text_event(event)
@@ -1423,10 +1705,17 @@ class ControlCenterWindow(QWidget):
             self.runtime_stop.connected()
             self.system_primary.setText("Conectado")
             self.availability_panel.refresh()
+            self.workflow_inbox.connected()
+            self.personal_panel.refresh()
+            self.administrative_client.submit('ui.preferences', {}, lambda event: self._preferences_loaded(event['data']) if event.get('status') == 'done' else None)
             QTimer.singleShot(0, self.help_page.check_startup)
             if self.page_stack.currentWidget() is self.accounts_page and (
                     previous_generation != self._text_generation or not self.accounts_page.data):
                 self.accounts_page.refresh()
+            if self.page_stack.currentWidget() is self.calendar_page:
+                self.calendar_page.refresh()
+            if self.page_stack.currentWidget() is self.workflow_page:
+                self.workflow_page.refresh()
         elif status == "disconnected":
             self._text_generation = None
             self._text_challenge = None
@@ -1436,6 +1725,9 @@ class ControlCenterWindow(QWidget):
             self.runtime_stop.disconnected()
             self.system_primary.setText("Desconectado")
             self.availability_panel.disconnected()
+            self.workflow_inbox.disconnected()
+            self.personal_panel.rows.clear()
+            self.personal_panel.data = {'rows': [], 'revision': ''}
         elif (event.get("generation") == self._text_generation
               and event.get("interaction") == self._text_interaction):
             self._text_busy = status in {"busy", "speaking"}
@@ -1456,6 +1748,8 @@ class ControlCenterWindow(QWidget):
 
     def hideEvent(self, event) -> None:
         self._on_ptt_released()
+        if hasattr(self, 'workflow_inbox') and self.workflow_inbox.review_dialog is not None:
+            self.workflow_inbox.review_dialog.reject()
         super().hideEvent(event)
 
     def _make_conversation_page(self) -> QWidget:
@@ -1476,10 +1770,17 @@ class ControlCenterWindow(QWidget):
         copy.addWidget(subtitle)
         header.addLayout(copy)
         header.addStretch(1)
-        ephemeral = QLabel("SESSÃO EFÊMERA  ·  NÃO PERSISTE EM DISCO")
+        ephemeral = QLabel("HISTÓRICO LOCAL")
+        ephemeral.setToolTip('Histórico desta sessão, somente em memória; não persiste em disco.')
         ephemeral.setObjectName("sectionEyebrow")
         header.addWidget(ephemeral, 0, Qt.AlignmentFlag.AlignTop)
         page_layout.addLayout(header)
+        self.conversation_find = QLineEdit()
+        self.conversation_find.setPlaceholderText('Buscar nesta conversa… · Esc para fechar')
+        self.conversation_find.setClearButtonEnabled(True)
+        self.conversation_find.textChanged.connect(self._find_conversation)
+        self.conversation_find.hide()
+        page_layout.addWidget(self.conversation_find)
 
         body = QHBoxLayout()
         body.setSpacing(14)
@@ -1487,6 +1788,11 @@ class ControlCenterWindow(QWidget):
         sessions_panel = QFrame(page)
         sessions_panel.setObjectName("conversationPanel")
         sessions_panel.setFixedWidth(225)
+        sessions_panel.setVisible(False)
+        self.conversation_session_toggle = QPushButton('Sessão')
+        self.conversation_session_toggle.setCheckable(True)
+        self.conversation_session_toggle.toggled.connect(sessions_panel.setVisible)
+        header.addWidget(self.conversation_session_toggle)
         sessions_layout = QVBoxLayout(sessions_panel)
         sessions_layout.setContentsMargins(16, 16, 16, 16)
         sessions_layout.setSpacing(10)
@@ -1526,7 +1832,6 @@ class ControlCenterWindow(QWidget):
         self.ptt_button.setEnabled(callable(self.on_command))
         self.ptt_button.pressed.connect(self._on_ptt_pressed)
         self.ptt_button.released.connect(self._on_ptt_released)
-        sessions_layout.addWidget(self.ptt_button)
 
         body.addWidget(sessions_panel)
 
@@ -1593,6 +1898,7 @@ class ControlCenterWindow(QWidget):
         self.conversation_cancel.clicked.connect(self._cancel_text)
         self.conversation_cancel.setObjectName("conversationAction")
         input_row.addWidget(self.conversation_input, 1)
+        input_row.addWidget(self.ptt_button)
         input_row.addWidget(self.conversation_send)
         thread_layout.addLayout(input_row)
         confirmation_row = QHBoxLayout()
@@ -1610,6 +1916,11 @@ class ControlCenterWindow(QWidget):
         details_panel = QFrame(page)
         details_panel.setObjectName("conversationPanel")
         details_panel.setFixedWidth(225)
+        details_panel.setVisible(False)
+        self.conversation_details_toggle = QPushButton('Detalhes')
+        self.conversation_details_toggle.setCheckable(True)
+        self.conversation_details_toggle.toggled.connect(details_panel.setVisible)
+        header.addWidget(self.conversation_details_toggle)
         details_layout = QVBoxLayout(details_panel)
         details_layout.setContentsMargins(16, 16, 16, 16)
         details_layout.setSpacing(12)

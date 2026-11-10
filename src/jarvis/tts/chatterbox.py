@@ -303,7 +303,11 @@ class ChatterboxTTS(TextToSpeech):
             return self._model
         device = self._resolve_device()
         factory = self._model_factory or self._default_model_factory
-        self._model = factory(device, self.t3_model)
+        if self.reference_audio_path is not None and self._model_factory is None:
+            from jarvis.tts.reference import load_local_model
+            self._model = load_local_model(device)
+        else:
+            self._model = factory(device, self.t3_model)
         return self._model
 
     @staticmethod

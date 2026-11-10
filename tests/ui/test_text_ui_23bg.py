@@ -14,16 +14,17 @@ def test_button_enter_busy_response_error_cancel_confirmation_and_restart():
     commands = []
     admin_commands = []
     def record(command):
-        # The home dashboard now requests local help inventory on ready. Keep
+        # The home dashboard requests local help and proposal inventories. Keep
         # text submissions/confirmations counted independently and exactly once.
         (admin_commands if command['command'] == 'admin_request' else commands).append(command)
     window = ControlCenterWindow(on_command=record)
     try:
         generation = uuid4().hex
         window.apply_text_event({'status': 'ready', 'generation': generation})
-        assert len(admin_commands) == 1
-        assert admin_commands[0]['method'] == 'help.list' and admin_commands[0]['arguments'] == {}
-        assert admin_commands[0]['generation'] == generation
+        assert len(admin_commands) == 4
+        assert {c['method'] for c in admin_commands} == {'help.list', 'workflow.list', 'personal.list', 'ui.preferences'}
+        assert all(c['arguments'] == ({'query': ''} if c['method'] == 'personal.list' else {})
+                   and c['generation'] == generation for c in admin_commands)
         window.conversation_input.setText('Mensagem privada')
         window.conversation_input.returnPressed.emit()
         assert len(commands) == 1 and commands[0]['command'] == 'text_submit'
@@ -55,7 +56,8 @@ def test_button_enter_busy_response_error_cancel_confirmation_and_restart():
         assert 'Falha' in window.conversation_status.text()
         assert window.conversation_send.isEnabled()
         app.processEvents()
-        assert all(c['method'] == 'help.list' and c['arguments'] == {} for c in admin_commands)
+        assert all(c['method'] in {'help.list', 'workflow.list', 'personal.list', 'ui.preferences'}
+                   and c['arguments'] == ({'query': ''} if c['method'] == 'personal.list' else {}) for c in admin_commands)
     finally:
         window.close()
 

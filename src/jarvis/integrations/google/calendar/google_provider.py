@@ -18,6 +18,7 @@ from jarvis.integrations.google.calendar.models import (
     CalendarEvent,
     CalendarEventInput,
     CalendarPeriod,
+    CalendarParticipant,
     CalendarReminder,
 )
 from jarvis.integrations.google.errors import (
@@ -31,6 +32,30 @@ from jarvis.integrations.google.errors import (
 
 
 MAX_EVENT_PAGES = 100
+
+
+def _participants(data: dict) -> tuple[CalendarParticipant, ...]:
+    # Event metadata only; never resolve identities through a contacts API.
+    # https://developers.google.com/workspace/calendar/api/v3/reference/events
+    values = data.get('attendees', [])
+    if not isinstance(values, list):
+        return ()
+    result = []
+    for row in values[:20]:
+        if not isinstance(row, dict):
+            continue
+        email, name = row.get('email', ''), row.get('displayName', '')
+        response = row.get('responseStatus')
+        result.append(CalendarParticipant(name=name[:120] if isinstance(name, str) else '',
+            email=email[:254] if isinstance(email, str) else '',
+            response=response if isinstance(response, str) and response in {'needsAction', 'declined', 'tentative', 'accepted'} else 'unknown',
+            is_self=row.get('self') is True, resource=row.get('resource') is True))
+    return tuple(result)
+
+
+def _participants_omitted(data: dict) -> bool:
+    values = data.get('attendees', [])
+    return data.get('attendeesOmitted') is True or not isinstance(values, list) or len(values) > 20
 
 
 class GoogleCalendarProvider:
@@ -221,6 +246,9 @@ class GoogleCalendarProvider:
             location=location if isinstance(location, str) else None,
             status=status,
             transparent=data.get("transparency") == "transparent",
+            description=data.get('description') if isinstance(data.get('description'), str) else None,
+            participants=_participants(data),
+            participants_omitted=_participants_omitted(data),
         )
 
 

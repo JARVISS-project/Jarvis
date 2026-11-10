@@ -777,7 +777,11 @@ class JarvisConfig:
         clear_reference: bool = False,
         piper_pace: str | None = None,
     ) -> None:
-        settings, _error = _load_local_settings(self.settings_path)
+        settings, error = _load_local_settings(self.settings_path)
+        if error:
+            raise ValueError(error)
+        if self.settings_path.exists():
+            settings = json.loads(self.settings_path.read_text(encoding='utf-8'))
         if provider is not None:
             normalized = provider.casefold().strip()
             if normalized not in {"auto", "sapi", "piper", "chatterbox"}:

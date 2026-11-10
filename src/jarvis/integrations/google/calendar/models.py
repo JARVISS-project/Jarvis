@@ -136,6 +136,15 @@ class CalendarPeriod:
 
 
 @dataclass(frozen=True, slots=True)
+class CalendarParticipant:
+    name: str = field(default='', repr=False)
+    email: str = field(default='', repr=False)
+    response: str = 'unknown'
+    is_self: bool = False
+    resource: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class CalendarEvent:
     id: str = field(repr=False)
     summary: str = field(repr=False)
@@ -152,6 +161,8 @@ class CalendarEvent:
     reminders_use_default: bool | None = field(default=None, repr=False)
     etag: str | None = field(default=None, repr=False)
     simple_owned: bool = False
+    participants: tuple[CalendarParticipant, ...] = field(default=(), repr=False)
+    participants_omitted: bool = False
 
     def to_display_string(self, timezone: tzinfo) -> str:
         summary = " ".join("".join(

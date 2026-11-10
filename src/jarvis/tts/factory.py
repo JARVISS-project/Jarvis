@@ -56,7 +56,8 @@ def build_text_to_speech(
     if provider == "auto" and not neural_installed:
         return sapi
 
-    fallback = sapi if config.tts_chatterbox_fallback_to_sapi else None
+    # A selected personal reference must never silently become a Windows voice.
+    fallback = sapi if config.tts_chatterbox_fallback_to_sapi and config.tts_reference_audio_path is None else None
     return ChatterboxTTS(
         device=config.tts_device,
         language_id=config.tts_language_id,

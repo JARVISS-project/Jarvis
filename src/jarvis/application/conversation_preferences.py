@@ -8,6 +8,7 @@ from threading import Event, RLock, Thread
 from jarvis.tts.base import SpeechPlaybackHandle, TextToSpeech
 from jarvis.tts.factory import build_text_to_speech
 from jarvis.tts.voices import installed_voices
+from jarvis.tts.reference import import_reference, local_model_directory
 
 PREVIEW_TEXT = "Esta é uma prévia da voz local. Você pode ajustar o ritmo nas preferências."
 MAX_SPOKEN_CHARACTERS = 4000
@@ -31,13 +32,19 @@ class ConversationPreferences(TextToSpeech):
 
     def _key(self):
         return (self.config.tts_provider, self.config.tts_piper_model_path,
-                self.config.tts_piper_config_path, self.config.tts_piper_pace)
+                self.config.tts_piper_config_path, self.config.tts_piper_pace,
+                self.config.tts_reference_audio_path, self.config.tts_device,
+                self.config.tts_language_id, self.config.tts_chatterbox_exaggeration,
+                self.config.tts_chatterbox_cfg_weight)
 
     def inventory(self) -> dict:
         voices = installed_voices(self.config)
         current = next((v.id for v in voices
                         if v.model == self.config.tts_piper_model_path.resolve()), "")
         dependency = find_spec("piper") is not None and find_spec("sounddevice") is not None
+        neural = find_spec('chatterbox') is not None and find_spec('sounddevice') is not None
+        reference = self.config.tts_reference_audio_path
+        neural_ready = neural and local_model_directory() is not None
         with self._lock:
             error = self._active.error if self._active and self._active.finished else None
             error = error or getattr(self._backend, "last_primary_error", None)
@@ -46,15 +53,49 @@ class ConversationPreferences(TextToSpeech):
                       if error else "Piper indisponível: instale o extra fast-voice."
                       if not dependency else "Nenhum par de voz Piper compatível instalado."
                       if not current else "Falando…" if busy else "Voz local disponível.")
+        available = dependency and bool(current)
+        if self.config.tts_provider == 'chatterbox':
+            available = neural_ready and bool(reference and reference.is_file())
+            diagnostic = ('Falha na voz neural; texto continua disponível. Nenhuma outra voz foi usada.' if error else
+                          'Componente neural opcional ausente nesta instalação.' if not neural else
+                          'Modelo neural ausente no computador. Nenhum download iniciado.' if not neural_ready else
+                          'Importe uma amostra MP3 ou WAV para usar sua voz.' if not reference else
+                          'Amostra indisponível; importe novamente.' if not reference.is_file() else
+                          'Gerando ou reproduzindo voz…' if busy else 'Voz com sua amostra pronta para prévia local.')
+        elif self.config.tts_provider == 'sapi':
+            import sys
+            available = sys.platform == 'win32'
+            diagnostic = 'Falha na saída de áudio.' if error else 'Falando…' if busy else 'Voz do Windows selecionada.'
         return {"user_display_name": self.config.user_display_name,
                 "tone": self.config.assistant_tone, "detail": self.config.assistant_detail,
                 "opinions": self.config.assistant_opinions, "spoken": self.config.tts_enabled,
                 "voice": current, "pace": self.config.tts_piper_pace,
                 "voices": [{"id": v.id, "label": v.label} for v in voices],
                 "provider": self.config.tts_provider,
+                "reference": bool(reference and reference.is_file()),
+                "neural_installed": neural, "neural_ready": neural_ready,
                 "speed_supported": self.config.tts_provider in {"auto", "piper"} and bool(current),
                 "diagnostic": diagnostic, "busy": busy,
-                "available": dependency and bool(current)}
+                "available": available}
+
+    def configure_voice(self, *, provider: str) -> dict:
+        if provider not in {'auto', 'piper', 'sapi', 'chatterbox'}:
+            raise ValueError('Selecione um mecanismo de voz disponível.')
+        with self._lock:
+            self._check_idle()
+            self.config.save_voice_settings(provider=provider)
+        return self.inventory()
+
+    def import_voice(self, *, source: str) -> dict:
+        with self._lock:
+            self._check_idle()
+            destination = import_reference(source, self.config.settings_path.parent / 'voices' / 'references')
+            self.config.save_voice_settings(provider='chatterbox', reference_audio=destination)
+        return self.inventory()
+
+    def _check_idle(self):
+        if self._closed or (self._active and not self._active.finished):
+            raise PermissionError('Interrompa a fala antes de alterar a voz.')
 
     def save(self, **arguments) -> dict:
         with self._lock:

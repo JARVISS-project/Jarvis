@@ -4,6 +4,7 @@ from enum import Enum
 
 
 class Capability(str, Enum):
+    CONTACT_MESSAGES = 'contact_messages'
     FILESYSTEM_READ = "filesystem_read"
     FILESYSTEM_WRITE = "filesystem_write"
     OBSIDIAN_READ = "obsidian_read"
@@ -55,6 +56,7 @@ class CapabilityPolicy:
 
 
 TOOL_CAPABILITIES = {
+    'contact_message_send': Capability.CONTACT_MESSAGES,
     'external_text_delegate': Capability.EXTERNAL_TEXT,
     'organization_execute': Capability.FILESYSTEM_WRITE,
     'organization_undo': Capability.FILESYSTEM_WRITE,

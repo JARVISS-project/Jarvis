@@ -12,8 +12,11 @@ não desative proteções para instalar.
 
 ## Sua configuração
 
-Em **Ajustes**, escolha seu nome, tratamento, tom e tamanho das respostas.
-Comece por **Início**, **Conversa** e **Ajuda**. Voz e conexões são opcionais.
+Em **Ajustes > Conversa e voz**, escolha seu nome, tom e tamanho das respostas.
+Comece por **Hoje**, **Agenda** e **Conversa**. Voz e conexões são opcionais.
+**Ctrl+K** busca ações e contatos; **Ctrl+1/2/3** abre Hoje/Agenda/Conversa.
+**Ctrl+Shift+N** captura uma tarefa ou lembrete local. Aparência, densidade e
+atalhos podem ser ajustados em **Ajustes**. Lembretes aparecem no painel do aplicativo.
 
 Para conversa local, instale [Ollama](https://ollama.com/download/windows),
 prepare explicitamente o modelo configurado e mantenha o serviço local ativo.
@@ -25,8 +28,13 @@ fica sem pasta até você escolher uma. Não há nome, estrutura ou coleção de
 obrigatória. Conceda somente o acesso que desejar; configuração não elimina as
 barreiras de autorização, confirmação e auditoria.
 
-Voz requer modelos Piper ONNX/JSON, modelo STT e autorização para captura.
-Esses arquivos não estão incluídos. GPU/CUDA não está homologada nesta prévia;
+Para falar, escolha a voz do Windows ou configure um par Piper ONNX/JSON.
+A importação de MP3/WAV prepara uma amostra pessoal para o componente neural
+opcional, que não acompanha este instalador. Ela não transforma o MP3 em modelo
+Piper. O componente neural e seus modelos precisam estar instalados no ambiente
+que executa o JARVIS. Sua amostra nunca acompanha o pacote público.
+Para ouvir comandos, configure também um modelo STT e autorize a captura.
+Modelos não estão incluídos. GPU/CUDA não está homologada nesta prévia;
 o teste CPU com áudio sintético não comprova qualidade em todo microfone/hardware.
 
 ## Seus dados

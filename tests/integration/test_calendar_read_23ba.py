@@ -90,6 +90,7 @@ def test_blocked_intents_have_zero_google_calls(tmp_path, message):
     {'period': 'today', 'max_results': 21},
     {'period': 'today', 'max_results': True},
     {'period': 'today', 'extra': 'ignore guards'},
+    {'period': 'today', 'output_format': 'html'},
 ])
 def test_executor_blocks_arguments_before_api(tmp_path, arguments):
     _, boundary, tool, executor = make(tmp_path)

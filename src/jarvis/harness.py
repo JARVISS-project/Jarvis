@@ -135,7 +135,11 @@ skill_mirror: ObsidianSkillMirror | None = None,
                 organization=organization,
                 accounts=accounts,
                 execute_tool=self._execute_tool)
+            from jarvis.llm.ollama_client import OllamaLLM
+            if isinstance(llm, OllamaLLM):
+                self.administration.calendar_view.local_adviser = llm.calendar_suggestions
             self.administration.capability_policy = self.tool_executor.capability_policy
+            self.administration.workflow.bind_executor(self.tool_executor.safety_manager, self.tool_executor.audit_logger)
             self.memory_store.on_mutation = self.memory.clear
             from jarvis.memory.forget_tool import MemoryForgetTool
             self._memory_forget_tool = MemoryForgetTool(self.memory_store)
@@ -784,6 +788,8 @@ skill_mirror: ObsidianSkillMirror | None = None,
     def close(self) -> None:
         """Encerra coordenadores e sessões pertencentes ao Harness."""
         self.control_center_coordinator.close()
+        if hasattr(self, 'administration'):
+            self.administration.workflow.close()
         self.close_confirmation_sessions()
 
     def _process_active_message(

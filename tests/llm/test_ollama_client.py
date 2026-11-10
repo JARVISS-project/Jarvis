@@ -6,6 +6,33 @@ import pytest
 from jarvis.llm.ollama_client import OllamaLLM
 
 
+def test_calendar_advice_is_local_without_tools_or_conversation(monkeypatch):
+    import json
+    from io import BytesIO
+    fake = FakeOllamaClient()
+    fake.chat = lambda **kwargs: (setattr(fake, 'arguments', kwargs) or SimpleNamespace(message=SimpleNamespace(
+        content='{"suggestion_ids": ["confirm"], "preparation_ids": ["questions"]}', tool_calls=[])))
+    monkeypatch.setattr('jarvis.llm.ollama_client.Client', lambda **kwargs: fake)
+    metadata = {'models': [{'name': 'test-model:latest', 'size': 2000000, 'digest': 'a' * 64}]}
+    urls = []
+    class Opener:
+        def open(self, url, timeout):
+            urls.append(url)
+            return BytesIO(json.dumps(metadata).encode())
+    monkeypatch.setattr('jarvis.llm.ollama_client.build_opener', lambda *args: Opener())
+    llm = OllamaLLM(model='test-model')
+    answer = llm.calendar_suggestions({'title': 'Encontro fictício'})
+    assert answer['suggestion_ids'] == ['confirm']
+    assert urls == ['http://localhost:11434/api/tags']
+    assert fake.arguments['tools'] == [] and fake.arguments['think'] is False
+    assert fake.arguments['format']['additionalProperties'] is False
+    fake.arguments = {}
+    metadata['models'][0]['remote_host'] = 'https://ollama.com'
+    with pytest.raises(PermissionError):
+        llm.calendar_suggestions({'title': 'Evento privado'})
+    assert fake.arguments == {}  # No prompt reaches a remote-backed model.
+
+
 class FakeOllamaClient:
     def __init__(self) -> None:
         self.arguments: dict[str, Any] = {}

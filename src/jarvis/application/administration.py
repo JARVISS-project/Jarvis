@@ -7,7 +7,7 @@ from enum import Enum
 from pathlib import Path
 import hashlib
 import json
-from queue import Queue, Full
+from queue import Queue, Full, Empty
 from threading import RLock, Thread
 from typing import Callable
 from uuid import uuid4
@@ -24,6 +24,30 @@ from jarvis.security.permissions import scoped_resource, indirect_tool
 
 
 class AdminMethod(str, Enum):
+    UI_PREFERENCES = 'ui.preferences'
+    UI_SAVE = 'ui.save'
+    PERSONAL_LIST = 'personal.list'
+    PERSONAL_SAVE = 'personal.save'
+    PERSONAL_CHANGE = 'personal.change'
+    WORKFLOW = 'workflow.list'
+    WORKFLOW_SETTINGS = 'workflow.settings'
+    WORKFLOW_SCAN = 'workflow.scan'
+    WORKFLOW_ACTION = 'workflow.action'
+    WORKFLOW_LINK = 'workflow.link'
+    WORKFLOW_PREPARE = 'workflow.prepare'
+    WORKFLOW_APPROVE = 'workflow.approve'
+    WORKFLOW_CANCEL = 'workflow.cancel'
+    WORKFLOW_CHANNELS = 'workflow.channels'
+    WORKFLOW_CHANNEL_SAVE = 'workflow.channel_save'
+    WORKFLOW_RULE = 'workflow.rule'
+    WORKFLOW_RULE_DELETE = 'workflow.rule_delete'
+    CALENDAR_STATE = 'calendar.state'
+    CALENDAR_EVENTS = 'calendar.events'
+    CALENDAR_ASSIST = 'calendar.assist'
+    CALENDAR_DRAFT = 'calendar.draft'
+    CONTACTS = 'contacts.list'
+    CONTACT_SAVE = 'contacts.save'
+    CONTACT_DELETE = 'contacts.delete'
     RUNTIME_PREPARE_STOP = 'runtime.prepare_stop'
     RUNTIME_STOP = 'runtime.stop'
     RUNTIME_CANCEL_STOP = 'runtime.cancel_stop'
@@ -43,6 +67,8 @@ class AdminMethod(str, Enum):
     PROFILE_ROLLBACK = 'help.profile_rollback'
     CONVERSATION_PREFERENCES = 'conversation.preferences'
     CONVERSATION_SAVE = 'conversation.save'
+    VOICE_CONFIGURE = 'conversation.voice'
+    VOICE_IMPORT = 'conversation.import_voice'
     SPEECH_PREVIEW = 'conversation.preview'
     SPEECH_STOP = 'conversation.stop'
     ACCOUNTS = 'accounts.list'
@@ -115,12 +141,23 @@ class AdministrationService:
         self.organization = organization
         self.accounts = accounts
         self.conversation_preferences = None
+        permissions.protected_paths.add((config.settings_path.parent / 'voices').resolve())
         self.runtime_control = None
         if accounts is not None:
             permissions.protected_paths.add(accounts.directory.resolve())
         self._forget: dict[str, tuple[str, str, datetime, object, str]] = {}
         self._lock = RLock()
         self.capability_policy = None
+        from jarvis.application.contacts import ContactService
+        self.contacts = ContactService(config.settings_path.parent / 'contacts.bin')
+        permissions.protected_paths.add(self.contacts.path.resolve())
+        from jarvis.application.calendar_view import CalendarViewService
+        self.calendar_view = CalendarViewService(self, execute_tool)
+        from jarvis.application.calendar_workflow import CalendarWorkflow
+        self.workflow = CalendarWorkflow(self)
+        from jarvis.application.personal import DesktopPreferences, PersonalOrganizer
+        self.desktop_preferences = DesktopPreferences(self)
+        self.personal = PersonalOrganizer(self)
         from jarvis.application.first_use import FirstUseService
         self.first_use = FirstUseService(self)
 
@@ -228,6 +265,11 @@ class AdministrationService:
                 row['modes'] = []
                 rows.append(row)
         existing = {(r["resource"], r["action"]) for r in rows}
+        if ('tool:contact_message_send', 'use') not in existing:
+            mode = self.permissions.decision('tool:contact_message_send').mode
+            rows.append(self._row('tool:contact_message_send', 'use', 'Mensagens dos compromissos', 'Contatos e mensagens',
+                'abrir conversa/enviar e-mail', 'Somente prévia aprovada ou regra explícita; WhatsApp não envia automaticamente',
+                mode, mode, rules))
         for rule in rules:
             if rule["resource"].startswith("path:") and (rule["resource"], rule["action"]) not in existing:
                 rows.append(self._row(rule["resource"], rule["action"], rule["resource"][5:], "Arquivos/pastas", rule["action"], "Descendente configurado", rule["mode"], self.permissions.path_decision(Path(rule["resource"][5:]), rule["action"]), rules))
@@ -360,7 +402,25 @@ class AdministrationService:
     def dispatch(self, method: str, arguments: dict, *, actor=None) -> dict:
         with self._lock:
             method = AdminMethod(method)
-            schemas = {AdminMethod.PERMISSIONS: set(), AdminMethod.SET_PERMISSION: {"resource", "action", "mode", "revision", "expires"},
+            schemas = {AdminMethod.CALENDAR_STATE: set(), AdminMethod.CALENDAR_EVENTS: {'alias', 'period'},
+                AdminMethod.UI_PREFERENCES: set(), AdminMethod.UI_SAVE: {'preferences', 'revision'},
+                AdminMethod.PERSONAL_LIST: {'query'},
+                AdminMethod.PERSONAL_SAVE: {'id', 'title', 'kind', 'due', 'priority', 'revision'},
+                AdminMethod.PERSONAL_CHANGE: {'id', 'action', 'revision'},
+                AdminMethod.WORKFLOW: set(), AdminMethod.WORKFLOW_SCAN: set(),
+                AdminMethod.WORKFLOW_SETTINGS: {'settings', 'revision'},
+                AdminMethod.WORKFLOW_ACTION: {'id', 'revision', 'action'},
+                AdminMethod.WORKFLOW_LINK: {'id', 'revision', 'contact_key'},
+                AdminMethod.WORKFLOW_PREPARE: {'id', 'revision', 'channel', 'subject', 'body'},
+                AdminMethod.WORKFLOW_APPROVE: {'token'}, AdminMethod.WORKFLOW_CANCEL: {'token'},
+                AdminMethod.WORKFLOW_CHANNELS: set(), AdminMethod.WORKFLOW_CHANNEL_SAVE: {'smtp', 'revision'},
+                AdminMethod.WORKFLOW_RULE: {'rule', 'revision', 'accepted'},
+                AdminMethod.WORKFLOW_RULE_DELETE: {'id', 'revision'},
+                AdminMethod.CALENDAR_ASSIST: {'alias', 'period', 'fingerprint', 'contact_key', 'use_ai'},
+                AdminMethod.CALENDAR_DRAFT: {'alias', 'period', 'fingerprint', 'contact_key', 'purpose', 'channel'},
+                AdminMethod.CONTACTS: set(), AdminMethod.CONTACT_SAVE: {'id', 'name', 'email', 'whatsapp', 'revision'},
+                AdminMethod.CONTACT_DELETE: {'id', 'revision'},
+                AdminMethod.PERMISSIONS: set(), AdminMethod.SET_PERMISSION: {"resource", "action", "mode", "revision", "expires"},
                 AdminMethod.RUNTIME_PREPARE_STOP: set(), AdminMethod.RUNTIME_STOP: {'token'},
                 AdminMethod.RUNTIME_CANCEL_STOP: {'token'},
                 AdminMethod.DELEGATION_LIST: set(),
@@ -372,6 +432,8 @@ class AdministrationService:
                 AdminMethod.PROFILE_PREPARE: {'profile'}, AdminMethod.PROFILE_APPLY: {'token'}, AdminMethod.PROFILE_ROLLBACK: set(),
                 AdminMethod.CONVERSATION_PREFERENCES: set(),
                 AdminMethod.CONVERSATION_SAVE: {'user_display_name', 'tone', 'detail', 'opinions', 'spoken', 'voice', 'pace'},
+                AdminMethod.VOICE_CONFIGURE: {'provider'},
+                AdminMethod.VOICE_IMPORT: {'source'},
                 AdminMethod.SPEECH_PREVIEW: set(), AdminMethod.SPEECH_STOP: set(),
                 AdminMethod.ACCOUNTS: set(), AdminMethod.ACCOUNT_GUIDE: set(), AdminMethod.ACCOUNT_ADD: {'operation', 'label', 'revision'},
                 AdminMethod.ACCOUNT_CHANGE: {'connection', 'revision', 'action', 'value'},
@@ -394,6 +456,41 @@ class AdministrationService:
                 AdminMethod.PREPARE_FORGET: {"id"}, AdminMethod.FORGET: {"token"}, AdminMethod.SESSION: {"temporary"}}
             if not isinstance(arguments, dict) or set(arguments) != schemas[method]:
                 raise ValueError("Argumentos administrativos inválidos.")
+            if method is AdminMethod.UI_PREFERENCES:
+                return self.desktop_preferences.inventory()
+            if method is AdminMethod.UI_SAVE:
+                return self.desktop_preferences.save(**arguments)
+            if method is AdminMethod.PERSONAL_LIST:
+                return self.personal.inventory(**arguments)
+            if method is AdminMethod.PERSONAL_SAVE:
+                return self.personal.save(**arguments)
+            if method is AdminMethod.PERSONAL_CHANGE:
+                return self.personal.change(**arguments)
+            if method.value.startswith('workflow.'):
+                functions = {AdminMethod.WORKFLOW: self.workflow.inventory,
+                    AdminMethod.WORKFLOW_SCAN: self.workflow.scan, AdminMethod.WORKFLOW_SETTINGS: self.workflow.settings,
+                    AdminMethod.WORKFLOW_ACTION: self.workflow.action, AdminMethod.WORKFLOW_LINK: self.workflow.link,
+                    AdminMethod.WORKFLOW_CHANNELS: self.workflow.channels, AdminMethod.WORKFLOW_CHANNEL_SAVE: self.workflow.save_channels,
+                    AdminMethod.WORKFLOW_RULE: self.workflow.save_rule, AdminMethod.WORKFLOW_RULE_DELETE: self.workflow.delete_rule}
+                if method in {AdminMethod.WORKFLOW_PREPARE, AdminMethod.WORKFLOW_APPROVE, AdminMethod.WORKFLOW_CANCEL}:
+                    function = {AdminMethod.WORKFLOW_PREPARE: self.workflow.prepare,
+                        AdminMethod.WORKFLOW_APPROVE: self.workflow.approve, AdminMethod.WORKFLOW_CANCEL: self.workflow.cancel}[method]
+                    return function(**arguments, actor=actor)
+                return functions[method](**arguments)
+            if method is AdminMethod.CALENDAR_STATE:
+                return self.calendar_view.state()
+            if method is AdminMethod.CALENDAR_EVENTS:
+                return self.calendar_view.events(**arguments)
+            if method is AdminMethod.CALENDAR_ASSIST:
+                return self.calendar_view.assist(**arguments)
+            if method is AdminMethod.CALENDAR_DRAFT:
+                return self.calendar_view.draft(**arguments)
+            if method is AdminMethod.CONTACTS:
+                return self.contacts.inventory()
+            if method is AdminMethod.CONTACT_SAVE:
+                return self.contacts.save(**arguments)
+            if method is AdminMethod.CONTACT_DELETE:
+                return self.contacts.delete(**arguments)
             if method.value.startswith('runtime.'):
                 if self.runtime_control is None:
                     raise PermissionError('Encerramento indisponível neste runtime.')
@@ -450,6 +547,10 @@ class AdministrationService:
                     data = service.save(**arguments)
                     self._audit('conversation_preferences')
                     return data
+                if method is AdminMethod.VOICE_CONFIGURE:
+                    return service.configure_voice(**arguments)
+                if method is AdminMethod.VOICE_IMPORT:
+                    return service.import_voice(**arguments)
                 if method is AdminMethod.SPEECH_PREVIEW:
                     return service.preview()
                 if method is AdminMethod.SPEECH_STOP:
@@ -625,7 +726,15 @@ class AdministrationController:
             self._seen.add(payload["interaction"])
 
     def _run(self) -> None:
-        while (item := self._queue.get()) is not None:
+        while True:
+            try:
+                item = self._queue.get(timeout=1)
+            except Empty:
+                if not self._closed:
+                    self.service.workflow.tick()
+                continue
+            if item is None:
+                break
             payload, reply, event, owner = item
             if self._closed or (owner is not None and owner in self._disconnected):
                 continue
@@ -635,6 +744,14 @@ class AdministrationController:
             except Exception as error:
                 # No exception/payload/private data in logs or UI errors.
                 safe = "Operação bloqueada; recarregue a configuração, escopo e consentimento." if isinstance(error, PermissionError) else "Dados inválidos ou serviço indisponível; nenhuma operação confirmada."
+                if payload['method'] in {AdminMethod.CALENDAR_ASSIST, AdminMethod.CALENDAR_DRAFT, AdminMethod.WORKFLOW_PREPARE, AdminMethod.WORKFLOW_APPROVE}:
+                    from jarvis.application.calendar_view import CalendarContextChangedError
+                    if isinstance(error, CalendarContextChangedError):
+                        safe = 'O compromisso, contato ou permissão mudou. Feche as sugestões e recarregue a agenda antes de continuar. Nenhuma mensagem foi enviada.'
+                if payload['method'].startswith('workflow.'):
+                    from jarvis.application.calendar_workflow import MessageSetupRequiredError
+                    if isinstance(error, MessageSetupRequiredError):
+                        safe = 'Configure sua conta de envio por e-mail em Automações → Mensagens. Nenhuma mensagem foi enviada.'
                 if payload["method"] == AdminMethod.ACCOUNT_CONNECT:
                     messages = {
                         GoogleAuthorizationTimeoutError: "O prazo do login Google expirou. Volte ao JARVIS e clique em Conectar novamente; uma nova janela será aberta. Nenhuma conexão foi confirmada.",
@@ -650,12 +767,14 @@ class AdministrationController:
             self._disconnected.add(owner)
         with self.service._lock:
             self.service._forget = {k: v for k, v in self.service._forget.items() if v[3] is not owner}
+            self.service.workflow.disconnect(owner)
             if self.service.runtime_control is not None:
                 self.service.runtime_control.disconnect(owner)
 
     def close(self) -> None:
         with self._lock:
             self._closed = True
+        self.service.workflow.close()
         if getattr(self.service, 'accounts', None) is not None:
             self.service.accounts.cancel_connection()
         self._queue.put(None)

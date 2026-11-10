@@ -97,7 +97,11 @@ def _worker_main(command_queue: Any, result_queue: Any, config: ChatterboxProces
             return
         try:
             if model is None:
-                model = _load_model(device, config.t3_model)
+                if config.reference_audio_path is not None:
+                    from jarvis.tts.reference import load_local_model
+                    model = load_local_model(device)
+                else:
+                    model = _load_model(device, config.t3_model)
             if kind == "warmup":
                 result_queue.put(
                     {
