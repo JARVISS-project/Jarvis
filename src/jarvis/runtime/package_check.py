@@ -98,7 +98,8 @@ def run_check(root: Path, args) -> None:
         assert not list((root / 'google').glob('credentials*.bin'))
         if result['google_login'].get('available'):
             assert result['google_login'] == {'available': True, 'mode': 'testing', 'operations': ['calendar_read']}
-            assert 'Login JARVIS em teste' in accounts_page.setup_help.text()
+            assert 'Login JARVIS incluído' in accounts_page.setup_help.text()
+            assert 'avisos e limites' in accounts_page.setup_help.text()
         window.grab().save(str(root / 'tmp' / 'packaged-accounts.png'))
         result['com_read_only'] = check_core_audio(True)
         result['winrt_read_only'] = check_gsmtc(True)

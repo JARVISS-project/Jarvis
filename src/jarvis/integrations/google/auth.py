@@ -20,7 +20,9 @@ from jarvis.integrations.google.contracts import (
     OperationLockFactory,
 )
 from jarvis.integrations.google.errors import (
+    GoogleAuthorizationCancelledError,
     GoogleAuthorizationDeniedError,
+    GoogleAuthorizationTimeoutError,
     GoogleBrowserLaunchError,
     GoogleCredentialStorageCorruptError,
     GoogleCredentialStorageError,
@@ -33,6 +35,9 @@ from jarvis.integrations.google.errors import (
 )
 from jarvis.integrations.google.models import ConnectionState, ConnectionStatus
 from jarvis.integrations.google.scopes import AUTHENTICATION_SCOPES
+
+
+DEFAULT_AUTHORIZATION_TIMEOUT_SECONDS = 600.0
 
 
 class GoogleAuthManager:
@@ -74,7 +79,7 @@ class GoogleAuthManager:
         self,
         client_config_path: Path,
         *,
-        timeout_seconds: float = 120.0,
+        timeout_seconds: float = DEFAULT_AUTHORIZATION_TIMEOUT_SECONDS,
         cancel: Event | None = None,
     ) -> ConnectionStatus:
         with self._operation_lock_factory(), self._lock:
@@ -109,7 +114,15 @@ class GoogleAuthManager:
                     raise GoogleBrowserLaunchError(
                         "Não foi possível abrir o navegador para consentimento Google."
                     )
-                callback = receiver.wait(timeout_seconds, cancel, state)
+                try:
+                    callback = receiver.wait(timeout_seconds, cancel, state)
+                except (GoogleAuthorizationTimeoutError, GoogleAuthorizationCancelledError) as error:
+                    self._status = ConnectionStatus(
+                        ConnectionState.AUTHORIZATION_REQUIRED,
+                        error_code=("authorization_timeout" if isinstance(error, GoogleAuthorizationTimeoutError)
+                                    else "authorization_cancelled"),
+                    )
+                    raise
                 if callback.state is None or not compare_digest(state, callback.state):
                     self._status = ConnectionStatus(
                         ConnectionState.ERROR, error_code="invalid_state"

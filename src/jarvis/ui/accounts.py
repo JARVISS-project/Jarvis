@@ -232,8 +232,8 @@ class AccountsPage(AdministrativePage):
         self.data, self.selected, self.choices = data, None, []
         login = data.get('google_login', {})
         if login.get('available'):
-            self.setup_help.setText('Login JARVIS em teste: clique em Conectar Google para consultas. '
-                'O Google permite somente contas cadastradas para teste. Você escolhe a conta e autoriza '
+            self.setup_help.setText('Login JARVIS incluído: clique em Conectar Google para consultas. '
+                'O Google pode apresentar avisos e limites enquanto o app não for verificado. Você escolhe a conta e autoriza '
                 'somente identificação e consulta; eventos não são alterados. '
                 'Nenhum arquivo técnico é necessário neste pacote. Você pode continuar sem Google.')
         else:
@@ -330,9 +330,23 @@ class AccountsPage(AdministrativePage):
                                          'revision': self.data['revision']}, self.render)
 
     def account_request(self, method, extra=None):
-        if self.selected and self.data:
+        if self.selected and self.data and not self.busy:
+            success = (self.read_connection_ready
+                       if method in {'accounts.connect', 'accounts.test'} and self.selected['operation'] == 'calendar_read'
+                       else self.render)
             self.request(method, {'connection': self.selected['id'], 'revision': self.data['revision'],
-                                  **(extra or {})}, self.render)
+                                  **(extra or {})}, success)
+            if method == 'accounts.connect' and self.busy:
+                self.status.setText('Conclua o login no navegador e volte ao JARVIS. '
+                    'Você tem até 10 minutos e pode cancelar no navegador. '
+                    'Conectar não ativa consultas nem escrita automaticamente.')
+
+    def read_connection_ready(self, data):
+        self.render(data)
+        # Connection replies are inventories, not the guided setup state.
+        # Restore the guide before the first metadata/selection step, without
+        # selecting a calendar or enabling either operational permission.
+        self.request('accounts.calendar_guide', {}, self.render)
 
     def change(self, action, value):
         self.account_request('accounts.change', {'action': action, 'value': value})
@@ -383,6 +397,8 @@ class AccountsPage(AdministrativePage):
 
     def render_calendars(self, data):
         self.choices = data['calendars']
+        self.calendar_state.setText(f'{len(self.choices)} agenda(s) disponível(is). '
+            'Escolha uma agenda da lista e salve sua seleção.')
         self.calendars.clear()
         for row in self.choices:
             availability = 'permite escrita limitada (ainda desativada)' if row.get('write_candidate') else 'somente leitura'

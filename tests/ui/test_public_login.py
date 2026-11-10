@@ -30,7 +30,9 @@ def test_connect_uses_packaged_identity_only_for_supported_operation(tmp_path, m
         data = service.accounts.inventory()
         data['google_login'] = {'available': True, 'mode': 'testing', 'operations': ['calendar_read']}
         page.render(data)
-        assert 'Login JARVIS em teste' in page.setup_help.text()
+        assert 'Login JARVIS incluído' in page.setup_help.text()
+        assert 'somente contas cadastradas para teste' not in page.setup_help.text()
+        assert 'avisos e limites' in page.setup_help.text()
         data['google_login']['available'] = False
         page.render(data)
         assert 'arquivo OAuth' in page.setup_help.text()
@@ -60,5 +62,29 @@ def test_guided_read_selection_matches_default_query_alias_without_affecting_wri
         assert requests[-1][1]['alias'] == 'teste'
         assert requests[-1][1]['write_connection'] == writer['id']
         assert not service.config.google_calendar_write_enabled
+    finally:
+        close_system(h, controller, window)
+
+
+def test_pending_login_explains_browser_and_retry_requires_new_user_action(tmp_path, monkeypatch):
+    app, h, service, controller, window, *_ = system(tmp_path)
+    try:
+        page = window.accounts_page
+        page.data = service.accounts.inventory()
+        page.selected = next(r for r in page.data['rows'] if r['operation'] == 'calendar_read')
+        pending = []
+        monkeypatch.setattr(page.client, 'submit', lambda method, args, callback: pending.append((method, args, callback)))
+        flags = (service.config.google_calendar_enabled, service.config.google_calendar_write_enabled)
+        page.account_request('accounts.connect', {'client_config': PUBLIC_CLIENT})
+        assert page.busy and len(pending) == 1
+        assert 'navegador' in page.status.text() and '10 minutos' in page.status.text()
+        page.account_request('accounts.connect', {'client_config': PUBLIC_CLIENT})
+        assert len(pending) == 1  # Double activation cannot start concurrent consent.
+        pending[0][2]({'status': 'error', 'error': 'O prazo do login Google expirou.'})
+        assert not page.busy and len(pending) == 1  # No automatic retry.
+        assert 'expirou' in page.status.text()
+        page.account_request('accounts.connect', {'client_config': PUBLIC_CLIENT})
+        assert page.busy and len(pending) == 2
+        assert (service.config.google_calendar_enabled, service.config.google_calendar_write_enabled) == flags
     finally:
         close_system(h, controller, window)

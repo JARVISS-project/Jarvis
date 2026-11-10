@@ -142,6 +142,47 @@ def test_timeout_and_cancellation_are_explicit(
         cancel_manager.connect(Path("client.json"), cancel=cancelled)
 
 
+@pytest.mark.parametrize('deadline, expected', [(None, 600.0), (3.5, 3.5)])
+def test_consent_has_time_for_login_without_ignoring_explicit_deadline(monkeypatch, deadline, expected):
+    monkeypatch.setattr('jarvis.integrations.google.auth.secrets.token_urlsafe', lambda _n: 'expected')
+    manager, _store, _flow, receiver, _handle = make_connect_manager()
+    budgets = []
+    original = receiver.wait
+    def wait(budget, cancel, state):
+        budgets.append(budget)
+        return original(budget, cancel, state)
+    monkeypatch.setattr(receiver, 'wait', wait)
+    manager.connect(Path('client.json'), **({} if deadline is None else {'timeout_seconds': deadline}))
+    assert budgets == [expected]
+    assert receiver.closed == 1
+
+
+def test_expired_login_closes_receiver_and_retry_uses_new_state(monkeypatch):
+    states = iter(('expired-state', 'fresh-state'))
+    monkeypatch.setattr('jarvis.integrations.google.auth.secrets.token_urlsafe', lambda _n: next(states))
+    store, handle = FakeStore(), FakeHandle()
+    first = FakeReceiver(error='timeout')
+    second = FakeReceiver(OAuthCallback(
+        authorization_response='http://127.0.0.1/callback?code=fresh-code', state='fresh-state', error=None))
+    receivers = iter((first, second))
+    flows = []
+    def flow_factory(_path, _scopes, state, _redirect):
+        flow = FakeFlow(state, handle)
+        flows.append(flow)
+        return flow
+    manager = GoogleAuthManager(store, flow_factory, lambda _material: handle,
+        lambda: next(receivers), browser_open=lambda _url: True)
+    with pytest.raises(GoogleAuthorizationTimeoutError):
+        manager.connect(Path('client.json'))
+    assert first.closed == 1 and not store.saved and not flows[0].exchange_calls
+    assert manager.current_status.state is ConnectionState.AUTHORIZATION_REQUIRED
+    assert manager.current_status.error_code == 'authorization_timeout'
+    manager.connect(Path('client.json'))
+    assert [f.state for f in flows] == ['expired-state', 'fresh-state']
+    assert second.closed == 1 and len(store.saved) == 1
+    assert flows[1].exchange_calls == ['http://127.0.0.1/callback?code=fresh-code']
+
+
 def test_missing_minimum_scope_is_rejected_without_persistence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

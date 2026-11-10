@@ -46,6 +46,7 @@ def test_setup_from_disabled_read_can_select_before_enabling_without_writes(tmp_
         page.primary_button.click()
         settle(app, lambda: not page.busy)
         assert calls == ['/calendars/primary']
+        assert '1 agenda(s)' in page.calendar_state.text()
         assert page.calendars.currentIndex() == -1
         assert service.accounts.default('calendar_read')[1]['resources'] == {}
         page.calendars.setCurrentIndex(0)
@@ -61,6 +62,52 @@ def test_setup_from_disabled_read_can_select_before_enabling_without_writes(tmp_
         assert not service.config.google_calendar_write_enabled
         assert not service.capability_policy.is_enabled(Capability.GOOGLE_CALENDAR_READ)
         assert set(calls) <= {'/calendars/primary', '/calendars/synthetic-calendar'}
+    finally:
+        close_system(h, controller, window)
+
+
+@pytest.mark.parametrize('first_consent', [True, False])
+def test_first_connection_keeps_primary_selection_without_manual_refresh(tmp_path, monkeypatch, first_consent):
+    result, reader, calls = setup_system(tmp_path)
+    app, h, service, controller, window, *_ = result
+    service.accounts._verified.clear()
+    monkeypatch.setattr('jarvis.ui.accounts.QFileDialog.getOpenFileName', lambda *args: ('client.json', ''))
+    if first_consent:
+        from jarvis.integrations.google.models import OAuthCallback
+        from tests.integrations.google.fakes import FakeFlow, FakeReceiver
+        accounts = service.accounts
+        added = accounts.add('calendar_read', 'Conexão nova', accounts.inventory()['revision'])
+        accounts.change(added['connection'], added['revision'], 'default', True)
+        reader, row = accounts.default('calendar_read')
+        path = accounts._credential(row)
+        manager = accounts.auth_factory('calendar_read', path)
+        handle = result[5][path]
+        receiver = FakeReceiver()
+        monkeypatch.setattr(receiver, 'wait', lambda budget, cancel, state: OAuthCallback(
+            authorization_response='http://127.0.0.1/callback?code=synthetic-code', state=state, error=None))
+        monkeypatch.setattr(manager, '_oauth_flow_factory', lambda path, scopes, state, redirect: FakeFlow(state, handle))
+        monkeypatch.setattr(manager, '_callback_receiver_factory', lambda: receiver)
+        monkeypatch.setattr(manager, '_browser_open', lambda url: True)
+    try:
+        page = window.accounts_page
+        window._show_page('Contas e conexões')
+        settle(app, lambda: not page.busy)
+        writer_before = dict(service.accounts.default('calendar_write')[1])
+        page.guided_connect.click()  # Google identity/credentials are synthetic; real Qt/admin flow.
+        settle(app, lambda: not page.busy)
+        assert calls == [] and not service.config.google_calendar_enabled
+        assert 'conectado' in page.account_summary.text()
+        page.primary_button.click()
+        settle(app, lambda: not page.busy)
+        assert calls == ['/calendars/primary']
+        assert '1 agenda(s)' in page.calendar_state.text()
+        page.calendars.setCurrentIndex(0)
+        page.select_button.click()
+        settle(app, lambda: not page.busy)
+        assert service.accounts.default('calendar_read')[1]['resources'] == {'principal': 'synthetic-calendar'}
+        assert service.accounts.default('calendar_write')[1] == writer_before
+        assert page.read_enabled.isEnabled() and not service.config.google_calendar_enabled
+        assert not service.config.google_calendar_write_enabled
     finally:
         close_system(h, controller, window)
 

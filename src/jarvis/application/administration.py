@@ -14,6 +14,10 @@ from uuid import uuid4
 from secrets import compare_digest, token_hex
 from weakref import WeakSet
 
+from jarvis.integrations.google.errors import (
+    GoogleAuthorizationCancelledError, GoogleAuthorizationDeniedError,
+    GoogleAuthorizationTimeoutError, GoogleBrowserLaunchError,
+)
 from jarvis.security.capabilities import TOOL_CAPABILITIES
 from jarvis.security.risk import RiskLevel
 from jarvis.security.permissions import scoped_resource, indirect_tool
@@ -631,6 +635,14 @@ class AdministrationController:
             except Exception as error:
                 # No exception/payload/private data in logs or UI errors.
                 safe = "Operação bloqueada; recarregue a configuração, escopo e consentimento." if isinstance(error, PermissionError) else "Dados inválidos ou serviço indisponível; nenhuma operação confirmada."
+                if payload["method"] == AdminMethod.ACCOUNT_CONNECT:
+                    messages = {
+                        GoogleAuthorizationTimeoutError: "O prazo do login Google expirou. Volte ao JARVIS e clique em Conectar novamente; uma nova janela será aberta. Nenhuma conexão foi confirmada.",
+                        GoogleAuthorizationCancelledError: "Login Google cancelado. Nenhuma conexão foi confirmada. Você pode tentar novamente quando quiser.",
+                        GoogleAuthorizationDeniedError: "A autorização Google foi recusada. Nenhuma conexão foi confirmada. Você pode continuar sem Google ou tentar novamente.",
+                        GoogleBrowserLaunchError: "Não foi possível abrir o navegador para o login Google. Confira o navegador padrão e tente Conectar novamente.",
+                    }
+                    safe = messages.get(type(error), safe)
                 reply({**event, "status": "error", "error": safe})
 
     def disconnect(self, owner: object) -> None:
