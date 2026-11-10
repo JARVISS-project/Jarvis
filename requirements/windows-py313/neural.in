@@ -1,0 +1,5 @@
+# Advanced source environment; compatibility variants are prepared explicitly.
+-r mvp.lock
+-r package.lock
+chatterbox-tts==0.1.7+jarvis.4
+resemble-perth==1.0.1+jarvis.2

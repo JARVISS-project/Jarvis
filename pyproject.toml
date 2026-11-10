@@ -32,7 +32,7 @@ voice = [
 neural-voice = [
     "chatterbox-tts>=0.1.7",
     # Fail resolution rather than install vulnerable transitive versions.
-    # Chatterbox 0.1.7 pins older versions; a compatible upstream release is required.
+    # Upstream 0.1.7 pins older versions; use the explicit compatibility preparer.
     "torch>=2.15,<3",
     "transformers>=5.22.2,<6",
     "sounddevice>=0.5",
@@ -54,6 +54,8 @@ browser = [
 google = [
     "google-auth>=2.35,<3",
     "google-auth-oauthlib>=1.2,<2",
+    "oauthlib>=4.0.1,<5",
+    "pyasn1>=0.6.5,<0.7",
     "tzdata>=2025.2,<2027",
 ]
 windows-media = [

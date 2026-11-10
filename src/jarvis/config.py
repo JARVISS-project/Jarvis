@@ -259,7 +259,7 @@ class JarvisConfig:
     tts_enabled: bool = True
     tts_enabled_game_mode: bool = True
     tts_provider: str = "auto"
-    tts_device: str = "auto"
+    tts_device: str = field(default_factory=lambda: os.getenv('JARVIS_TTS_DEVICE', 'auto'))
     tts_language_id: str = "pt"
     tts_reference_audio_path: Path | None = None
     tts_piper_model_path: Path = field(default_factory=lambda: Path('models' if getattr(sys, 'frozen', False) else 'data') / 'voices/razo/pt-BR-razo-medium.onnx')

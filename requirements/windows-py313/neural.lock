@@ -1,0 +1,3 @@
+# CPU profile; no CUDA or model downloads.
+-r neural-common.lock
+torch==2.15.0 --hash=sha256:e079089d36401261ebe145504309d0114fb9a00529eac4b33048221d2376a15c

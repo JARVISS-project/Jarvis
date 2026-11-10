@@ -23,8 +23,10 @@ Dados de desenvolvimento ficam locais e não devem ser versionados.
 O lock `package.lock` cobre o runtime distribuído. `mvp.lock` e o extra `voice`
 abrangem também Torch/Transformers, opcionais e ausentes do `.exe` leve. Os locks
 compartilham as mesmas versões/hashes e rejeitam as versões dos alertas revisados.
-O extra `fast-voice` usa Piper. O extra `neural-voice` aguarda uma versão de
-Chatterbox compatível com as versões corrigidas; consulte o README dos locks.
+O extra `fast-voice` usa Piper. Para Chatterbox com as versões corrigidas, use o
+preparador de ambiente separado descrito no [README dos locks](../requirements/windows-py313/README.md).
+Ele aplica variantes locais explícitas; instalar o extra `neural-voice`
+diretamente continua sujeito aos pins incompatíveis da release upstream.
 
 ## Pacote Windows
 

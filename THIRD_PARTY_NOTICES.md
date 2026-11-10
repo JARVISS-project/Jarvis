@@ -43,3 +43,15 @@ Para snapshots Git, siga as instruções upstream de bootstrap/autogen antes do 
 
 As instruções de reprodução estão em [Windows](docs/manual/WINDOWS_EXECUTAVEL.md)
 e [dependências fixadas](requirements/windows-py313/README.md).
+
+## Componente neural opcional a partir do código
+
+`scripts/prepare_neural_wheels.py` reconstrói variantes locais de Chatterbox
+0.1.7 e Resemble Perth 1.0.1 a partir dos wheels oficiais fixados por SHA-256
+em `packaging/neural/variants.lock.json`. São modificações do JARVIS, não releases
+oficiais desses projetos: dependências corrigidas, compatibilidade com
+importlib.resources, atenção para textos curtos e carregamento CUDA.
+O script é a receita correspondente e preserva os fontes Python, os avisos MIT,
+os cabeçalhos Apache e a marca d'água com seus recursos originais. O texto Apache
+completo está em `packaging/neural/LICENSE-APACHE-2.0.txt` e no wheel Chatterbox
+reconstruído. Modelos TTS e amostras pessoais não são redistribuídos.

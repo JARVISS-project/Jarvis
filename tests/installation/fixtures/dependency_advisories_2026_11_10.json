@@ -82,5 +82,41 @@
     "package": "torch",
     "affected": "<2.7.1-rc1",
     "source": "https://github.com/advisories/GHSA-3749-ghw9-m3mg"
+  },
+  {
+    "ghsa": "GHSA-3jp2-3mrg-2vxc",
+    "package": "oauthlib",
+    "affected": ">=3.3.0,<4.0.1",
+    "source": "https://github.com/advisories/GHSA-3jp2-3mrg-2vxc"
+  },
+  {
+    "ghsa": "GHSA-qwm4-qh6w-59xr",
+    "package": "pip",
+    "affected": "<26.2.0",
+    "source": "https://github.com/advisories/GHSA-qwm4-qh6w-59xr"
+  },
+  {
+    "ghsa": "GHSA-2qm8-x737-gmw5",
+    "package": "pyasn1",
+    "affected": "<=0.6.4",
+    "source": "https://github.com/advisories/GHSA-2qm8-x737-gmw5"
+  },
+  {
+    "ghsa": "GHSA-9m75-vc3g-4x39",
+    "package": "pyasn1",
+    "affected": "<=0.6.4",
+    "source": "https://github.com/advisories/GHSA-9m75-vc3g-4x39"
+  },
+  {
+    "ghsa": "GHSA-fm9c-5rcf-2q5p",
+    "package": "pyasn1",
+    "affected": ">=0.3.3,<0.6.5",
+    "source": "https://github.com/advisories/GHSA-fm9c-5rcf-2q5p"
+  },
+  {
+    "ghsa": "GHSA-mm57-4v3p-rchx",
+    "package": "pyasn1",
+    "affected": "<=0.6.4",
+    "source": "https://github.com/advisories/GHSA-mm57-4v3p-rchx"
   }
 ]

@@ -173,6 +173,8 @@ class ConversationPreferences(TextToSpeech):
                 raise ValueError("Resposta excede o limite de fala; consulte o texto.")
             if self.config.tts_provider in {"auto", "piper"} and not self.inventory()["voice"]:
                 raise RuntimeError("Voz configurada indisponível; nenhuma troca automática.")
+            if self.config.tts_provider == 'chatterbox' and not self.inventory()['available']:
+                raise RuntimeError('Voz neural indisponível; configure a amostra e o modelo local. Nenhuma troca automática.')
             if self._active and not self._active.finished and self._active is not reservation:
                 raise RuntimeError("Saída de voz ocupada; nenhuma fala enfileirada.")
             if self._backend is None or self._signature != self._key():

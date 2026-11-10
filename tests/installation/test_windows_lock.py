@@ -69,7 +69,7 @@ def test_selected_versions_satisfy_product_metadata() -> None:
 def test_bootstrap_is_pinned() -> None:
     bootstrap = entries("build.lock")
     assert set(bootstrap) == {"pip", "setuptools"}
-    assert str(bootstrap["pip"][0].specifier) == "==26.1.2"
+    assert str(bootstrap["pip"][0].specifier) == "==26.3"
     assert str(bootstrap["setuptools"][0].specifier) == "==84.2.1"
 
 
@@ -77,3 +77,21 @@ def test_package_and_mvp_shared_dependencies_cannot_drift():
     packaged, mvp = entries('package.lock'), entries('mvp.lock')
     for name in packaged.keys() & mvp.keys():
         assert packaged[name] == mvp[name], name
+
+
+def test_neural_common_preserves_corrected_base_and_variant_pins():
+    common = entries('neural-common.lock')
+    for filename in ('mvp.lock', 'package.lock'):
+        for name, pinned in entries(filename).items():
+            if name != 'torch':
+                assert common[name] == pinned, name
+    # Deterministic synthetic reconstruction is tested separately; these are the
+    # reviewed outputs of the pinned official sources, never editable paths.
+    assert str(common['chatterbox-tts'][0].specifier) == '==0.1.7+jarvis.4'
+    assert str(common['resemble-perth'][0].specifier) == '==1.0.1+jarvis.2'
+    assert 'torch' not in common
+    for filename in ('neural.lock', 'neural-cuda.lock'):
+        lines = (PROFILE / filename).read_text().splitlines()
+        assert [line for line in lines if line.startswith('-r ')] == ['-r neural-common.lock']
+        torch = [line for line in lines if line.startswith('torch')]
+        assert len(torch) == 1 and ' --hash=sha256:' in torch[0]

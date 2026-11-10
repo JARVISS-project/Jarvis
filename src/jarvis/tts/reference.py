@@ -12,6 +12,16 @@ MODEL_FILES = ('ve.pt', 't3_mtl23ls_v2.safetensors', 's3gen.pt',
 
 def local_model_directory():
     """Only inspect the local cache: no requests, downloads or Torch imports."""
+    selected = os.environ.get('JARVIS_NEURAL_MODEL_DIRECTORY')
+    if selected is not None:
+        # An explicit selection never falls back to a different cached model.
+        if len(selected) > 4096 or selected.startswith(('\\\\', '//')) or any(ord(c) < 32 for c in selected):
+            return None
+        try:
+            path = Path(selected).expanduser()
+            return path if path.is_absolute() and all((path / name).is_file() for name in MODEL_FILES) else None
+        except (OSError, ValueError):
+            return None
     try:
         from huggingface_hub import try_to_load_from_cache
         files = [try_to_load_from_cache('ResembleAI/chatterbox', name) for name in MODEL_FILES]
@@ -28,6 +38,9 @@ def load_local_model(device):
     directory = local_model_directory()
     if directory is None:
         raise RuntimeError('Modelo neural não instalado; nenhum download iniciado.')
+    from jarvis.tts.neural_compat import is_compatibility_variant, load_cuda_model
+    if str(device).startswith('cuda') and is_compatibility_variant():
+        return load_cuda_model(directory, device)
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
     return ChatterboxMultilingualTTS.from_local(directory, device)
 
