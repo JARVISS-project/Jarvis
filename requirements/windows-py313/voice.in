@@ -2,11 +2,11 @@
 av==16.1.0
 faster-whisper==1.2.1
 ctranslate2==4.8.1
-numpy==2.5.2
+numpy==2.5.3
 openwakeword==0.6.0
 pvrecorder==1.2.7
 pyttsx3==2.99
-torch @ https://download.pytorch.org/whl/cu124/torch-2.6.0%2Bcu124-cp313-cp313-win_amd64.whl
-transformers==5.2.0
+torch==2.15.0
+transformers==5.22.2
 piper-tts==1.7.0
 sounddevice==0.5.6

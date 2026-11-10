@@ -47,7 +47,7 @@ def test_all_mvp_dependencies_belong_to_a_group() -> None:
     union = entries("mvp.lock")
     covered = set().union(*(entries(group + ".lock") for group in GROUPS))
     assert covered == set(union)
-    assert len(union) == 81
+    assert len(union) == 80
 
 
 def test_selected_versions_satisfy_product_metadata() -> None:
@@ -60,9 +60,7 @@ def test_selected_versions_satisfy_product_metadata() -> None:
         dependency = Requirement(line)
         selected = union[canonicalize_name(dependency.name)][0]
         if selected.url:
-            assert canonicalize_name(selected.name) == "torch"
-            assert "torch-2.6.0%2Bcu124-cp313-cp313-win_amd64.whl" in selected.url
-            assert dependency.specifier.contains("2.6.0+cu124")
+            raise AssertionError('The current profile uses hashed PyPI wheels, without a legacy CUDA URL.')
         else:
             version = str(selected.specifier).removeprefix("==")
             assert dependency.specifier.contains(version)
@@ -72,4 +70,10 @@ def test_bootstrap_is_pinned() -> None:
     bootstrap = entries("build.lock")
     assert set(bootstrap) == {"pip", "setuptools"}
     assert str(bootstrap["pip"][0].specifier) == "==26.1.2"
-    assert str(bootstrap["setuptools"][0].specifier) == "==84.0.0"
+    assert str(bootstrap["setuptools"][0].specifier) == "==84.2.1"
+
+
+def test_package_and_mvp_shared_dependencies_cannot_drift():
+    packaged, mvp = entries('package.lock'), entries('mvp.lock')
+    for name in packaged.keys() & mvp.keys():
+        assert packaged[name] == mvp[name], name

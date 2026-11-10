@@ -20,9 +20,11 @@ python -m venv .venv
 Para iniciar por texto: `python -m jarvis --ui`, com o ambiente ativado.
 Dados de desenvolvimento ficam locais e não devem ser versionados.
 
-O lock `package.lock` cobre o runtime distribuído. `mvp.lock` e o extra
-`fast-voice` também abrangem componentes opcionais, incluindo Torch/Transformers,
-que ainda precisam de revisão de segurança e não são necessários para usar o `.exe`.
+O lock `package.lock` cobre o runtime distribuído. `mvp.lock` e o extra `voice`
+abrangem também Torch/Transformers, opcionais e ausentes do `.exe` leve. Os locks
+compartilham as mesmas versões/hashes e rejeitam as versões dos alertas revisados.
+O extra `fast-voice` usa Piper. O extra `neural-voice` aguarda uma versão de
+Chatterbox compatível com as versões corrigidas; consulte o README dos locks.
 
 ## Pacote Windows
 

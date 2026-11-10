@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=77"]
+requires = ["setuptools>=84.2.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -26,11 +26,15 @@ voice = [
     "openwakeword",
     "pvrecorder",
     "pyttsx3",
-    "torch>=2.6,<3",
-    "transformers>=5.2,<6",
+    "torch>=2.15,<3",
+    "transformers>=5.22.2,<6",
 ]
 neural-voice = [
     "chatterbox-tts>=0.1.7",
+    # Fail resolution rather than install vulnerable transitive versions.
+    # Chatterbox 0.1.7 pins older versions; a compatible upstream release is required.
+    "torch>=2.15,<3",
+    "transformers>=5.22.2,<6",
     "sounddevice>=0.5",
 ]
 fast-voice = [

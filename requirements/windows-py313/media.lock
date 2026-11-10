@@ -1,4 +1,4 @@
-# Windows x64 CPython 3.13; closure of media.in; use together with same platform locks.
+# Windows x64 CPython 3.13; closure of media.in; selected wheel hashes.
 typing_extensions==4.16.0 --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8
 winrt-runtime==3.2.1 --hash=sha256:3c1fdcaeedeb2920dc3b9039db64089a6093cad2be56a3e64acc938849245a6d
 winrt-Windows.Foundation==3.2.1 --hash=sha256:6e98617c1e46665c7a56ce3f5d28e252798416d1ebfee3201267a644a4e3c479

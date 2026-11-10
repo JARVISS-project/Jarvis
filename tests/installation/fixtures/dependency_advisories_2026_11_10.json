@@ -1,0 +1,86 @@
+[
+  {
+    "ghsa": "GHSA-63cw-57p8-fm3p",
+    "package": "torch",
+    "affected": "<2.10.0",
+    "source": "https://github.com/advisories/GHSA-63cw-57p8-fm3p"
+  },
+  {
+    "ghsa": "GHSA-xmj3-9gf7-h52w",
+    "package": "setuptools",
+    "affected": ">=38.2.2,<84.1.0",
+    "source": "https://github.com/advisories/GHSA-xmj3-9gf7-h52w"
+  },
+  {
+    "ghsa": "GHSA-x9r9-c232-4q39",
+    "package": "transformers",
+    "affected": ">=4.49.0,<=5.8.1",
+    "source": "https://github.com/advisories/GHSA-x9r9-c232-4q39"
+  },
+  {
+    "ghsa": "GHSA-xrqw-3rrv-vx5w",
+    "package": "transformers",
+    "affected": "<5.10.0",
+    "source": "https://github.com/advisories/GHSA-xrqw-3rrv-vx5w"
+  },
+  {
+    "ghsa": "GHSA-rrmf-rvhw-rf47",
+    "package": "torch",
+    "affected": "<=2.12.1",
+    "source": "https://github.com/advisories/GHSA-rrmf-rvhw-rf47"
+  },
+  {
+    "ghsa": "GHSA-fgcw-684q-jj6r",
+    "package": "transformers",
+    "affected": "<5.5.0",
+    "source": "https://github.com/advisories/GHSA-fgcw-684q-jj6r"
+  },
+  {
+    "ghsa": "GHSA-29pf-2h5f-8g72",
+    "package": "transformers",
+    "affected": "<5.3.0",
+    "source": "https://github.com/advisories/GHSA-29pf-2h5f-8g72"
+  },
+  {
+    "ghsa": "GHSA-qfhq-4f3w-5fph",
+    "package": "torch",
+    "affected": "<2.10.0",
+    "source": "https://github.com/advisories/GHSA-qfhq-4f3w-5fph"
+  },
+  {
+    "ghsa": "GHSA-vgrw-7cvw-pwgx",
+    "package": "torch",
+    "affected": "<2.9.1",
+    "source": "https://github.com/advisories/GHSA-vgrw-7cvw-pwgx"
+  },
+  {
+    "ghsa": "GHSA-x3gm-94wq-g975",
+    "package": "torch",
+    "affected": "<=2.6.0",
+    "source": "https://github.com/advisories/GHSA-x3gm-94wq-g975"
+  },
+  {
+    "ghsa": "GHSA-f4hp-rmr7-r7v8",
+    "package": "torch",
+    "affected": "<=2.6.0",
+    "source": "https://github.com/advisories/GHSA-f4hp-rmr7-r7v8"
+  },
+  {
+    "ghsa": "GHSA-c678-jfcj-6jmf",
+    "package": "torch",
+    "affected": "<=2.6.0",
+    "source": "https://github.com/advisories/GHSA-c678-jfcj-6jmf"
+  },
+  {
+    "ghsa": "GHSA-887c-mr87-cxwp",
+    "package": "torch",
+    "affected": "<=2.7.1",
+    "source": "https://github.com/advisories/GHSA-887c-mr87-cxwp"
+  },
+  {
+    "ghsa": "GHSA-3749-ghw9-m3mg",
+    "package": "torch",
+    "affected": "<2.7.1-rc1",
+    "source": "https://github.com/advisories/GHSA-3749-ghw9-m3mg"
+  }
+]
